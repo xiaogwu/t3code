@@ -951,6 +951,41 @@ const stageClerkPasskeyNativeBinaries = Effect.fn("stageClerkPasskeyNativeBinari
   }
 });
 
+// node-pty forks a pty by posix_spawn()ing a separate `spawn-helper` binary. It
+// ships that helper inside prebuilds/darwin-*/ as mode 644, and nothing in its
+// install scripts chmods it -- normally the executable bit comes from the
+// compiler writing build/Release, which only happens when @electron/rebuild
+// runs. With npmRebuild disabled (see the mac branch of resolveBuildConfig) the
+// prebuild is what ships, so the bit has to be set here.
+//
+// Without this the packaged app loads pty.node fine and then every terminal
+// dies with `Error: posix_spawnp failed.`, which does not mention permissions.
+const stageMacNodePtySpawnHelper = Effect.fn("stageMacNodePtySpawnHelper")(function* (
+  stageAppDir: string,
+  arch: typeof BuildArch.Type,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  // universal builds lipo both slices together, so both prebuilds are staged.
+  const arches = arch === "universal" ? (["arm64", "x64"] as const) : ([arch] as const);
+
+  for (const prebuildArch of arches) {
+    const helperPath = path.join(
+      stageAppDir,
+      "node_modules",
+      "node-pty",
+      "prebuilds",
+      `darwin-${prebuildArch}`,
+      "spawn-helper",
+    );
+    // Absent is not an error: node-pty only ships the helper for platforms that
+    // need it, and a future version may compile it somewhere else entirely.
+    if (yield* fs.exists(helperPath)) {
+      yield* fs.chmod(helperPath, 0o755);
+    }
+  }
+});
+
 export function createStageWorkspaceConfig(input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
@@ -1564,6 +1599,16 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
+    // Local builds cannot reach artifacts.electronjs.org, so @electron/rebuild
+    // has no Electron headers to compile against. Skip it and ship the
+    // prebuilds instead: node-pty and msgpackr-extract are the only staged
+    // packages with a binding.gyp, both are Node-API addons whose ABI is stable
+    // across Electron versions, and both already ship a darwin prebuild that
+    // their loaders fall back to when build/Release is absent.
+    //
+    // node-pty needs one fixup for this to work, see
+    // stageMacNodePtySpawnHelper. Windows already does the same thing below.
+    buildConfig.npmRebuild = false;
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
@@ -1970,6 +2015,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     { label: "vp install --prod", verbose: options.verbose },
   );
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
+
+  if (options.platform === "mac") {
+    yield* stageMacNodePtySpawnHelper(stageAppDir, options.arch);
+  }
 
   // WSL is Windows-only, so only the Windows artifact carries the Linux backend
   // binary; other platforms ignore the prebuild input.
