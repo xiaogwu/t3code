@@ -713,28 +713,92 @@ describe("searchSidebarThreadsByTitle", () => {
 });
 
 describe("sortThreadsForSidebarV2", () => {
-  const sortable = (input: { id: string; createdAt: string }) => ({
+  const sortable = (input: {
+    id: string;
+    createdAt: string;
+    updatedAt?: string;
+    latestUserMessageAt?: string | null;
+  }) => ({
     id: input.id,
     createdAt: input.createdAt,
+    updatedAt: input.updatedAt ?? input.createdAt,
+    latestUserMessageAt: input.latestUserMessageAt ?? null,
   });
 
   it("orders by creation time, newest first, ignoring activity", () => {
-    const sorted = sortThreadsForSidebarV2([
-      sortable({ id: "oldest", createdAt: "2026-03-09T08:00:00.000Z" }),
-      sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
-      sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
-    ]);
+    const sorted = sortThreadsForSidebarV2(
+      [
+        sortable({ id: "oldest", createdAt: "2026-03-09T08:00:00.000Z" }),
+        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
+        sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
 
     expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "oldest"]);
   });
 
   it("breaks creation-time ties by id so the order is stable", () => {
-    const sorted = sortThreadsForSidebarV2([
-      sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
-      sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
-    ]);
+    const sorted = sortThreadsForSidebarV2(
+      [
+        sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
+        sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
 
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+
+  it("orders by latest user message when the sort order is updated_at", () => {
+    const threads = [
+      sortable({
+        id: "stale",
+        createdAt: "2026-03-09T12:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+      }),
+      sortable({
+        id: "chatty",
+        createdAt: "2026-03-09T10:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+      }),
+      sortable({
+        id: "quiet",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T11:00:00.000Z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebarV2(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "chatty",
+      "quiet",
+      "stale",
+    ]);
+    expect(sortThreadsForSidebarV2(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "stale",
+      "chatty",
+      "quiet",
+    ]);
+  });
+
+  it("falls back to updatedAt when a thread has no user message", () => {
+    const sorted = sortThreadsForSidebarV2(
+      [
+        sortable({
+          id: "older-activity",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T09:00:00.000Z",
+        }),
+        sortable({
+          id: "newer-activity",
+          createdAt: "2026-03-09T07:00:00.000Z",
+          updatedAt: "2026-03-09T13:00:00.000Z",
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["newer-activity", "older-activity"]);
   });
 });
 
