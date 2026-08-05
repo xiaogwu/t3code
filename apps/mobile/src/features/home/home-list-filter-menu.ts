@@ -96,29 +96,29 @@ export function buildHomeListFilterMenu(props: {
   }
 
   if (props.listOrganization !== false) {
-    items.push(
-      {
-        type: "submenu",
-        title: "Sort projects",
-        items: PROJECT_SORT_OPTIONS.map((option) => ({
-          type: "action",
-          title: option.label,
-          state: props.projectSortOrder === option.value ? "on" : "off",
-          onPress: () => props.onProjectSortOrderChange(option.value),
-        })),
-      },
-      {
-        type: "submenu",
-        title: "Sort threads",
-        items: THREAD_SORT_OPTIONS.map((option) => ({
-          type: "action",
-          title: option.label,
-          state: props.threadSortOrder === option.value ? "on" : "off",
-          onPress: () => props.onThreadSortOrderChange(option.value),
-        })),
-      },
-    );
+    items.push({
+      type: "submenu",
+      title: "Sort projects",
+      items: PROJECT_SORT_OPTIONS.map((option) => ({
+        type: "action",
+        title: option.label,
+        state: props.projectSortOrder === option.value ? "on" : "off",
+        onPress: () => props.onProjectSortOrderChange(option.value),
+      })),
+    });
   }
+
+  // Thread sort applies under both list versions.
+  items.push({
+    type: "submenu",
+    title: "Sort threads",
+    items: THREAD_SORT_OPTIONS.map((option) => ({
+      type: "action",
+      title: option.label,
+      state: props.threadSortOrder === option.value ? "on" : "off",
+      onPress: () => props.onThreadSortOrderChange(option.value),
+    })),
+  });
 
   return {
     title: "Thread list options",
