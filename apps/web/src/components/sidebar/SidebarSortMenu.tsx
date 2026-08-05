@@ -1,4 +1,4 @@
-import type { SidebarThreadSortOrder } from "@t3tools/contracts";
+import type { SidebarV2ThreadSortOrder } from "@t3tools/contracts";
 import { ArrowUpDownIcon } from "lucide-react";
 
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
@@ -9,7 +9,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
  * message — rather than by the record's `updatedAt` column, which would be a
  * misleading name for the behaviour. Matches the v1 menu wording.
  */
-export const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
+export const SIDEBAR_V2_THREAD_SORT_LABELS: Record<SidebarV2ThreadSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
 };
@@ -23,8 +23,8 @@ export function SidebarSortMenu({
   threadSortOrder,
   onThreadSortOrderChange,
 }: {
-  threadSortOrder: SidebarThreadSortOrder;
-  onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
+  threadSortOrder: SidebarV2ThreadSortOrder;
+  onThreadSortOrderChange: (sortOrder: SidebarV2ThreadSortOrder) => void;
 }) {
   return (
     <Menu>
@@ -45,11 +45,13 @@ export function SidebarSortMenu({
           <MenuRadioGroup
             value={threadSortOrder}
             onValueChange={(value) => {
-              onThreadSortOrderChange(value as SidebarThreadSortOrder);
+              onThreadSortOrderChange(value as SidebarV2ThreadSortOrder);
             }}
           >
             {(
-              Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
+              Object.entries(SIDEBAR_V2_THREAD_SORT_LABELS) as Array<
+                [SidebarV2ThreadSortOrder, string]
+              >
             ).map(([value, label]) => (
               <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
                 {label}

@@ -10,7 +10,7 @@ import {
 import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
-import { DEFAULT_SIDEBAR_THREAD_SORT_ORDER, type EnvironmentId } from "@t3tools/contracts";
+import { DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER, type EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Platform, Pressable, StyleSheet, TextInput, View, useColorScheme } from "react-native";
@@ -225,8 +225,13 @@ function ThreadNavigationSidebarPane(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const { options, setSelectedEnvironmentId, setProjectSortOrder, setThreadSortOrder } =
-    useHomeListOptions(availableEnvironmentIds);
+  const {
+    options,
+    setSelectedEnvironmentId,
+    setProjectSortOrder,
+    setThreadSortOrder,
+    setV2ThreadSortOrder,
+  } = useHomeListOptions(availableEnvironmentIds);
   const searchEnvironmentIds = useMemo(
     () =>
       options.selectedEnvironmentId === null
@@ -512,7 +517,7 @@ function ThreadNavigationSidebarPane(
       changeRequestStateByKey,
       settlementEnvironmentIds,
       snoozeEnvironmentIds,
-      threadSortOrder: options.threadSortOrder,
+      threadSortOrder: options.v2ThreadSortOrder,
       settledLimit: settledVisibleCount,
       now: `${nowMinute}:00.000Z`,
       snoozeNow: new Date().toISOString(),
@@ -528,7 +533,7 @@ function ThreadNavigationSidebarPane(
     settledShelfExpanded,
     props.selectedThreadKey,
     options.selectedEnvironmentId,
-    options.threadSortOrder,
+    options.v2ThreadSortOrder,
     props.searchQuery,
     matchedThreadKeys,
     settledVisibleCount,
@@ -667,7 +672,11 @@ function ThreadNavigationSidebarPane(
         subactions: THREAD_SORT_OPTIONS.map((option) => ({
           id: `thread-sort:${option.value}`,
           title: option.label,
-          state: options.threadSortOrder === option.value ? "on" : "off",
+          state:
+            (threadListV2Enabled ? options.v2ThreadSortOrder : options.threadSortOrder) ===
+            option.value
+              ? "on"
+              : "off",
         })),
       },
     ],
@@ -709,7 +718,11 @@ function ThreadNavigationSidebarPane(
         (option) => `thread-sort:${option.value}` === event,
       );
       if (threadSort) {
-        setThreadSortOrder(threadSort.value);
+        if (threadListV2Enabled) {
+          setV2ThreadSortOrder(threadSort.value);
+        } else {
+          setThreadSortOrder(threadSort.value);
+        }
         return;
       }
     },
@@ -719,6 +732,8 @@ function ThreadNavigationSidebarPane(
       setProjectSortOrder,
       setSelectedEnvironmentId,
       setThreadSortOrder,
+      setV2ThreadSortOrder,
+      threadListV2Enabled,
     ],
   );
 
@@ -1093,7 +1108,7 @@ function ThreadNavigationSidebarPane(
   const filterCustomized = threadListV2Enabled
     ? options.selectedEnvironmentId !== null ||
       selectedProjectKey !== null ||
-      options.threadSortOrder !== DEFAULT_SIDEBAR_THREAD_SORT_ORDER
+      options.v2ThreadSortOrder !== DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER
     : hasCustomHomeListOptions({ ...options, selectedProjectKey });
   const filterIcon = filterCustomized
     ? "line.3.horizontal.decrease.circle.fill"
@@ -1107,10 +1122,12 @@ function ThreadNavigationSidebarPane(
         selectedProjectKey,
         projectSortOrder: options.projectSortOrder,
         threadSortOrder: options.threadSortOrder,
+        v2ThreadSortOrder: options.v2ThreadSortOrder,
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
         onProjectSortOrderChange: setProjectSortOrder,
         onThreadSortOrderChange: setThreadSortOrder,
+        onV2ThreadSortOrderChange: setV2ThreadSortOrder,
         listOrganization: !threadListV2Enabled,
       }),
     [
@@ -1121,6 +1138,7 @@ function ThreadNavigationSidebarPane(
       setProjectSortOrder,
       setSelectedEnvironmentId,
       setThreadSortOrder,
+      setV2ThreadSortOrder,
       threadListV2Enabled,
     ],
   );

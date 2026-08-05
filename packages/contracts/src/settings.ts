@@ -25,6 +25,16 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+// Sidebar v2 orders threads on its own key rather than sharing
+// `sidebarThreadSortOrder` with v1. v2 shipped with static creation order, and
+// the shared key defaults to `"updated_at"` — reusing it would silently
+// reorder every existing v2 list on upgrade. A separate key also lets the two
+// sidebar versions hold different orders, which they want: v1 is a recency
+// list, v2 is a stable board whose rows only move at lifecycle transitions.
+export const SidebarV2ThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
+export type SidebarV2ThreadSortOrder = typeof SidebarV2ThreadSortOrder.Type;
+export const DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER: SidebarV2ThreadSortOrder = "created_at";
+
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
   "repository_path",
@@ -188,6 +198,9 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
   sidebarV2Enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  sidebarV2ThreadSortOrder: SidebarV2ThreadSortOrder.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER)),
+  ),
   // Whether `sidebarV2Enabled` reflects an explicit choice in Settings → Beta.
   // Client settings persist as a whole blob, so every user who has ever touched
   // any setting already has `sidebarV2Enabled: false` stored — without this bit
@@ -792,6 +805,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
+  sidebarV2ThreadSortOrder: Schema.optionalKey(SidebarV2ThreadSortOrder),
   sidebarV2ConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   wordWrap: Schema.optionalKey(Schema.Boolean),

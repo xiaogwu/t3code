@@ -1199,7 +1199,7 @@ export default function SidebarV2() {
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
-  const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
+  const sidebarV2ThreadSortOrder = useClientSettings((s) => s.sidebarV2ThreadSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -1643,8 +1643,8 @@ export default function SidebarV2() {
       return {
         // Same static creation order as the inbox: a pin freezes prominence,
         // it does not introduce a new ordering scheme.
-        pinnedThreads: sortThreadsForSidebarV2(pinned, sidebarThreadSortOrder),
-        activeThreads: sortThreadsForSidebarV2(active, sidebarThreadSortOrder),
+        pinnedThreads: sortThreadsForSidebarV2(pinned, sidebarV2ThreadSortOrder),
+        activeThreads: sortThreadsForSidebarV2(active, sidebarV2ThreadSortOrder),
         // Soonest wake first: "what comes back next" is the shelf's question.
         snoozedThreads: snoozed.toSorted(
           (left, right) =>
@@ -1660,7 +1660,7 @@ export default function SidebarV2() {
       nowMinute,
       scopedProjectKeys,
       serverConfigs,
-      sidebarThreadSortOrder,
+      sidebarV2ThreadSortOrder,
       snoozeWakeTick,
       threads,
     ]);
@@ -2739,9 +2739,9 @@ export default function SidebarV2() {
               </div>
               <div className="shrink-0">
                 <SidebarSortMenu
-                  threadSortOrder={sidebarThreadSortOrder}
-                  onThreadSortOrderChange={(sidebarThreadSortOrder) => {
-                    updateSettings({ sidebarThreadSortOrder });
+                  threadSortOrder={sidebarV2ThreadSortOrder}
+                  onThreadSortOrderChange={(nextSortOrder) => {
+                    updateSettings({ sidebarV2ThreadSortOrder: nextSortOrder });
                   }}
                 />
               </div>

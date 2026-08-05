@@ -1,6 +1,10 @@
 import * as React from "react";
 import type { ContextMenuItem } from "@t3tools/contracts";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type {
+  SidebarProjectSortOrder,
+  SidebarThreadSortOrder,
+  SidebarV2ThreadSortOrder,
+} from "@t3tools/contracts/settings";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -501,7 +505,7 @@ export function sortThreadsForSidebarV2<
     readonly updatedAt: string;
     readonly latestUserMessageAt?: string | null;
   },
->(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
+>(threads: readonly T[], sortOrder: SidebarV2ThreadSortOrder): T[] {
   return [...threads].toSorted(
     (left, right) =>
       getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder) ||

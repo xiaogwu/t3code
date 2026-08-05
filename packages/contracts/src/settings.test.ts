@@ -90,6 +90,27 @@ describe("ClientSettings sidebar v2", () => {
     expect(settings.sidebarV2ConfiguredByUser).toBe(true);
   });
 
+  it("orders v2 threads by creation date by default, independently of v1", () => {
+    const settings = decodeClientSettings({});
+    // v2 shipped as a static board; v1 is a recency list. Sharing one key would
+    // have reordered every existing v2 sidebar on upgrade.
+    expect(settings.sidebarV2ThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarThreadSortOrder).toBe("updated_at");
+  });
+
+  it("keeps the two sidebar versions' thread orders independent", () => {
+    const settings = decodeClientSettings({
+      sidebarThreadSortOrder: "created_at",
+      sidebarV2ThreadSortOrder: "updated_at",
+    });
+    expect(settings.sidebarThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarV2ThreadSortOrder).toBe("updated_at");
+
+    const patch = decodeClientSettingsPatch({ sidebarV2ThreadSortOrder: "updated_at" });
+    expect(patch.sidebarV2ThreadSortOrder).toBe("updated_at");
+    expect(patch.sidebarThreadSortOrder).toBeUndefined();
+  });
+
   it("carries an explicit beta opt-out through the patch the beta toggle writes", () => {
     const patch = decodeClientSettingsPatch({
       sidebarV2Enabled: false,
