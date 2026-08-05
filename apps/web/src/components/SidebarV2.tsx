@@ -160,6 +160,7 @@ import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./u
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarSortMenu } from "./sidebar/SidebarSortMenu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -1198,6 +1199,7 @@ export default function SidebarV2() {
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -1641,8 +1643,8 @@ export default function SidebarV2() {
       return {
         // Same static creation order as the inbox: a pin freezes prominence,
         // it does not introduce a new ordering scheme.
-        pinnedThreads: sortThreadsForSidebarV2(pinned),
-        activeThreads: sortThreadsForSidebarV2(active),
+        pinnedThreads: sortThreadsForSidebarV2(pinned, sidebarThreadSortOrder),
+        activeThreads: sortThreadsForSidebarV2(active, sidebarThreadSortOrder),
         // Soonest wake first: "what comes back next" is the shelf's question.
         snoozedThreads: snoozed.toSorted(
           (left, right) =>
@@ -1658,6 +1660,7 @@ export default function SidebarV2() {
       nowMinute,
       scopedProjectKeys,
       serverConfigs,
+      sidebarThreadSortOrder,
       snoozeWakeTick,
       threads,
     ]);
@@ -2733,6 +2736,14 @@ export default function SidebarV2() {
                     <XIcon className="size-3" />
                   </Button>
                 ) : null}
+              </div>
+              <div className="shrink-0">
+                <SidebarSortMenu
+                  threadSortOrder={sidebarThreadSortOrder}
+                  onThreadSortOrderChange={(sidebarThreadSortOrder) => {
+                    updateSettings({ sidebarThreadSortOrder });
+                  }}
+                />
               </div>
               <div className="shrink-0">
                 <Tooltip>
