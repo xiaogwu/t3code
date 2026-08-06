@@ -4778,6 +4778,42 @@ function ChatViewContent(props: ChatViewProps) {
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand) {
+      if (standaloneSlashCommand === "rename-thread-ai") {
+        if (
+          !isServerThread ||
+          serverConfig?.environment.capabilities.threadTitleRegeneration !== true
+        ) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "warning",
+              title: "Title regeneration unavailable",
+              description: "This T3 Code server does not support AI thread-title regeneration.",
+            }),
+          );
+          return;
+        }
+        const result = await updateThreadMetadata({
+          environmentId,
+          input: { threadId: activeThread.id, regenerateTitle: true },
+        });
+        if (result._tag === "Failure") {
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to regenerate thread title",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
+        }
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        return;
+      }
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
@@ -6126,6 +6162,10 @@ function ChatViewContent(props: ChatViewProps) {
                             }
                             activeThreadModelSelection={activeThread?.modelSelection}
                             activeThreadActivities={activeThread?.activities}
+                            supportsTitleRegeneration={
+                              serverConfig?.environment.capabilities.threadTitleRegeneration ===
+                              true
+                            }
                             resolvedTheme={resolvedTheme}
                             settings={settings}
                             keybindings={keybindings}

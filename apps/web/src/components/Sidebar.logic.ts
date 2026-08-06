@@ -117,6 +117,17 @@ export function buildBulkTitleRegenerationContextMenuItem(input: {
   };
 }
 
+export function buildTitleRegenerationContextMenuItem(input: {
+  supported: boolean;
+  isRegenerating: boolean;
+}): ContextMenuItem<"regenerate-title"> | null {
+  if (!input.supported) return null;
+  if (input.isRegenerating) {
+    return { id: "regenerate-title", label: "Regenerating…", disabled: true };
+  }
+  return { id: "regenerate-title", label: "Regenerate title" };
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
+  buildTitleRegenerationContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
@@ -184,6 +185,26 @@ describe("buildBulkTitleRegenerationContextMenuItem", () => {
         actionableCount: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("buildTitleRegenerationContextMenuItem", () => {
+  it("omits the action when the environment does not support regeneration", () => {
+    expect(
+      buildTitleRegenerationContextMenuItem({ supported: false, isRegenerating: false }),
+    ).toBeNull();
+  });
+
+  it("offers title regeneration when the thread is idle", () => {
+    expect(
+      buildTitleRegenerationContextMenuItem({ supported: true, isRegenerating: false }),
+    ).toEqual({ id: "regenerate-title", label: "Regenerate title" });
+  });
+
+  it("shows a disabled progress item while regeneration is pending", () => {
+    expect(
+      buildTitleRegenerationContextMenuItem({ supported: true, isRegenerating: true }),
+    ).toEqual({ id: "regenerate-title", label: "Regenerating…", disabled: true });
   });
 });
 

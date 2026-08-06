@@ -110,6 +110,7 @@ export interface ThreadComposerProps {
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onRegenerateTitle: () => Promise<boolean>;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -393,6 +394,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           label: "/default",
           description: "Switch to default mode",
         },
+        ...(props.serverConfig?.environment.capabilities.threadTitleRegeneration === true
+          ? [
+              {
+                id: "cmd:rename-thread-ai",
+                type: "slash-command" as const,
+                command: "rename-thread-ai",
+                label: "/rename-thread-ai",
+                description: "Regenerate this thread title with AI",
+              },
+            ]
+          : []),
       ];
       const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
 
@@ -519,6 +531,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
     try {
+      if (
+        draftMessage.trim().toLowerCase() === "/rename-thread-ai" &&
+        props.draftAttachments.length === 0
+      ) {
+        if (await props.onRegenerateTitle()) {
+          onChangeDraftMessage("");
+        }
+        return;
+      }
       await onSendMessage();
       // Sending a prompt starts agent work: arm the lock-screen card while the
       // app is foregrounded and the activity token can be registered. Armed
@@ -533,10 +554,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
   }, [
     onSendMessage,
+    draftMessage,
+    onChangeDraftMessage,
+    props.draftAttachments.length,
     props.environmentId,
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
+    props.onRegenerateTitle,
   ]);
   const handleCommandSelect = useCallback(
     (item: ComposerCommandItem) => {

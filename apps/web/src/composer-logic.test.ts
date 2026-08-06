@@ -368,7 +368,12 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
+  it("parses standalone /rename-thread-ai command", () => {
+    expect(parseStandaloneComposerSlashCommand(" /RENAME-THREAD-AI ")).toBe("rename-thread-ai");
+  });
+
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/rename-thread-ai please")).toBeNull();
   });
 });

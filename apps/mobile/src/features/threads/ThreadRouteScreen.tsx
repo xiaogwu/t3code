@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import * as Option from "effect/Option";
 import { EnvironmentId, ThreadId, type ProjectScript } from "@t3tools/contracts";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { Platform, ScrollView, View } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentQuery } from "../../state/query";
@@ -196,6 +196,9 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const navigation = useNavigation();
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
@@ -262,6 +265,28 @@ function ThreadRouteContent(
     }, [props.renderInspector]),
   );
   const routeEnvironmentRuntime = useRemoteEnvironmentRuntime(environmentId);
+  const handleRegenerateTitle = useCallback(async () => {
+    if (
+      !selectedThread ||
+      routeEnvironmentRuntime?.serverConfig?.environment.capabilities.threadTitleRegeneration !==
+        true
+    ) {
+      Alert.alert(
+        "Title regeneration unavailable",
+        "This T3 Code server does not support AI thread-title regeneration.",
+      );
+      return false;
+    }
+    const result = await updateThreadMetadata({
+      environmentId: selectedThread.environmentId,
+      input: { threadId: selectedThread.id, regenerateTitle: true },
+    });
+    if (result._tag === "Failure") {
+      Alert.alert("Could not regenerate title", "T3 Code could not start title regeneration.");
+      return false;
+    }
+    return true;
+  }, [routeEnvironmentRuntime?.serverConfig, selectedThread, updateThreadMetadata]);
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;
@@ -781,6 +806,7 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={handleStopThread}
           onSendMessage={composer.onSendMessage}
+          onRegenerateTitle={handleRegenerateTitle}
           onReconnectEnvironment={handleReconnectEnvironment}
           onUpdateThreadModelSelection={composer.onUpdateModelSelection}
           onUpdateThreadRuntimeMode={composer.onUpdateRuntimeMode}
