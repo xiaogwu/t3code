@@ -55,8 +55,14 @@ const ClaudeOutputEnvelope = Schema.Struct({
   structured_output: Schema.Unknown,
 });
 
+const ClaudeOutputEvent = Schema.Struct({
+  structured_output: Schema.optional(Schema.Unknown),
+});
+
+const ClaudeOutput = Schema.Union([ClaudeOutputEnvelope, Schema.Array(ClaudeOutputEvent)]);
+
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
-const decodeClaudeOutputEnvelope = Schema.decodeEffect(Schema.fromJsonString(ClaudeOutputEnvelope));
+const decodeClaudeOutput = Schema.decodeEffect(Schema.fromJsonString(ClaudeOutput));
 
 export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(function* (
   claudeSettings: ClaudeSettings,
@@ -233,7 +239,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       ),
     );
 
-    const envelope = yield* decodeClaudeOutputEnvelope(rawStdout).pipe(
+    const output = yield* decodeClaudeOutput(rawStdout).pipe(
       Effect.catchTags({
         SchemaError: (cause) =>
           Effect.fail(
@@ -245,6 +251,15 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           ),
       }),
     );
+    const envelope = Array.isArray(output)
+      ? output.findLast((event) => event.structured_output !== undefined)
+      : output;
+    if (envelope === undefined || envelope.structured_output === undefined) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: "Claude CLI returned unexpected output format.",
+      });
+    }
 
     const decodeOutput = Schema.decodeEffect(outputSchemaJson);
     return yield* decodeOutput(envelope.structured_output).pipe(
