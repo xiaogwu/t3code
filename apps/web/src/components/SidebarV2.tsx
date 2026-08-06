@@ -453,6 +453,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   const threadKey = scopedThreadKey(threadRef);
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const isManuallyUnread = useUiStateStore(
+    (state) => state.threadManuallyUnreadById[threadKey] === true,
+  );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const openPrLink = useOpenPrLink();
   const runningTerminalIds = useThreadRunningTerminalIds({
@@ -463,8 +466,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   const terminalProcessCount = runningTerminalIds.length;
 
   // Same semantics as v1 (never-visited counts as read): flipping the beta
-  // flag must not light up every historical thread as unread.
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  // flag must not light up every historical thread as unread. A manual Mark
+  // unread is an explicit act, so it counts regardless of visit history.
+  const isUnread = isManuallyUnread || hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarV2Status(thread);
   // A woken thread reappears at its original position (the sort is
   // deliberately static), so the pill has to carry the weight. Snoozing is
@@ -1270,7 +1274,7 @@ export default function SidebarV2() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
-  const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
+  const markThreadManuallyUnread = useUiStateStore((s) => s.markThreadManuallyUnread);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -2287,8 +2291,7 @@ export default function SidebarV2() {
       }
       if (clicked.value === "mark-unread") {
         for (const threadKey of threadKeys) {
-          const thread = threadByKeyRef.current.get(threadKey);
-          markThreadUnread(threadKey, thread?.latestTurn?.completedAt);
+          markThreadManuallyUnread(threadKey);
         }
         clearSelection();
         return;
@@ -2339,7 +2342,7 @@ export default function SidebarV2() {
       clearSelection,
       confirmThreadDelete,
       deleteThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
       removeFromSelection,
       serverConfigs,
       updateThreadMetadata,
@@ -2513,7 +2516,7 @@ export default function SidebarV2() {
             return;
           }
           case "mark-unread":
-            markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+            markThreadManuallyUnread(threadKey);
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
@@ -2576,7 +2579,7 @@ export default function SidebarV2() {
       copyPathToClipboard,
       deleteThread,
       handleMultiSelectContextMenu,
-      markThreadUnread,
+      markThreadManuallyUnread,
       projectCwdByKey,
       serverConfigs,
       startThreadRename,

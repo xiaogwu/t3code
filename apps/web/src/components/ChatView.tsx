@@ -1222,6 +1222,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const activeServerThread = serverThread ?? loadingServerThread;
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const clearThreadManuallyUnread = useUiStateStore((store) => store.clearThreadManuallyUnread);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[routeThreadKey],
   );
@@ -1842,6 +1843,11 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [openOrReuseProjectDraftThread],
   );
+
+  useEffect(() => {
+    if (routeKind !== "server") return;
+    clearThreadManuallyUnread(routeThreadKey);
+  }, [clearThreadManuallyUnread, routeKind, routeThreadKey]);
 
   useEffect(() => {
     if (!serverThread?.id) return;

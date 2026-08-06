@@ -368,6 +368,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const isManuallyUnread = useUiStateStore(
+    (state) => state.threadManuallyUnreadById[threadKey] === true,
+  );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
@@ -446,6 +449,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
+      isManuallyUnread,
       lastVisitedAt,
     },
   });
@@ -1115,7 +1119,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
-  const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
+  const markThreadManuallyUnread = useUiStateStore((state) => state.markThreadManuallyUnread);
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
@@ -1194,6 +1198,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
     ),
   );
+  const threadManuallyUnread = useUiStateStore(
+    useShallow((state) =>
+      projectThreads.map(
+        (thread) =>
+          state.threadManuallyUnreadById[
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+          ] === true,
+      ),
+    ),
+  );
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadKey, setConfirmingArchiveThreadKey] = useState<string | null>(null);
@@ -1242,6 +1256,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
+    const manuallyUnreadByThreadKey = new Map(
+      projectThreads.map((thread, index) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        threadManuallyUnread[index] ?? false,
+      ]),
+    );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
       const lastVisitedAt = lastVisitedAtByThreadKey.get(
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1249,6 +1269,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       return resolveThreadStatusPill({
         thread: {
           ...thread,
+          isManuallyUnread:
+            manuallyUnreadByThreadKey.get(
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            ) ?? false,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
@@ -1267,7 +1291,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreads, threadLastVisitedAts, threadManuallyUnread, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -1294,6 +1318,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
+    const manuallyUnreadByThreadKey = new Map(
+      projectThreads.map((thread, index) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        threadManuallyUnread[index] ?? false,
+      ]),
+    );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
       const lastVisitedAt = lastVisitedAtByThreadKey.get(
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1301,6 +1331,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       return resolveThreadStatusPill({
         thread: {
           ...thread,
+          isManuallyUnread:
+            manuallyUnreadByThreadKey.get(
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            ) ?? false,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
@@ -1340,6 +1374,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     projectThreads,
     sidebarThreadPreviewCount,
     threadLastVisitedAts,
+    threadManuallyUnread,
     visibleProjectThreads,
   ]);
 
@@ -1777,8 +1812,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
 
       if (clicked === "mark-unread") {
-        for (const { threadKey, thread } of selectedThreadEntries) {
-          markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        for (const { threadKey } of selectedThreadEntries) {
+          markThreadManuallyUnread(threadKey);
         }
         clearSelection();
         return;
@@ -1864,7 +1899,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       archiveThread,
       clearSelection,
       deleteThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
       removeFromSelection,
     ],
   );
@@ -2155,7 +2190,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       }
 
       if (clicked === "mark-unread") {
-        markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        markThreadManuallyUnread(threadKey);
         return;
       }
       if (clicked === "copy-path") {
@@ -2206,7 +2241,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       copyThreadIdToClipboard,
       deleteThread,
       handleNewThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
       memberProjectByScopedKey,
       project.workspaceRoot,
       startThreadRename,

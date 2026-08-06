@@ -122,6 +122,7 @@ export interface ThreadStatusPill {
     | "Working"
     | "Connecting"
     | "Completed"
+    | "Unread"
     | "Pending Approval"
     | "Awaiting Input"
     | "Plan Ready";
@@ -136,6 +137,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Working: 3,
   Connecting: 3,
   "Plan Ready": 2,
+  Unread: 2,
   Completed: 1,
 };
 
@@ -148,6 +150,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
 > & {
+  isManuallyUnread?: boolean | undefined;
   lastVisitedAt?: string | undefined;
 };
 
@@ -626,6 +629,15 @@ export function resolveThreadStatusPill(input: {
       label: "Plan Ready",
       colorClass: "text-violet-600 dark:text-violet-300/90",
       dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      pulse: false,
+    };
+  }
+
+  if (thread.isManuallyUnread) {
+    return {
+      label: "Unread",
+      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
       pulse: false,
     };
   }

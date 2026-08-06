@@ -898,6 +898,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          isManuallyUnread: true,
           hasPendingApprovals: true,
           hasPendingUserInput: true,
         },
@@ -910,6 +911,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          isManuallyUnread: true,
           hasPendingUserInput: true,
         },
       }),
@@ -919,9 +921,21 @@ describe("resolveThreadStatusPill", () => {
   it("falls back to working when the thread is actively running without blockers", () => {
     expect(
       resolveThreadStatusPill({
-        thread: baseThread,
+        thread: { ...baseThread, isManuallyUnread: true },
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("shows connecting before manual unread", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          isManuallyUnread: true,
+          session: { ...baseThread.session, status: "starting" },
+        },
+      }),
+    ).toMatchObject({ label: "Connecting", pulse: true });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -929,6 +943,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          isManuallyUnread: true,
           hasActionableProposedPlan: true,
           latestTurn: makeLatestTurn(),
           session: {
@@ -973,6 +988,45 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("shows manual unread without requiring a completed turn", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          isManuallyUnread: true,
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toMatchObject({
+      label: "Unread",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    });
+  });
+
+  it("prefers manual unread over automatic completion", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          isManuallyUnread: true,
+          latestTurn: makeLatestTurn(),
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            activeTurnId: null,
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Unread" });
   });
 });
 
@@ -1045,6 +1099,25 @@ describe("resolveProjectStatusIndicator", () => {
         },
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+  });
+
+  it("prefers manual unread over automatic completion", () => {
+    expect(
+      resolveProjectStatusIndicator([
+        {
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
+          pulse: false,
+        },
+        {
+          label: "Unread",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
+          pulse: false,
+        },
+      ]),
+    ).toMatchObject({ label: "Unread" });
   });
 });
 
