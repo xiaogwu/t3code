@@ -142,6 +142,7 @@ interface BuildCliInput {
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
+  readonly dev: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
   readonly wslPrebuild: Option.Option<string>;
@@ -603,6 +604,7 @@ interface ResolvedBuildOptions {
   readonly keepStage: boolean;
   readonly signed: boolean;
   readonly verbose: boolean;
+  readonly dev: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslPrebuild: string | undefined;
@@ -1033,6 +1035,10 @@ const BuildEnvConfig = Config.all({
   keepStage: Config.boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.boolean("T3CODE_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
   verbose: Config.boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
+  // Blueprint branding for local builds, so a hand-built app is visually
+  // distinct from the installed nightly in the Dock and Cmd-Tab. Icons only:
+  // product name and update channel still come from the version string.
+  dev: Config.boolean("T3CODE_DESKTOP_DEV").pipe(Config.withDefault(false)),
   mockUpdates: Config.boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
   // Path to a prebuilt Linux node-pty binary (pty.node) for the target arch,
@@ -1118,6 +1124,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
   const signed = resolveBooleanFlag(input.signed, env.signed);
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
+  const dev = resolveBooleanFlag(input.dev, env.dev);
 
   const mockUpdates = resolveBooleanFlag(input.mockUpdates, env.mockUpdates);
   const configuredMockUpdateServerPort = Option.getOrUndefined(env.mockUpdateServerPort);
@@ -1144,6 +1151,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     keepStage,
     signed,
     verbose,
+    dev,
     mockUpdates,
     mockUpdateServerPort,
     wslPrebuild,
@@ -1478,11 +1486,23 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
 }
 
-export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
+export function resolveDesktopWebAssetBrand(version: string, dev = false): WebAssetBrand {
+  if (dev) return "development";
   return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
 }
 
-export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
+export function resolveDesktopBuildIconAssets(
+  version: string,
+  dev = false,
+): DesktopBuildIconAssets {
+  if (dev) {
+    return {
+      macIconPng: BRAND_ASSET_PATHS.developmentDesktopIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.developmentUniversalIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.developmentWindowsIconIco,
+    };
+  }
+
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
@@ -1775,7 +1795,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   });
 
   const appVersion = options.version ?? serverPackageJson.version;
-  const iconAssets = resolveDesktopBuildIconAssets(appVersion);
+  const iconAssets = resolveDesktopBuildIconAssets(appVersion, options.dev);
   const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
@@ -1825,7 +1845,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
-  const webAssetBrand = resolveDesktopWebAssetBrand(appVersion);
+  const webAssetBrand = resolveDesktopWebAssetBrand(appVersion, options.dev);
   yield* applyWebBrandAssets(webAssetBrand, "apps/server/dist/client");
   yield* Effect.log(`[desktop-artifact] Applied ${webAssetBrand} web client branding.`);
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
@@ -2124,6 +2144,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   verbose: Flag.boolean("verbose").pipe(
     Flag.withDescription("Stream subprocess stdout (env: T3CODE_DESKTOP_VERBOSE)."),
+    Flag.optional,
+  ),
+  dev: Flag.boolean("dev").pipe(
+    Flag.withDescription(
+      "Use the blueprint development icons instead of the version's channel icons (env: T3CODE_DESKTOP_DEV).",
+    ),
     Flag.optional,
   ),
   mockUpdates: Flag.boolean("mock-updates").pipe(

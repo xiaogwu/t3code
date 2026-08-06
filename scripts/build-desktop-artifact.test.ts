@@ -114,6 +114,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
   });
 
+  it("overrides both icon sets with the blueprint artwork in dev mode", () => {
+    // --dev makes a hand-built app tell itself apart from the installed
+    // nightly, so it must win over the version's channel for every icon.
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42", true), {
+      macIconPng: BRAND_ASSET_PATHS.developmentDesktopIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.developmentUniversalIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.developmentWindowsIconIco,
+    });
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42", true), "development");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17", true), "development");
+  });
+
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
     Effect.gen(function* () {
       const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
@@ -676,6 +688,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         keepStage: Option.none(),
         signed: Option.none(),
         verbose: Option.none(),
+        dev: Option.none(),
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
         wslPrebuild: Option.none(),
@@ -716,6 +729,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             keepStage: Option.none(),
             signed: Option.none(),
             verbose: Option.none(),
+            dev: Option.none(),
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),
             wslPrebuild: Option.none(),
@@ -740,6 +754,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         keepStage: Option.some(false),
         signed: Option.some(false),
         verbose: Option.some(false),
+        dev: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
         wslPrebuild: Option.none(),
