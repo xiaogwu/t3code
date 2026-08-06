@@ -902,6 +902,7 @@ describe("resolveThreadStatusPill", () => {
     interactionMode: "plan" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
+    titleRegeneration: null,
     session: {
       threadId: ThreadId.make("thread-1"),
       status: "running" as const,
@@ -943,6 +944,25 @@ describe("resolveThreadStatusPill", () => {
         thread: baseThread,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("shows a pulsing renaming status while title regeneration is pending", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          titleRegeneration: {
+            requestId: "command-1" as never,
+            startedAt: "2026-03-09T10:01:00.000Z" as never,
+          },
+        },
+      }),
+    ).toMatchObject({
+      label: "Renaming",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: true,
+    });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {

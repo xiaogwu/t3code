@@ -131,6 +131,7 @@ export function buildTitleRegenerationContextMenuItem(input: {
 export interface ThreadStatusPill {
   label:
     | "Working"
+    | "Renaming"
     | "Monitoring"
     | "Connecting"
     | "Completed"
@@ -149,6 +150,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Pending Approval": 6,
   "Awaiting Input": 5,
   Working: 4,
+  Renaming: 4,
   Connecting: 4,
   "Plan Ready": 3,
   Monitoring: 2,
@@ -164,6 +166,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
   | "backgroundLiveness"
+  | "titleRegeneration"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -622,6 +625,15 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-indigo-600 dark:text-indigo-300/90",
       dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
       pulse: false,
+    };
+  }
+
+  if (thread.titleRegeneration != null) {
+    return {
+      label: "Renaming",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: true,
     };
   }
 
