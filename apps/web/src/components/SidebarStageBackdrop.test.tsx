@@ -53,4 +53,14 @@ describe("SidebarStageBackdrop", () => {
     expect(markup).toContain("stage-bp-arrow-start");
     expect(markup).toContain("stage-bp-arrow-end");
   });
+
+  it("routes the DEV linework and lens glows through theme strength dials", () => {
+    const markup = renderToStaticMarkup(<StageBackdropArt variant="dev" />);
+
+    // The strokes are one near-white cyan in both themes, so the light/dark
+    // split lives entirely in these two variables plus the paper ramp. Without
+    // them the deep dark paper would read as harsh white linework.
+    expect(markup).toContain("opacity:var(--stage-bp-ink)");
+    expect(markup).toContain("opacity:var(--stage-bp-lens)");
+  });
 });

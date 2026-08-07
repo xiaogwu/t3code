@@ -351,11 +351,15 @@ function DevBlueprintArt() {
       </defs>
 
       <rect width="100%" height="96" fill={`url(#${paperId})`} />
-      <rect width="100%" height="96" fill={`url(#${glowsId})`} />
-      <rect width="100%" height="96" fill={`url(#${minorGridId})`} />
-      <rect width="100%" height="96" fill={`url(#${majorGridId})`} />
-      <rect width="100%" height="6" fill={`url(#${rulerId})`} />
-      <rect width="100%" height="96" fill={`url(#${annotationsId})`} />
+      <g style={{ opacity: "var(--stage-bp-lens)" }}>
+        <rect width="100%" height="96" fill={`url(#${glowsId})`} />
+      </g>
+      <g style={{ opacity: "var(--stage-bp-ink)" }}>
+        <rect width="100%" height="96" fill={`url(#${minorGridId})`} />
+        <rect width="100%" height="96" fill={`url(#${majorGridId})`} />
+        <rect width="100%" height="6" fill={`url(#${rulerId})`} />
+        <rect width="100%" height="96" fill={`url(#${annotationsId})`} />
+      </g>
     </svg>
   );
 }

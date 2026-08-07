@@ -335,16 +335,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     );
   }
 
+  /* Blueprint paper ramp plus two strength dials. The linework and lens glows
+     are a single near-white cyan in both themes; on the deep dark paper they
+     gain contrast for free, so dark pulls them back to keep the perceived
+     weight matched to light. */
   .stage-blueprint {
     --stage-bp-top: #67c2ff;
     --stage-bp-mid: #347ff8;
     --stage-bp-bottom: #1538d0;
+    --stage-bp-ink: 1;
+    --stage-bp-lens: 1;
   }
 
   .dark .stage-blueprint {
-    --stage-bp-top: #4f9df0;
-    --stage-bp-mid: #2562d4;
-    --stage-bp-bottom: #0e2b91;
+    --stage-bp-top: #16386e;
+    --stage-bp-mid: #0d2350;
+    --stage-bp-bottom: #050f2e;
+    --stage-bp-ink: 0.82;
+    --stage-bp-lens: 0.7;
   }
 
   .workspace-topbar {
