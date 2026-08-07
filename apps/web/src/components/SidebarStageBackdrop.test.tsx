@@ -37,4 +37,20 @@ describe("SidebarStageBackdrop", () => {
       expect(new Set(ids).size).toBe(ids.length);
     },
   );
+
+  it.each(["nightly", "dev"] as const)("labels the %s artwork in rendered markup", (variant) => {
+    const markup = renderToStaticMarkup(<StageBackdropArt variant={variant} />);
+
+    expect(markup).toContain(`data-stage-artwork="${variant}"`);
+  });
+
+  it("renders the DEV artwork with blueprint grid and dimension markers", () => {
+    const markup = renderToStaticMarkup(<StageBackdropArt variant="dev" />);
+
+    expect(markup).toContain("stage-blueprint");
+    expect(markup).toContain("stage-bp-grid-minor");
+    expect(markup).toContain("stage-bp-grid-major");
+    expect(markup).toContain("stage-bp-arrow-start");
+    expect(markup).toContain("stage-bp-arrow-end");
+  });
 });

@@ -342,9 +342,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 
   .dark .stage-blueprint {
-    --stage-bp-top: #3a7ad1;
-    --stage-bp-mid: #2050ae;
-    --stage-bp-bottom: #101f6e;
+    --stage-bp-top: #4f9df0;
+    --stage-bp-mid: #2562d4;
+    --stage-bp-bottom: #0e2b91;
   }
 
   .workspace-topbar {

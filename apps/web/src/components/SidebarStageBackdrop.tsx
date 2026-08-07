@@ -105,6 +105,7 @@ function NightlySkyArt() {
   return (
     <svg
       className="h-full w-full"
+      data-stage-artwork="nightly"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
       viewBox={STAGE_BACKDROP_VIEW_BOX}
@@ -196,16 +197,18 @@ function DevBlueprintArt() {
   const paperId = `${idPrefix}-stage-bp-paper`;
   const glowId = `${idPrefix}-stage-bp-glow`;
   const celesteGlowId = `${idPrefix}-stage-bp-glow-celeste`;
-  const violetGlowId = `${idPrefix}-stage-bp-glow-violet`;
   const minorGridId = `${idPrefix}-stage-bp-grid-minor`;
   const majorGridId = `${idPrefix}-stage-bp-grid-major`;
   const rulerId = `${idPrefix}-stage-bp-ruler`;
   const glowsId = `${idPrefix}-stage-bp-glows`;
   const annotationsId = `${idPrefix}-stage-bp-annotations`;
+  const arrowStartId = `${idPrefix}-stage-bp-arrow-start`;
+  const arrowEndId = `${idPrefix}-stage-bp-arrow-end`;
 
   return (
     <svg
       className="stage-blueprint h-full w-full"
+      data-stage-artwork="dev"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
       viewBox={STAGE_BACKDROP_VIEW_BOX}
@@ -249,23 +252,11 @@ function DevBlueprintArt() {
           <stop offset="0.5" stopColor="#48DCF5" stopOpacity="0.18" />
           <stop offset="1" stopColor="#277EF1" stopOpacity="0" />
         </radialGradient>
-        <radialGradient
-          id={violetGlowId}
-          cx="0"
-          cy="0"
-          r="1"
-          gradientTransform="translate(704 18) rotate(145) scale(132 88)"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="#D9D8FF" stopOpacity="0.3" />
-          <stop offset="0.52" stopColor="#7C8BFF" stopOpacity="0.14" />
-          <stop offset="1" stopColor="#3155DF" stopOpacity="0" />
-        </radialGradient>
-        <pattern id={minorGridId} width="8" height="8" patternUnits="userSpaceOnUse">
-          <path d="M8 0H0V8" stroke="#EAF6FF" strokeOpacity="0.14" strokeWidth="0.5" />
+        <pattern id={minorGridId} width="4" height="4" patternUnits="userSpaceOnUse">
+          <path d="M4 0H0V4" stroke="#EAF6FF" strokeOpacity="0.13" strokeWidth="0.35" />
         </pattern>
-        <pattern id={majorGridId} width="32" height="32" patternUnits="userSpaceOnUse">
-          <path d="M32 0H0V32" stroke="#EAF6FF" strokeOpacity="0.26" strokeWidth="0.6" />
+        <pattern id={majorGridId} width="16" height="16" patternUnits="userSpaceOnUse">
+          <path d="M16 0H0V16" stroke="#F0FCFF" strokeOpacity="0.24" strokeWidth="0.5" />
         </pattern>
         <pattern id={rulerId} width="32" height="6" patternUnits="userSpaceOnUse">
           <path
@@ -278,11 +269,36 @@ function DevBlueprintArt() {
         <pattern id={glowsId} width="768" height="96" patternUnits="userSpaceOnUse">
           <rect width="768" height="96" fill={`url(#${glowId})`} />
           <rect width="768" height="96" fill={`url(#${celesteGlowId})`} />
-          <rect width="768" height="96" fill={`url(#${violetGlowId})`} />
         </pattern>
+        <marker
+          id={arrowStartId}
+          markerHeight="5"
+          markerUnits="strokeWidth"
+          markerWidth="5"
+          orient="auto"
+          refX="1.2"
+          refY="2.5"
+        >
+          <path d="M4.5 0.6L1 2.5L4.5 4.4" stroke="#DDF7FF" strokeWidth="0.8" />
+        </marker>
+        <marker
+          id={arrowEndId}
+          markerHeight="5"
+          markerUnits="strokeWidth"
+          markerWidth="5"
+          orient="auto"
+          refX="3.8"
+          refY="2.5"
+        >
+          <path d="M0.5 0.6L4 2.5L0.5 4.4" stroke="#DDF7FF" strokeWidth="0.8" />
+        </marker>
         <pattern id={annotationsId} width="768" height="96" patternUnits="userSpaceOnUse">
           <g stroke="#DDF7FF" strokeLinecap="round" strokeOpacity="0.6" strokeWidth="0.7">
-            <path d="M180 64H264" strokeDasharray="5 4" />
+            <path
+              d="M180 64H264"
+              markerEnd={`url(#${arrowEndId})`}
+              markerStart={`url(#${arrowStartId})`}
+            />
             <path d="M180 61V67M264 61V67" />
             <path d="M276 10V44" strokeDasharray="4 4" strokeOpacity="0.5" />
             <path d="M273 10H279M273 44H279" strokeOpacity="0.5" />
@@ -290,7 +306,12 @@ function DevBlueprintArt() {
             <path d="M348 27V33M428 27V33" strokeOpacity="0.5" />
             <path d="M512 48V80" strokeDasharray="5 3" strokeOpacity="0.45" />
             <path d="M509 48H515M509 80H515" strokeOpacity="0.45" />
-            <path d="M590 70H724" strokeDasharray="7 4" strokeOpacity="0.55" />
+            <path
+              d="M590 70H724"
+              markerEnd={`url(#${arrowEndId})`}
+              markerStart={`url(#${arrowStartId})`}
+              strokeOpacity="0.55"
+            />
             <path d="M590 67V73M724 67V73" strokeOpacity="0.55" />
           </g>
 
