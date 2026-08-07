@@ -81,6 +81,36 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("brands a packaged dev build as Dev without taking dev-runner identity", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { appVersion: "0.0.33-nightly.20260807.1026", isPackaged: true },
+        { T3CODE_DESKTOP_DEV_BUILD: "1" },
+      );
+
+      assert.equal(environment.branding.stageLabel, "Dev");
+      assert.equal(environment.displayName, "T3 Code (Dev)");
+      // The marker is branding only: state dir, bundle id, and protocol scheme
+      // must stay on the production identity so a dev build keeps sharing state
+      // with the nightly it was cut from.
+      assert.equal(environment.isDevelopment, false);
+      assert.equal(environment.appUserModelId, "com.t3tools.t3code");
+      assert.equal(environment.linuxWmClass, "t3code");
+    }),
+  );
+
+  it.effect("brands a packaged nightly build as Nightly without the dev marker", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { appVersion: "0.0.33-nightly.20260807.1026", isPackaged: true },
+        {},
+      );
+
+      assert.equal(environment.branding.stageLabel, "Nightly");
+      assert.equal(environment.displayName, "T3 Code (Nightly)");
+    }),
+  );
+
   it.effect("stores production state under userdata in an explicit home", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(

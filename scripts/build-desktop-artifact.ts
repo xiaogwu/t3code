@@ -1534,6 +1534,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         readonly provisioningProfilePath: string;
       }
     | undefined,
+  dev = false,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -1580,6 +1581,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
             provisioningProfile: macPasskeySigning.provisioningProfilePath,
           }
         : {}),
+      // --dev only swaps icons and web brand assets, which leaves the packaged
+      // runtime with no way to know it is a dev build: the version still parses
+      // as a nightly, so branding resolves to Nightly. LSEnvironment is the one
+      // Info.plist key LaunchServices turns into a process env var, so a
+      // Finder/Dock/`open` launch hands the marker to the main process.
+      ...(dev ? { extendInfo: { LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1" } } } : {}),
     };
   }
 
@@ -1934,6 +1941,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
+      options.dev,
     ),
     dependencies: stageDependencies,
     devDependencies: {

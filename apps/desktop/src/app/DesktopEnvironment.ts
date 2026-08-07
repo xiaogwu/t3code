@@ -83,9 +83,10 @@ const APP_BASE_NAME = "T3 Code";
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
+  readonly isDevBuild: boolean;
   readonly appVersion: string;
 }): DesktopAppStageLabel {
-  if (input.isDevelopment) {
+  if (input.isDevelopment || input.isDevBuild) {
     return "Dev";
   }
 
@@ -94,6 +95,7 @@ function resolveDesktopAppStageLabel(input: {
 
 function resolveDesktopAppBranding(input: {
   readonly isDevelopment: boolean;
+  readonly isDevBuild: boolean;
   readonly appVersion: string;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
@@ -159,6 +161,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const branding = resolveDesktopAppBranding({
     isDevelopment,
+    isDevBuild: config.devBuildBranding,
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;

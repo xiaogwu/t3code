@@ -38,6 +38,10 @@ export const DesktopConfig = Config.all({
   xdgDataHome: trimmedString("XDG_DATA_HOME"),
   t3Home: trimmedString("T3CODE_HOME"),
   devServerUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option),
+  // Set by a --dev packaged build (mac Info.plist LSEnvironment) so the app can
+  // present itself as a Dev build without taking the dev-runner state dir,
+  // protocol scheme, or bundle id that isDevelopment switches.
+  devBuildBranding: optionalBoolean("T3CODE_DESKTOP_DEV_BUILD"),
   appUserModelIdOverride: trimmedString("T3CODE_DESKTOP_APP_USER_MODEL_ID"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
   configuredBackendPort: Config.port("T3CODE_PORT").pipe(Config.option),
