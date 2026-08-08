@@ -777,9 +777,29 @@ export const make = (
             if (modeState?.currentModeId === modeId) {
               return Effect.succeed({} satisfies EffectAcpSchema.SetSessionModeResponse);
             }
-            return setConfigOption("mode", modeId).pipe(
+            return getStartedState.pipe(
+              Effect.flatMap((started) => {
+                const requestPayload = {
+                  sessionId: started.sessionId,
+                  modeId,
+                } satisfies EffectAcpSchema.SetSessionModeRequest;
+                return runLoggedRequest(
+                  "session/set_mode",
+                  requestPayload,
+                  acp.agent.setSessionMode(requestPayload),
+                ).pipe(
+                  // Gemini CLI switches modes over session/set_mode; Cursor and
+                  // OpenCode only expose it as a config option and answer -32601.
+                  Effect.catchIf(
+                    (error) => error._tag === "AcpRequestError" && error.code === -32601,
+                    () =>
+                      setConfigOption("mode", modeId).pipe(
+                        Effect.as({} satisfies EffectAcpSchema.SetSessionModeResponse),
+                      ),
+                  ),
+                );
+              }),
               Effect.tap(() => updateCurrentModeId(modeId)),
-              Effect.as({} satisfies EffectAcpSchema.SetSessionModeResponse),
             );
           }),
         ),
