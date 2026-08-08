@@ -5,6 +5,8 @@ import {
   ProviderInteractionMode as ProviderInteractionModeSchema,
   RuntimeMode as RuntimeModeSchema,
   type EnvironmentId,
+  MessageId,
+  type MessageId as MessageIdType,
   type ModelSelection,
   type ProviderInteractionMode,
   type RuntimeMode,
@@ -40,6 +42,7 @@ export class ComposerDraftPersistenceError extends Schema.TaggedErrorClass<Compo
 export interface ComposerDraft {
   readonly text: string;
   readonly attachments: ReadonlyArray<DraftComposerImageAttachment>;
+  readonly replyToMessageId?: MessageIdType;
   readonly importedShareIds?: ReadonlyArray<string>;
   readonly modelSelection?: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
@@ -62,7 +65,7 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection"
+  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "replyToMessageId"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -75,6 +78,7 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
 const ComposerDraftSchema = Schema.Struct({
   text: Schema.String,
   attachments: Schema.Array(DraftComposerImageAttachmentSchema),
+  replyToMessageId: Schema.optional(MessageId),
   importedShareIds: Schema.optional(Schema.Array(Schema.String)),
   modelSelection: Schema.optional(ModelSelectionSchema),
   runtimeMode: Schema.optional(RuntimeModeSchema),
@@ -128,6 +132,7 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
   return (
     draft.text.length === 0 &&
     draft.attachments.length === 0 &&
+    draft.replyToMessageId === undefined &&
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
@@ -378,7 +383,12 @@ export function clearComposerDraftContentState(
   if (!existing) {
     return current;
   }
-  const { importedShareIds: _importedShareIds, workspaceSelection, ...retained } = existing;
+  const {
+    importedShareIds: _importedShareIds,
+    replyToMessageId: _replyToMessageId,
+    workspaceSelection,
+    ...retained
+  } = existing;
   const draft = {
     ...retained,
     ...(options?.clearWorkspaceSelection || workspaceSelection === undefined

@@ -226,6 +226,9 @@ export function useThreadOutboxDrain(): void {
             messageId: queuedMessage.messageId,
             role: "user",
             text: queuedMessage.text,
+            ...(queuedMessage.replyToMessageId !== undefined
+              ? { replyToMessageId: queuedMessage.replyToMessageId }
+              : {}),
             attachments: toUploadChatImageAttachments(queuedMessage.attachments),
           },
           modelSelection: settings.modelSelection,

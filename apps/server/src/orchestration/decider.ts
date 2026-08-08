@@ -917,6 +917,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const replyTarget = command.message.replyToMessageId
+        ? targetThread.messages.find((entry) => entry.id === command.message.replyToMessageId)
+        : undefined;
+      if (command.message.replyToMessageId && !replyTarget) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Reply target '${command.message.replyToMessageId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (replyTarget && (replyTarget.role !== "assistant" || replyTarget.streaming)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Reply target '${replyTarget.id}' must be a completed assistant message.`,
+        });
+      }
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({
@@ -955,6 +970,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           role: "user",
           text: command.message.text,
           attachments: command.message.attachments,
+          ...(command.message.replyToMessageId !== undefined
+            ? { replyToMessageId: command.message.replyToMessageId }
+            : {}),
           turnId: null,
           streaming: false,
           createdAt: command.createdAt,

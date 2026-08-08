@@ -138,6 +138,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onReplyToAssistantMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
@@ -217,6 +218,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onReplyToAssistantMessage?: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
@@ -263,6 +265,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
+  onReplyToAssistantMessage,
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
@@ -511,6 +514,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onReplyToAssistantMessage: onReplyToAssistantMessage ?? (() => {}),
       onImageExpand,
       onOpenTurnDiff,
       onToggleTurnFold,
@@ -527,6 +531,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onReplyToAssistantMessage,
       onImageExpand,
       onOpenTurnDiff,
       onToggleTurnFold,
@@ -1033,6 +1038,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
+        {row.message.replyToMessageId ? (
+          <div className="mb-2 border-l-2 border-primary/70 pl-2 text-xs text-muted-foreground">
+            Replying to assistant response
+          </div>
+        ) : null}
         <CollapsibleUserMessageBody
           text={elementContextState.promptText}
           terminalContexts={terminalContexts}
@@ -1127,10 +1137,28 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
-        {row.showAssistantMeta ? (
+        {row.showAssistantMeta || !row.message.streaming ? (
           <div className="mt-1.5 flex items-center gap-2 text-xs tabular-nums opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/assistant:opacity-100">
-            <AssistantCopyButton row={row} />
-            {!row.message.streaming && (
+            {!row.message.streaming ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      aria-label="Reply to this response"
+                      onClick={() => ctx.onReplyToAssistantMessage(row.message.id)}
+                    />
+                  }
+                >
+                  <MessageCircleIcon className="size-3" />
+                </TooltipTrigger>
+                <TooltipPopup side="top">Reply</TooltipPopup>
+              </Tooltip>
+            ) : null}
+            {row.showAssistantMeta ? <AssistantCopyButton row={row} /> : null}
+            {row.showAssistantMeta && !row.message.streaming && (
               <Tooltip>
                 <TooltipTrigger
                   render={<p className="text-muted-foreground text-xs tabular-nums" />}

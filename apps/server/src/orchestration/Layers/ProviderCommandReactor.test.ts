@@ -51,6 +51,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQu
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import {
+  formatReplyContext,
   providerErrorLabel,
   providerErrorLabelFromInstanceHint,
   ProviderCommandReactorLive,
@@ -92,6 +93,24 @@ async function waitFor(
 }
 
 describe("ProviderCommandReactor", () => {
+  describe("reply context", () => {
+    it("keeps short assistant output intact", () => {
+      expect(formatReplyContext({ replyText: "Earlier answer", prompt: "Follow up" })).toBe(
+        "<reply_context>\nThe user is replying specifically to this earlier assistant message:\nEarlier answer\n</reply_context>\n\nFollow up",
+      );
+    });
+
+    it("retains the head and tail of long assistant output", () => {
+      const value = formatReplyContext({
+        replyText: `${"a".repeat(800)}${"b".repeat(800)}`,
+        prompt: "Follow up",
+      });
+      expect(value).toContain("[middle truncated]");
+      expect(value).toContain("a".repeat(800));
+      expect(value).toContain("b".repeat(400));
+      expect(value).not.toContain("b".repeat(401));
+    });
+  });
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderCommandReactor | ProjectionSnapshotQuery,
     unknown

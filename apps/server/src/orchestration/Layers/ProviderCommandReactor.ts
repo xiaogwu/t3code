@@ -67,6 +67,23 @@ function toNonEmptyProviderInput(value: string | undefined): string | undefined 
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+export const REPLY_CONTEXT_MAX_CHARS = 1_200;
+const REPLY_CONTEXT_HEAD_CHARS = 800;
+const REPLY_CONTEXT_TAIL_CHARS = 400;
+
+/** Keeps provider context bounded while retaining a response's conclusion. */
+export function formatReplyContext(input: {
+  readonly replyText: string;
+  readonly prompt: string;
+}): string {
+  const replyText = input.replyText.trim();
+  const excerpt =
+    replyText.length <= REPLY_CONTEXT_MAX_CHARS
+      ? replyText
+      : `${replyText.slice(0, REPLY_CONTEXT_HEAD_CHARS).trimEnd()}\n\n[middle truncated]\n\n${replyText.slice(-REPLY_CONTEXT_TAIL_CHARS).trimStart()}`;
+  return `<reply_context>\nThe user is replying specifically to this earlier assistant message:\n${excerpt}\n</reply_context>\n\n${input.prompt}`;
+}
+
 function mapProviderSessionStatusToOrchestrationStatus(
   status: "connecting" | "ready" | "running" | "error" | "closed",
 ): OrchestrationSession["status"] {
@@ -1093,6 +1110,13 @@ const make = Effect.gen(function* () {
       });
       return;
     }
+    const replyTarget =
+      message.replyToMessageId === undefined
+        ? undefined
+        : thread.messages.find((entry) => entry.id === message.replyToMessageId);
+    const providerMessageText = replyTarget
+      ? formatReplyContext({ replyText: replyTarget.text, prompt: message.text })
+      : message.text;
 
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
@@ -1163,7 +1187,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: providerMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
