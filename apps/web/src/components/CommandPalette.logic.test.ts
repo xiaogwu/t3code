@@ -6,7 +6,9 @@ import {
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  parseThreadStateFilterQuery,
   reduceCommandPaletteUiState,
+  toggleThreadStateFilterQuery,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
@@ -287,6 +289,83 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
+  });
+});
+
+describe("thread-state filters", () => {
+  it("separates supported state tokens from text search", () => {
+    const parsed = parseThreadStateFilterQuery("  is:unread reconnect is:completed ");
+
+    expect(parsed.searchQuery).toBe("reconnect");
+    expect([...parsed.stateFilters]).toEqual(["unread", "completed"]);
+    expect(parseThreadStateFilterQuery("is:unknown reconnect").searchQuery).toBe(
+      "is:unknown reconnect",
+    );
+  });
+
+  it("toggles state tokens without changing the text query", () => {
+    expect(toggleThreadStateFilterQuery("reconnect is:unread", "unread")).toBe("reconnect");
+    expect(toggleThreadStateFilterQuery("reconnect", "completed")).toBe("reconnect is:completed");
+  });
+
+  it("filters thread results by state and free text while excluding projects and actions", () => {
+    const makeItem = (value: string, title: string, completed: boolean, unread: boolean) => ({
+      kind: "action" as const,
+      value,
+      searchTerms: [title],
+      title,
+      icon: null,
+      threadState: { completed, unread },
+      run: async () => undefined,
+    });
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [
+        {
+          value: "actions",
+          label: "Actions",
+          items: [makeItem("action:new", "New thread", false, false)],
+        },
+      ],
+      query: "is:completed fix",
+      isInSubmenu: false,
+      projectSearchItems: [makeItem("project:fix", "Fix project", false, false)],
+      threadSearchItems: [
+        makeItem("thread:completed-fix", "Fix completed", true, false),
+        makeItem("thread:unread-fix", "Fix unread", false, true),
+      ],
+    });
+
+    expect(groups).toEqual([
+      expect.objectContaining({
+        value: "threads-search",
+        items: [expect.objectContaining({ value: "thread:completed-fix" })],
+      }),
+    ]);
+  });
+
+  it("combines thread-state filters with AND semantics", () => {
+    const makeItem = (value: string, completed: boolean, unread: boolean) => ({
+      kind: "action" as const,
+      value,
+      searchTerms: [value],
+      title: value,
+      icon: null,
+      threadState: { completed, unread },
+      run: async () => undefined,
+    });
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "is:completed is:unread",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [
+        makeItem("thread:completed", true, false),
+        makeItem("thread:unread", false, true),
+        makeItem("thread:both", true, true),
+      ],
+    });
+
+    expect(groups[0]?.items.map((item) => item.value)).toEqual(["thread:both"]);
   });
 });
 
