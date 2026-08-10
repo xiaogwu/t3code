@@ -172,6 +172,7 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   getSidebarThreadIdsToPrewarm,
+  hasUnseenCompletion,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isTrailingDoubleClick,
@@ -373,6 +374,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const isManuallyUnread = useUiStateStore(
+    (state) => state.threadManuallyUnreadById[threadKey] === true,
+  );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
@@ -451,6 +455,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
+      isManuallyUnread,
       lastVisitedAt,
     },
   });
@@ -1134,7 +1139,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
-  const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
+  const markThreadManuallyUnread = useUiStateStore((state) => state.markThreadManuallyUnread);
+  const markThreadRead = useUiStateStore((state) => state.markThreadRead);
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
@@ -1213,6 +1219,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
     ),
   );
+  const threadManuallyUnread = useUiStateStore(
+    useShallow((state) =>
+      projectThreads.map(
+        (thread) =>
+          state.threadManuallyUnreadById[
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+          ] === true,
+      ),
+    ),
+  );
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadKey, setConfirmingArchiveThreadKey] = useState<string | null>(null);
@@ -1261,6 +1277,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
+    const manuallyUnreadByThreadKey = new Map(
+      projectThreads.map((thread, index) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        threadManuallyUnread[index] ?? false,
+      ]),
+    );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
       const lastVisitedAt = lastVisitedAtByThreadKey.get(
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1268,6 +1290,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       return resolveThreadStatusPill({
         thread: {
           ...thread,
+          isManuallyUnread:
+            manuallyUnreadByThreadKey.get(
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            ) ?? false,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
@@ -1286,7 +1312,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreads, threadLastVisitedAts, threadManuallyUnread, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -1313,6 +1339,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
+    const manuallyUnreadByThreadKey = new Map(
+      projectThreads.map((thread, index) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        threadManuallyUnread[index] ?? false,
+      ]),
+    );
     const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
       const lastVisitedAt = lastVisitedAtByThreadKey.get(
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1320,6 +1352,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       return resolveThreadStatusPill({
         thread: {
           ...thread,
+          isManuallyUnread:
+            manuallyUnreadByThreadKey.get(
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            ) ?? false,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
       });
@@ -1359,6 +1395,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     projectThreads,
     sidebarThreadPreviewCount,
     threadLastVisitedAts,
+    threadManuallyUnread,
     visibleProjectThreads,
   ]);
 
@@ -1790,15 +1827,31 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       const hasRunningThread = selectedThreadEntries.some(
         ({ thread }) => thread.session?.status === "running" && thread.session.activeTurnId != null,
       );
+      const uiState = useUiStateStore.getState();
+      const allUnread = selectedThreadEntries.every(
+        ({ threadKey, thread }) =>
+          uiState.threadManuallyUnreadById[threadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: uiState.threadLastVisitedAtById[threadKey],
+          }),
+      );
 
       const clicked = await api.contextMenu.show(
-        buildMultiSelectThreadContextMenuItems({ count, hasRunningThread }),
+        buildMultiSelectThreadContextMenuItems({ count, hasRunningThread, allUnread }),
         position,
       );
 
       if (clicked === "mark-unread") {
+        for (const { threadKey } of selectedThreadEntries) {
+          markThreadManuallyUnread(threadKey);
+        }
+        clearSelection();
+        return;
+      }
+      if (clicked === "mark-read") {
         for (const { threadKey, thread } of selectedThreadEntries) {
-          markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+          markThreadRead(threadKey, thread.updatedAt);
         }
         clearSelection();
         return;
@@ -1885,7 +1938,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       archiveThread,
       clearSelection,
       deleteThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       removeFromSelection,
     ],
   );
@@ -2138,7 +2192,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
             : []),
           { id: "rename", label: "Rename thread" },
-          { id: "mark-unread", label: "Mark unread" },
+          useUiStateStore.getState().threadManuallyUnreadById[threadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: useUiStateStore.getState().threadLastVisitedAtById[threadKey],
+          })
+            ? { id: "mark-read", label: "Mark read" }
+            : { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true, icon: "trash" },
@@ -2176,7 +2236,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       }
 
       if (clicked === "mark-unread") {
-        markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        markThreadManuallyUnread(threadKey);
+        return;
+      }
+      if (clicked === "mark-read") {
+        markThreadRead(threadKey, thread.updatedAt);
         return;
       }
       if (clicked === "copy-path") {
@@ -2228,7 +2292,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       copyThreadIdToClipboard,
       deleteThread,
       handleNewThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       memberProjectByScopedKey,
       project.workspaceRoot,
       startThreadRename,
@@ -3446,6 +3511,26 @@ export default function LegacySidebar() {
         platform,
         context: shortcutContext,
       });
+      if (command === "thread.readState.toggle") {
+        if (!routeThreadKey) return;
+        const thread = sidebarThreadByKey.get(routeThreadKey);
+        if (!thread) return;
+        const uiState = useUiStateStore.getState();
+        const isUnread =
+          uiState.threadManuallyUnreadById[routeThreadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: uiState.threadLastVisitedAtById[routeThreadKey],
+          });
+        event.preventDefault();
+        event.stopPropagation();
+        if (isUnread) {
+          uiState.markThreadRead(routeThreadKey, thread.updatedAt);
+        } else {
+          uiState.markThreadManuallyUnread(routeThreadKey);
+        }
+        return;
+      }
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         const targetThreadKey = resolveAdjacentThreadId({

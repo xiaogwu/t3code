@@ -87,9 +87,12 @@ export async function archiveSelectedThreadEntries<
 export function buildMultiSelectThreadContextMenuItems(input: {
   count: number;
   hasRunningThread: boolean;
-}): readonly ContextMenuItem<"mark-unread" | "archive" | "delete">[] {
+  allUnread: boolean;
+}): readonly ContextMenuItem<"mark-read" | "mark-unread" | "archive" | "delete">[] {
   return [
-    { id: "mark-unread", label: `Mark unread (${input.count})` },
+    input.allUnread
+      ? { id: "mark-read", label: `Mark read (${input.count})` }
+      : { id: "mark-unread", label: `Mark unread (${input.count})` },
     {
       id: "archive",
       label: `Archive (${input.count})`,
@@ -123,6 +126,7 @@ export interface ThreadStatusPill {
     | "Monitoring"
     | "Connecting"
     | "Completed"
+    | "Unread"
     | "Pending Approval"
     | "Awaiting Input"
     | "Plan Ready";
@@ -135,12 +139,13 @@ export interface ThreadStatusPill {
 // then active work, then the actionable plan prompt, then passive
 // monitoring. A Monitoring sibling must never hide a Plan Ready thread.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 6,
-  "Awaiting Input": 5,
-  Working: 4,
-  Connecting: 4,
-  "Plan Ready": 3,
-  Monitoring: 2,
+  "Pending Approval": 7,
+  "Awaiting Input": 6,
+  Working: 5,
+  Connecting: 5,
+  "Plan Ready": 4,
+  Monitoring: 3,
+  Unread: 2,
   Completed: 1,
 };
 
@@ -154,6 +159,7 @@ type ThreadStatusInput = Pick<
   | "session"
   | "backgroundLiveness"
 > & {
+  isManuallyUnread?: boolean | undefined;
   lastVisitedAt?: string | undefined;
 };
 
@@ -681,6 +687,17 @@ export function resolveThreadStatusPill(input: {
       label: "Monitoring",
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: false,
+    };
+  }
+
+  // A manual unread mark outranks Completed so the pill survives the visit
+  // that would otherwise clear it.
+  if (thread.isManuallyUnread) {
+    return {
+      label: "Unread",
+      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
       pulse: false,
     };
   }
