@@ -16,6 +16,7 @@ import type {
   EnvironmentId,
   SidebarProjectGroupingMode,
   SidebarThreadSortOrder,
+  SidebarV2ThreadSortOrder,
 } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -89,6 +90,7 @@ interface HomeScreenProps {
   readonly selectedProjectKey: string | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
+  readonly v2ThreadSortOrder: SidebarV2ThreadSortOrder;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
@@ -651,6 +653,7 @@ export function HomeScreen(props: HomeScreenProps) {
       changeRequestStateByKey,
       settlementEnvironmentIds,
       snoozeEnvironmentIds,
+      threadSortOrder: props.v2ThreadSortOrder,
       settledLimit: settledVisibleCount,
       now: `${nowMinute}:00.000Z`,
       snoozeNow: new Date().toISOString(),
@@ -669,6 +672,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
+    props.v2ThreadSortOrder,
     props.threads,
     matchedThreadKeys,
     threadListV2Enabled,

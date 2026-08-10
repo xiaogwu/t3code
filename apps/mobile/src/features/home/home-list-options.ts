@@ -2,10 +2,12 @@ import type {
   EnvironmentId,
   SidebarProjectGroupingMode,
   SidebarThreadSortOrder,
+  SidebarV2ThreadSortOrder,
 } from "@t3tools/contracts";
 import {
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
   DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+  DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
 } from "@t3tools/contracts";
 import {
   createContext,
@@ -25,6 +27,9 @@ export interface HomeListOptions {
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
+  /** Thread List v2's order. Separate from `threadSortOrder` so the two list
+      versions keep independent defaults — v2 starts in creation order. */
+  readonly v2ThreadSortOrder: SidebarV2ThreadSortOrder;
 }
 
 export interface ResolvedHomeListOptions extends HomeListOptions {
@@ -55,6 +60,7 @@ function defaultHomeListOptions(): HomeListOptions {
         ? "updated_at"
         : DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
     threadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+    v2ThreadSortOrder: DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
   };
 }
 
@@ -126,10 +132,14 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
   const setThreadSortOrder = useCallback((value: SidebarThreadSortOrder) => {
     setOptions((current) => ({ ...current, threadSortOrder: value }));
   }, []);
+  const setV2ThreadSortOrder = useCallback((value: SidebarV2ThreadSortOrder) => {
+    setOptions((current) => ({ ...current, v2ThreadSortOrder: value }));
+  }, []);
   return {
     options: resolvedOptions,
     setSelectedEnvironmentId,
     setProjectSortOrder,
     setThreadSortOrder,
+    setV2ThreadSortOrder,
   } as const;
 }
