@@ -1586,7 +1586,21 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // as a nightly, so branding resolves to Nightly. LSEnvironment is the one
       // Info.plist key LaunchServices turns into a process env var, so a
       // Finder/Dock/`open` launch hands the marker to the main process.
-      ...(dev ? { extendInfo: { LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1" } } } : {}),
+      //
+      // T3CODE_DISABLE_AUTO_UPDATE is not optional here: a dev build keeps a
+      // real nightly version so it stays on the nightly channel, so the updater
+      // treats the next official nightly as an upgrade and replaces the bundle
+      // in place, silently reverting every local change.
+      ...(dev
+        ? {
+            extendInfo: {
+              LSEnvironment: {
+                T3CODE_DESKTOP_DEV_BUILD: "1",
+                T3CODE_DISABLE_AUTO_UPDATE: "1",
+              },
+            },
+          }
+        : {}),
     };
   }
 

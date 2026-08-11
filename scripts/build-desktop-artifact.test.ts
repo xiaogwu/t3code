@@ -556,7 +556,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
 
       assert.deepStrictEqual((dev.mac as Record<string, unknown>).extendInfo, {
-        LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1" },
+        LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1", T3CODE_DISABLE_AUTO_UPDATE: "1" },
       });
       assert.notProperty(nightly.mac as Record<string, unknown>, "extendInfo");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
