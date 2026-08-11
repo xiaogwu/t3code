@@ -9,6 +9,7 @@ import {
   ProviderDriverKind,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
+  type ThreadActivitySoundMode,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -141,6 +142,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { threadActivitySoundPlayer } from "../../audio/threadActivitySounds";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -153,6 +155,12 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const THREAD_ACTIVITY_SOUND_MODE_LABELS: Record<ThreadActivitySoundMode, string> = {
+  off: "Off",
+  unfocused: "When unfocused",
+  always: "Always",
+};
 
 const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<BackgroundActivityProfile, string> = {
   balanced: "Balanced",
@@ -1888,6 +1896,47 @@ export function GeneralSettingsPanel() {
               }
               aria-label="Hide whitespace changes by default"
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("agent-sounds")}
+          description="Play a sound when an agent needs attention, finishes, or fails. Browsers need an interaction after reopening T3 Code before audio can play."
+          resetAction={
+            settings.threadActivitySoundMode !==
+            DEFAULT_UNIFIED_SETTINGS.threadActivitySoundMode ? (
+              <SettingResetButton
+                label="agent sounds"
+                onClick={() =>
+                  updateSettings({
+                    threadActivitySoundMode: DEFAULT_UNIFIED_SETTINGS.threadActivitySoundMode,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.threadActivitySoundMode}
+              onValueChange={(value) => {
+                if (value !== "off" && value !== "unfocused" && value !== "always") return;
+                updateSettings({ threadActivitySoundMode: value });
+                if (value !== "off") threadActivitySoundPlayer.play("completed");
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Agent sounds">
+                <SelectValue>
+                  {THREAD_ACTIVITY_SOUND_MODE_LABELS[settings.threadActivitySoundMode]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {Object.entries(THREAD_ACTIVITY_SOUND_MODE_LABELS).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 

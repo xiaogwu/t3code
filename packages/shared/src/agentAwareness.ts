@@ -74,7 +74,13 @@ export function projectThreadAwareness(
   };
 }
 
-function resolveThreadAwarenessPhase(
+/**
+ * Maps a shell snapshot to its user-visible agent lifecycle phase. Consumers
+ * that signal lifecycle changes (for example relay notifications and local
+ * sounds) must use this shared ladder so the same thread cannot disagree
+ * across surfaces.
+ */
+export function resolveThreadAwarenessPhase(
   thread: ProjectThreadAwarenessInput["thread"],
 ): AgentAwarenessPhase | null {
   if (thread.hasPendingApprovals) {

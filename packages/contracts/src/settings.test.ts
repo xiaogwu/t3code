@@ -67,6 +67,21 @@ describe("ClientSettings environment identification", () => {
   });
 });
 
+describe("ClientSettings agent sounds", () => {
+  it("defaults agent sounds off and accepts each playback mode", () => {
+    expect(decodeClientSettings({}).threadActivitySoundMode).toBe("off");
+    for (const mode of ["off", "unfocused", "always"] as const) {
+      expect(
+        decodeClientSettingsPatch({ threadActivitySoundMode: mode }).threadActivitySoundMode,
+      ).toBe(mode);
+    }
+  });
+
+  it("rejects unsupported playback modes", () => {
+    expect(() => decodeClientSettings({ threadActivitySoundMode: "background" })).toThrow();
+  });
+});
+
 describe("ClientSettings sidebar", () => {
   it("defaults to the current sidebar with a three-day auto-settle threshold", () => {
     const settings = decodeClientSettings({});

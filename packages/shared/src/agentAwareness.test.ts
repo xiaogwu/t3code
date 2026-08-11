@@ -9,7 +9,7 @@ import type {
 } from "@t3tools/contracts";
 import { ProviderInstanceId } from "@t3tools/contracts";
 
-import { projectThreadAwareness } from "./agentAwareness.ts";
+import { projectThreadAwareness, resolveThreadAwarenessPhase } from "./agentAwareness.ts";
 
 const NOW = "2026-05-22T12:00:00.000Z";
 
@@ -44,6 +44,12 @@ function thread(
 }
 
 describe("projectThreadAwareness", () => {
+  it("exports the lifecycle phase ladder for non-relay client signals", () => {
+    expect(resolveThreadAwarenessPhase(thread({ hasPendingUserInput: true }))).toBe(
+      "waiting_for_input",
+    );
+  });
+
   it("returns null for idle threads without an active awareness state", () => {
     expect(
       projectThreadAwareness({
