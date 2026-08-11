@@ -85,6 +85,11 @@ export interface CommandPaletteItem {
   /** Optional content rendered inline after the title text (before the timestamp). */
   readonly titleTrailingContent?: ReactNode;
   readonly shortcutCommand?: KeybindingCommand;
+  /** State metadata used exclusively by root-palette thread filters. */
+  readonly threadState?: {
+    readonly completed: boolean;
+    readonly unread: boolean;
+  };
 }
 
 export interface CommandPaletteActionItem extends CommandPaletteItem {
@@ -125,6 +130,37 @@ export function enumerateCommandPaletteItems(
 }
 
 export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-browse";
+
+export type ThreadStateFilter = "completed" | "unread";
+
+export interface ParsedThreadStateFilterQuery {
+  readonly searchQuery: string;
+  readonly stateFilters: ReadonlySet<ThreadStateFilter>;
+}
+
+/** Splits root-palette thread-state tokens from the text sent to title/content search. */
+export function parseThreadStateFilterQuery(query: string): ParsedThreadStateFilterQuery {
+  const stateFilters = new Set<ThreadStateFilter>();
+  const searchQuery = query
+    .replace(/(^|\s)is:(completed|unread)(?=\s|$)/gi, (_match, prefix: string, state: string) => {
+      stateFilters.add(state.toLowerCase() as ThreadStateFilter);
+      return prefix;
+    })
+    .trim()
+    .replace(/\s+/g, " ");
+
+  return { searchQuery, stateFilters };
+}
+
+export function toggleThreadStateFilterQuery(query: string, filter: ThreadStateFilter): string {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const token = `is:${filter}`;
+  const hasFilter = tokens.some((candidate) => candidate.toLowerCase() === token);
+  const nextTokens = hasFilter
+    ? tokens.filter((candidate) => candidate.toLowerCase() !== token)
+    : [...tokens, token];
+  return nextTokens.join(" ");
+}
 
 export function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -171,6 +207,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   /** Optional content rendered inline after the title text per-thread. */
   renderTrailingContent?: (thread: TThread) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
+  getThreadState?: (thread: TThread) => CommandPaletteItem["threadState"];
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
@@ -198,6 +235,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     const leadingContent = input.renderLeadingContent?.(thread);
     const trailingContent = input.renderTrailingContent?.(thread);
     const contentMatch = input.getContentMatch?.(thread);
+    const threadState = input.getThreadState?.(thread);
 
     return Object.assign(
       {
@@ -219,6 +257,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       leadingContent ? { titleLeadingContent: leadingContent } : {},
       trailingContent ? { titleTrailingContent: trailingContent } : {},
       contentMatch ? { threadContentMatch: contentMatch } : {},
+      threadState ? { threadState } : {},
       {
         run: async () => {
           await input.runThread(thread);
@@ -269,17 +308,36 @@ export function filterCommandPaletteGroups(input: {
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
-  const searchQuery = isActionsFilter ? input.query.slice(1) : input.query;
+  const parsedThreadStateQuery =
+    !isActionsFilter && !input.isInSubmenu
+      ? parseThreadStateFilterQuery(input.query)
+      : {
+          searchQuery: isActionsFilter ? input.query.slice(1) : input.query,
+          stateFilters: new Set<ThreadStateFilter>(),
+        };
+  const searchQuery = parsedThreadStateQuery.searchQuery;
   const normalizedQuery = normalizeSearchText(searchQuery);
+  const hasThreadStateFilters = parsedThreadStateQuery.stateFilters.size > 0;
+  const matchesThreadStateFilters = (item: CommandPaletteActionItem): boolean => {
+    if (!item.threadState) return false;
+    for (const filter of parsedThreadStateQuery.stateFilters) {
+      if (!item.threadState[filter]) return false;
+    }
+    return true;
+  };
 
   if (normalizedQuery.length === 0) {
+    if (hasThreadStateFilters) {
+      const items = input.threadSearchItems.filter(matchesThreadStateFilters);
+      return items.length > 0 ? [{ value: "threads-search", label: "Threads", items }] : [];
+    }
     if (isActionsFilter) {
       return input.activeGroups.filter((group) => group.value === "actions");
     }
     return [...input.activeGroups];
   }
 
-  let baseGroups = [...input.activeGroups];
+  let baseGroups = hasThreadStateFilters ? [] : [...input.activeGroups];
   if (isActionsFilter) {
     baseGroups = baseGroups.filter((group) => group.value === "actions");
   } else if (!input.isInSubmenu) {
@@ -288,18 +346,21 @@ export function filterCommandPaletteGroups(input: {
 
   const searchableGroups = [...baseGroups];
   if (!input.isInSubmenu && !isActionsFilter) {
-    if (input.projectSearchItems.length > 0) {
+    if (!hasThreadStateFilters && input.projectSearchItems.length > 0) {
       searchableGroups.push({
         value: "projects-search",
         label: "Projects",
         items: input.projectSearchItems,
       });
     }
-    if (input.threadSearchItems.length > 0) {
+    const threadItems = hasThreadStateFilters
+      ? input.threadSearchItems.filter(matchesThreadStateFilters)
+      : input.threadSearchItems;
+    if (threadItems.length > 0) {
       searchableGroups.push({
         value: "threads-search",
         label: "Threads",
-        items: input.threadSearchItems,
+        items: threadItems,
       });
     }
   }
