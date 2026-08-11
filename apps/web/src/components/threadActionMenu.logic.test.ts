@@ -44,6 +44,35 @@ describe("buildThreadActionMenuItems", () => {
     expect(ids(baseState)).toEqual(expect.arrayContaining(["pin", "settle", "snooze"]));
   });
 
+  it("offers pinned move items only for a pinned thread on a reorder-capable server", () => {
+    const pinnedState: ThreadActionMenuState = {
+      ...baseState,
+      isPinned: true,
+      canMovePinUp: true,
+      canMovePinDown: true,
+      supports: { ...baseState.supports, pinReorder: true },
+    };
+    expect(ids(pinnedState)).toEqual(expect.arrayContaining(["move-pin-up", "move-pin-down"]));
+    // Unpinned, or a server without the capability: no move items at all.
+    expect(ids({ ...pinnedState, isPinned: false })).not.toContain("move-pin-up");
+    expect(
+      ids({ ...pinnedState, supports: { ...pinnedState.supports, pinReorder: false } }),
+    ).not.toContain("move-pin-up");
+    expect(ids({ ...baseState, isPinned: true })).not.toContain("move-pin-down");
+  });
+
+  it("disables the move item at each end of the pinned block", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      isPinned: true,
+      canMovePinUp: false,
+      canMovePinDown: true,
+      supports: { ...baseState.supports, pinReorder: true },
+    });
+    expect(items.find((item) => item.id === "move-pin-up")?.disabled).toBe(true);
+    expect(items.find((item) => item.id === "move-pin-down")?.disabled).toBe(false);
+  });
+
   it("disables snooze when the thread cannot snooze, keeping presets visible", () => {
     const snooze = buildThreadActionMenuItems({ ...baseState, canSnoozeNow: false }).find(
       (item) => item.id === "snooze",

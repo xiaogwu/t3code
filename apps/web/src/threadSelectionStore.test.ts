@@ -272,6 +272,25 @@ describe("threadSelectionStore", () => {
     });
   });
 
+  describe("selectOnly", () => {
+    it("replaces the selection with the single thread and anchors it", () => {
+      const store = useThreadSelectionStore.getState();
+      store.toggleThread(THREAD_A);
+      store.toggleThread(THREAD_B);
+      store.selectOnly(THREAD_C);
+      const state = useThreadSelectionStore.getState();
+      expect([...state.selectedThreadKeys]).toEqual([THREAD_C]);
+      expect(state.anchorThreadKey).toBe(THREAD_C);
+    });
+
+    it("is a no-op when the thread is already the sole selection", () => {
+      useThreadSelectionStore.getState().selectOnly(THREAD_A);
+      const before = useThreadSelectionStore.getState().selectedThreadKeys;
+      useThreadSelectionStore.getState().selectOnly(THREAD_A);
+      expect(useThreadSelectionStore.getState().selectedThreadKeys).toBe(before);
+    });
+  });
+
   describe("hasSelection", () => {
     it("returns false when nothing is selected", () => {
       expect(useThreadSelectionStore.getState().hasSelection()).toBe(false);

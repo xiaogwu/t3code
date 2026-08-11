@@ -1,4 +1,5 @@
 import { autoAnimate } from "@formkit/auto-animate";
+import type { AnimationController } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -416,6 +417,17 @@ function SortablePinnedThreadRow(props: {
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.id,
+    // No layout-change animation. dnd-kit's default FLIP fires on drop, and
+    // because the row is already in its new slot (the optimistic order lands
+    // in the same commit) the animation starts by offsetting the row back to
+    // where it was dragged from — it reads as the drop being rejected. The
+    // reorder is a discrete edit, so land it discretely.
+    animateLayoutChanges: () => false,
+    // No transition on the displacement transforms either: the cards other
+    // than the dragged one swap places instantly instead of sliding. With a
+    // transition they are still mid-slide when the drop lands, which is what
+    // made a finished reorder look like it was undoing itself.
+    transition: null,
   });
   return props.children({ listeners, setNodeRef, transform, transition, isDragging });
 }
@@ -736,6 +748,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     (state) => state.threadManuallyUnreadById[threadKey] === true,
   );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
+  // A selection elsewhere in the list mutes this row's route highlight. The
+  // active and selected washes are within a few percent of each other, so
+  // leaving both lit reads as two highlighted rows and the selection stops
+  // pointing at anything — most visible right after a pinned move, which
+  // selects the row it relocated.
+  const hasForeignSelection = useThreadSelectionStore(
+    (state) => state.selectedThreadKeys.size > 0 && !state.selectedThreadKeys.has(threadKey),
+  );
   const openPrLink = useOpenPrLink();
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
@@ -1029,7 +1049,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
-    props.isActive
+    props.isActive && !hasForeignSelection
       ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected
         ? "bg-sidebar-row-selected text-sidebar-foreground"
@@ -1664,6 +1684,7 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
+  const selectOnlyThread = useThreadSelectionStore((s) => s.selectOnly);
   const markThreadVisited = useUiStateStore((s) => s.markThreadVisited);
   const markThreadManuallyUnread = useUiStateStore((s) => s.markThreadManuallyUnread);
   const markThreadRead = useUiStateStore((s) => s.markThreadRead);
@@ -2533,31 +2554,79 @@ export default function Sidebar() {
     [unpinThread],
   );
 
-  const handlePinnedDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const activeKey = String(event.active.id);
-      const overKey = event.over === null ? null : String(event.over.id);
-      if (overKey === null || activeKey === overKey) return;
-      const reorderable = orderedPinnedThreads.filter((thread) =>
+  // Move up / Move down: the menu equivalent of a drag, planned against the
+  // CANONICAL keyed order rather than the rendered rows, so a move is correct
+  // even while a project scope hides part of the block.
+  const reorderablePinnedThreads = useMemo(
+    () =>
+      orderedPinnedThreads.filter((thread) =>
         reorderablePinnedKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-      );
-      const keys = reorderable.map((thread) =>
+      ),
+    [orderedPinnedThreads, reorderablePinnedKeys],
+  );
+
+  // auto-animate watches the thread <ul> and FLIP-animates any child that
+  // changes position, which includes the two rows a pinned reorder swaps. It
+  // measures from the pre-swap layout, so the moved row starts a row-height
+  // below its new slot and slides up: on release the card appears to travel
+  // from where the drag began. dnd-kit is not involved (its own layout
+  // animation is already off), so the only way to land a reorder discretely
+  // is to mute the observer across the commit.
+  const listAutoAnimateRef = useRef<AnimationController | null>(null);
+  const autoAnimateResumeRef = useRef(0);
+  const suppressListAutoAnimate = useCallback(() => {
+    const controller = listAutoAnimateRef.current;
+    if (controller === null) return;
+    controller.disable();
+    // The DOM mutation and auto-animate's observer callback both land before
+    // the next paint, so one frame is enough. The counter keeps a second move
+    // made inside that frame from re-enabling early.
+    const token = ++autoAnimateResumeRef.current;
+    requestAnimationFrame(() => {
+      if (autoAnimateResumeRef.current === token) controller.enable();
+    });
+  }, []);
+
+  // One path for both ways to reorder a pin: a drag names the row it landed
+  // on, a menu item names a direction. Everything after that is identical:
+  // plan keys, show the new order immediately, write sequentially.
+  //
+  // The plan is built from what is ON SCREEN (orderedPinnedThreads, which
+  // includes any live optimistic order), not from canonical state, so a
+  // second move made before the first key lands still reads as one step from
+  // where the block currently sits. Its neighbour keys can then be
+  // non-monotonic, which planPinnedReorder answers with a full-section
+  // rewrite: more writes, but the displayed order is what gets persisted.
+  const commitPinnedMove = useCallback(
+    (
+      movedKey: string,
+      target: { readonly overKey: string } | { readonly direction: "up" | "down" },
+      failureTitle: string,
+    ) => {
+      const keys = reorderablePinnedThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       );
-      const fromIndex = keys.indexOf(activeKey);
-      const toIndex = keys.indexOf(overKey);
-      if (fromIndex === -1 || toIndex === -1) return;
+      const fromIndex = keys.indexOf(movedKey);
+      if (fromIndex === -1) return;
+      const toIndex =
+        "overKey" in target
+          ? keys.indexOf(target.overKey)
+          : fromIndex + (target.direction === "up" ? -1 : 1);
+      if (toIndex < 0 || toIndex >= keys.length || toIndex === fromIndex) return;
       const newOrder = arrayMove([...keys], fromIndex, toIndex);
-      const threadByKey = new Map(reorderable.map((thread, index) => [keys[index]!, thread]));
+      const threadByKey = new Map(
+        reorderablePinnedThreads.map((thread, index) => [keys[index]!, thread]),
+      );
       const keysAtDrop = new Map(
-        reorderable.map((thread, index) => [keys[index]!, thread.pinOrderKey ?? null]),
+        reorderablePinnedThreads.map((thread, index) => [keys[index]!, thread.pinOrderKey ?? null]),
       );
       const assignments = planPinnedReorder({
         orderedIds: newOrder,
         keysById: keysAtDrop,
-        movedId: activeKey,
+        movedId: movedKey,
       });
       if (assignments.length === 0) return;
+      suppressListAutoAnimate();
       setOptimisticPinnedOrder({
         order: newOrder,
         keysAtDrop,
@@ -2565,11 +2634,15 @@ export default function Sidebar() {
           assignments.map((assignment) => [assignment.id, assignment.orderKey]),
         ),
       });
+      // The row just changed places, and with several similar cards stacked
+      // together that is easy to lose. Selecting it leaves the moved card
+      // marked so the next move starts from a row you can still see.
+      selectOnlyThread(movedKey);
       void (async () => {
         // Sequential, stop on first failure. There is deliberately no
         // rollback: every key write is a complete, valid placement on its
         // own, so a partial materialization leaves a sensible order (and
-        // the next drag repairs the rest) — unwinding writes across
+        // the next move repairs the rest) — unwinding writes across
         // servers would trade that for real inconsistency windows.
         for (const assignment of assignments) {
           const thread = threadByKey.get(assignment.id);
@@ -2588,7 +2661,7 @@ export default function Sidebar() {
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Failed to reorder pinned threads",
+                title: failureTitle,
                 description: error instanceof Error ? error.message : "An error occurred.",
               }),
             );
@@ -2597,7 +2670,24 @@ export default function Sidebar() {
         }
       })();
     },
-    [orderedPinnedThreads, reorderPinnedThread, reorderablePinnedKeys],
+    [reorderablePinnedThreads, reorderPinnedThread, selectOnlyThread, suppressListAutoAnimate],
+  );
+
+  const movePinnedThread = useCallback(
+    (threadRef: ScopedThreadRef, direction: "up" | "down") => {
+      commitPinnedMove(scopedThreadKey(threadRef), { direction }, "Failed to move pinned thread");
+    },
+    [commitPinnedMove],
+  );
+
+  const handlePinnedDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const activeKey = String(event.active.id);
+      const overKey = event.over === null ? null : String(event.over.id);
+      if (overKey === null || activeKey === overKey) return;
+      commitPinnedMove(activeKey, { overKey }, "Failed to reorder pinned threads");
+    },
+    [commitPinnedMove],
   );
   // One snooze per thread at a time — same double-dispatch guard as settle.
   const snoozingThreadKeysRef = useRef(new Set<string>());
@@ -2926,7 +3016,14 @@ export default function Sidebar() {
         if (!api) return;
         const threadKey = scopedThreadKey(threadRef);
         const selectionState = useThreadSelectionStore.getState();
-        if (selectionState.hasSelection() && selectionState.selectedThreadKeys.has(threadKey)) {
+        // Bulk menu only for a real multi-selection. A single selected row
+        // gets the per-thread menu: it acts on the same one thread either
+        // way, and a pinned move selects the row it moved, so the bulk menu
+        // would swallow Move up / Move down right when you want them again.
+        if (
+          selectionState.selectedThreadKeys.size > 1 &&
+          selectionState.selectedThreadKeys.has(threadKey)
+        ) {
           await handleMultiSelectContextMenu(position);
           return;
         }
@@ -2954,6 +3051,10 @@ export default function Sidebar() {
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
+        const pinnedMoveIndex = reorderablePinnedThreads.findIndex(
+          (candidate) =>
+            scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)) === threadKey,
+        );
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
         const clicked = await settlePromise(() =>
@@ -2971,10 +3072,14 @@ export default function Sidebar() {
                   ...thread,
                   lastVisitedAt: useUiStateStore.getState().threadLastVisitedAtById[threadKey],
                 }),
+              canMovePinUp: pinnedMoveIndex > 0,
+              canMovePinDown:
+                pinnedMoveIndex !== -1 && pinnedMoveIndex < reorderablePinnedThreads.length - 1,
               supports: {
                 settlement: supportsSettlement,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
+                pinReorder: pinnedMoveIndex !== -1 && reorderablePinnedThreads.length > 1,
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
@@ -3028,6 +3133,12 @@ export default function Sidebar() {
             return;
           case "unpin":
             attemptUnpin(threadRef);
+            return;
+          case "move-pin-up":
+            movePinnedThread(threadRef, "up");
+            return;
+          case "move-pin-down":
+            movePinnedThread(threadRef, "down");
             return;
           case "rename":
             startThreadRename(threadRef, thread.title);
@@ -3120,8 +3231,10 @@ export default function Sidebar() {
       handleMultiSelectContextMenu,
       markThreadManuallyUnread,
       markThreadRead,
+      movePinnedThread,
       projectCwdByKey,
       serverConfigs,
+      reorderablePinnedThreads,
       startThreadRename,
       updateThreadMetadata,
       timestampFormat,
@@ -3215,8 +3328,11 @@ export default function Sidebar() {
   }, [shouldShowJumpHintsNow]);
 
   const attachListAutoAnimateRef = useCallback((node: HTMLUListElement | null) => {
-    if (!node) return;
-    autoAnimate(node, { duration: 150, easing: "ease-out" });
+    if (!node) {
+      listAutoAnimateRef.current = null;
+      return;
+    }
+    listAutoAnimateRef.current = autoAnimate(node, { duration: 150, easing: "ease-out" });
   }, []);
 
   // New thread defaults to the project you're in (active thread's project,
@@ -3301,14 +3417,6 @@ export default function Sidebar() {
                     <XIcon className="size-3" />
                   </Button>
                 ) : null}
-              </div>
-              <div className="shrink-0">
-                <SidebarSortMenu
-                  threadSortOrder={sidebarV2ThreadSortOrder}
-                  onThreadSortOrderChange={(nextSortOrder) => {
-                    updateSettings({ sidebarV2ThreadSortOrder: nextSortOrder });
-                  }}
-                />
               </div>
               <div className="shrink-0">
                 <Tooltip>
@@ -3652,16 +3760,26 @@ export default function Sidebar() {
                       </SortableContext>
                     </DndContext>,
                   ];
-                  if (pinnedThreads.length > 0) {
-                    items.push(
-                      <li
-                        key="pinned-divider"
-                        aria-hidden
-                        data-testid="sidebar-pinned-divider"
-                        className="mx-2.5 my-1.5 h-px list-none bg-sidebar-border/60"
-                      />,
-                    );
-                  }
+                  // The rule closing the pinned block carries the sort
+                  // control at its right end: the control orders the inbox
+                  // below it. It renders even with nothing pinned so the
+                  // control keeps one fixed home.
+                  items.push(
+                    <li
+                      key="pinned-divider"
+                      data-testid="sidebar-pinned-divider"
+                      data-thread-selection-safe
+                      className="mx-2.5 my-1 flex list-none items-center gap-2"
+                    >
+                      <span aria-hidden className="h-px min-w-0 flex-1 bg-sidebar-border/60" />
+                      <SidebarSortMenu
+                        threadSortOrder={sidebarV2ThreadSortOrder}
+                        onThreadSortOrderChange={(nextSortOrder) => {
+                          updateSettings({ sidebarV2ThreadSortOrder: nextSortOrder });
+                        }}
+                      />
+                    </li>,
+                  );
                   for (const thread of activeThreads) {
                     items.push(renderThreadRow(thread, "active"));
                   }

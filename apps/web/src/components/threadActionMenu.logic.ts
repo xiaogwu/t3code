@@ -10,6 +10,8 @@ export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "pin"
   | "unpin"
+  | "move-pin-up"
+  | "move-pin-down"
   | "settle"
   | "unsettle"
   | "snooze"
@@ -34,10 +36,17 @@ export interface ThreadActionMenuState {
       the entry offers Mark read instead. Callers without read-state context
       omit it and get Mark unread. */
   readonly isUnread?: boolean;
+  /** Pinned-block position, for Move up / Move down. Callers without the
+      pinned order (the chat header menu) omit both and get no move items. */
+  readonly canMovePinUp?: boolean;
+  readonly canMovePinDown?: boolean;
   readonly supports: {
     readonly settlement: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
+    /** Server accepts thread.pin.reorder AND more than one pin is arrangeable
+        — a lone pin has nowhere to move. */
+    readonly pinReorder?: boolean;
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
@@ -65,6 +74,15 @@ export function buildThreadActionMenuItems(
           state.isPinned
             ? { id: "unpin" as const, label: "Unpin thread" }
             : { id: "pin" as const, label: "Pin thread" },
+        ]
+      : []),
+    // Menu equivalent of dragging a pinned card, same as mobile: one step per
+    // click, disabled at the ends so the item's position still reads as
+    // "where am I in the block".
+    ...(state.isPinned && state.supports.pinReorder === true
+      ? [
+          { id: "move-pin-up" as const, label: "Move up", disabled: !state.canMovePinUp },
+          { id: "move-pin-down" as const, label: "Move down", disabled: !state.canMovePinDown },
         ]
       : []),
     // Both lifecycle actions stay available on pinned threads: settling

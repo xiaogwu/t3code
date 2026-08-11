@@ -28,6 +28,8 @@ interface ThreadSelectionStore extends ThreadSelectionState {
   removeFromSelection: (threadKeys: readonly string[]) => void;
   /** Set the anchor thread without adding it to the selection (e.g. on plain-click navigate). */
   setAnchor: (threadKey: string) => void;
+  /** Replace the selection with exactly one thread (e.g. the row a pinned move just relocated). */
+  selectOnly: (threadKey: string) => void;
   /** Check if any threads are selected. */
   hasSelection: () => boolean;
 }
@@ -95,6 +97,18 @@ export const useThreadSelectionStore = create<ThreadSelectionStore>((set, get) =
   setAnchor: (threadKey) => {
     if (get().anchorThreadKey === threadKey) return;
     set({ anchorThreadKey: threadKey });
+  },
+
+  selectOnly: (threadKey) => {
+    const state = get();
+    if (
+      state.selectedThreadKeys.size === 1 &&
+      state.selectedThreadKeys.has(threadKey) &&
+      state.anchorThreadKey === threadKey
+    ) {
+      return;
+    }
+    set({ selectedThreadKeys: new Set([threadKey]), anchorThreadKey: threadKey });
   },
 
   removeFromSelection: (threadKeys) => {
