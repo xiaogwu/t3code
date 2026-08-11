@@ -226,6 +226,95 @@ function buildUserTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders block and whole-message reply controls beside copy controls", () => {
+    const messageId = MessageId.make("message-reply-actions");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-reply-actions",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: messageId,
+              role: "assistant",
+              text: "First paragraph.\n\nSecond paragraph.",
+              turnId: TurnId.make("turn-reply-actions"),
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain(`id="message-block-${messageId}-0-16"`);
+    expect(markup).toContain(`id="message-block-${messageId}-whole"`);
+    expect(markup).toContain('aria-label="Reply to this block"');
+    expect(markup).toContain(`data-reply-message-id="${messageId}"`);
+    expect(markup).toContain('data-reply-block-id="0-16"');
+    expect(markup).toContain('data-reply-quote="First paragraph."');
+    expect(markup).toContain('aria-label="Copy this block"');
+    expect(markup).toContain("ms-1 inline-flex align-middle");
+    expect(markup).not.toContain("absolute right-0");
+    expect(markup).not.toContain("translate-x-full");
+    expect(markup).toContain('aria-label="Reply to this response"');
+  });
+
+  it("renders a persisted user reply quote linked to its source block", () => {
+    const entry = buildUserTimelineEntry("Can you expand on that?");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            ...entry,
+            message: {
+              ...entry.message,
+              replyTo: {
+                messageId: MessageId.make("message-source"),
+                blockId: "12-40",
+                quote: "The exact source passage.",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("The exact source passage.");
+    expect(markup).toContain("Can you expand on that?");
+    expect(markup).toContain("border-l-2");
+  });
+
+  it("does not render nested reply controls inside a top-level quote", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-quoted-block",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: MessageId.make("message-quoted-block"),
+              role: "assistant",
+              text: "> One quoted paragraph.",
+              turnId: TurnId.make("turn-quoted-block"),
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup.match(/aria-label="Reply to this block"/g)).toHaveLength(1);
+  });
+
   it("uses the larger leading inset only when the top fade is enabled", () => {
     const timelineEntries = [buildUserTimelineEntry("Hello")];
 

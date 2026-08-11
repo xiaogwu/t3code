@@ -917,13 +917,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const replyTarget = command.message.replyToMessageId
-        ? targetThread.messages.find((entry) => entry.id === command.message.replyToMessageId)
-        : undefined;
-      if (command.message.replyToMessageId && !replyTarget) {
+      if (
+        command.message.replyTo !== undefined &&
+        command.message.replyToMessageId !== undefined &&
+        command.message.replyTo.messageId !== command.message.replyToMessageId
+      ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Reply target '${command.message.replyToMessageId}' does not exist on thread '${command.threadId}'.`,
+          detail: "Reply block and reply message target must reference the same assistant message.",
+        });
+      }
+      const replyToMessageId =
+        command.message.replyTo?.messageId ?? command.message.replyToMessageId;
+      const replyTarget = replyToMessageId
+        ? targetThread.messages.find((entry) => entry.id === replyToMessageId)
+        : undefined;
+      // Block replies carry the exact quoted source and remain valid when the
+      // bounded thread snapshot no longer includes the original message.
+      if (replyToMessageId && !replyTarget && command.message.replyTo === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Reply target '${replyToMessageId}' does not exist on thread '${command.threadId}'.`,
         });
       }
       if (replyTarget && (replyTarget.role !== "assistant" || replyTarget.streaming)) {
@@ -970,9 +984,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           role: "user",
           text: command.message.text,
           attachments: command.message.attachments,
-          ...(command.message.replyToMessageId !== undefined
-            ? { replyToMessageId: command.message.replyToMessageId }
-            : {}),
+          ...(replyToMessageId !== undefined ? { replyToMessageId } : {}),
+          ...(command.message.replyTo !== undefined ? { replyTo: command.message.replyTo } : {}),
           turnId: null,
           streaming: false,
           createdAt: command.createdAt,

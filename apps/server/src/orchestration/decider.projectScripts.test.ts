@@ -340,6 +340,44 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
         ]),
         runtimeMode: "approval-required",
       });
+
+      const blockReplyMessageId = asMessageId("assistant-message-outside-bounded-snapshot");
+      const blockReplyResult = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-block-reply-turn-start"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("message-user-block-reply"),
+            role: "user",
+            text: "expand on this",
+            attachments: [],
+            replyToMessageId: blockReplyMessageId,
+            replyTo: {
+              messageId: blockReplyMessageId,
+              blockId: "0-18",
+              quote: "Quoted assistant block",
+            },
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        },
+        readModel,
+      });
+
+      const blockReplyEvents = Array.isArray(blockReplyResult)
+        ? blockReplyResult
+        : [blockReplyResult];
+      expect(blockReplyEvents[0]?.type).toBe("thread.message-sent");
+      expect(blockReplyEvents[0]?.payload).toMatchObject({
+        replyToMessageId: blockReplyMessageId,
+        replyTo: {
+          messageId: blockReplyMessageId,
+          blockId: "0-18",
+          quote: "Quoted assistant block",
+        },
+      });
     }),
   );
 

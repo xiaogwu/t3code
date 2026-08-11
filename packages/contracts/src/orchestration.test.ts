@@ -251,6 +251,34 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
   }),
 );
 
+it.effect("preserves a block reply reference in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-reply",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-reply",
+        role: "user",
+        text: "Tell me more about this.",
+        attachments: [],
+        replyTo: {
+          messageId: "msg-assistant",
+          blockId: "12-48",
+          quote: "A specific paragraph from the response.",
+        },
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.message.replyTo, {
+      messageId: "msg-assistant",
+      blockId: "12-48",
+      quote: "A specific paragraph from the response.",
+    });
+  }),
+);
+
 it.effect("accepts bootstrap metadata in thread.turn.start", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadTurnStartCommand({

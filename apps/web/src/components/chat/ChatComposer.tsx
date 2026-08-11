@@ -679,6 +679,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
   const replyToMessageId = composerDraft.replyToMessageId;
+  const replyTo = composerDraft.replyTo;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
@@ -3029,7 +3030,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <div className="min-w-0 flex-1 border-l-2 border-primary/70 pl-2">
                   <div className="font-medium text-primary">Replying to assistant</div>
                   <div className="truncate text-muted-foreground">
-                    {replyTarget?.text.trim() || "Original response unavailable"}
+                    {replyTo?.quote ?? replyTarget?.text.trim() ?? "Original response unavailable"}
                   </div>
                 </div>
                 <Button
