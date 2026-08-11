@@ -1248,6 +1248,7 @@ function ChatViewContent(props: ChatViewProps) {
     [routeServerThreadShell, threadDetailLoading],
   );
   const activeServerThread = serverThread ?? loadingServerThread;
+  const clearThreadManuallyUnread = useUiStateStore((store) => store.clearThreadManuallyUnread);
   // Pagination window state for the routed server thread: drives the
   // "load earlier turns" header when the loaded window has older history.
   const routeThreadState = useEnvironmentThread(
@@ -1942,6 +1943,13 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [openOrReuseProjectDraftThread],
   );
+
+  // Opening a thread clears any manual unread mark. Visit stamping itself
+  // happens off latestTurn.completedAt below, so a read never rewinds it.
+  useEffect(() => {
+    if (routeKind !== "server") return;
+    clearThreadManuallyUnread(routeThreadKey);
+  }, [clearThreadManuallyUnread, routeKind, routeThreadKey]);
 
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =

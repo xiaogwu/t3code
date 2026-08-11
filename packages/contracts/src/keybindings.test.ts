@@ -101,6 +101,12 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedThreadReadState = yield* decode(KeybindingRule, {
+      key: "mod+alt+u",
+      command: "thread.readState.toggle",
+    });
+    assert.strictEqual(parsedThreadReadState.command, "thread.readState.toggle");
   }),
 );
 

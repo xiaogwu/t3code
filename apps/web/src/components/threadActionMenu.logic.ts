@@ -18,6 +18,7 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "mark-read"
   | "copy-path"
   | "copy-branch"
   | "delete";
@@ -29,6 +30,10 @@ export interface ThreadActionMenuState {
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
+  /** Thread currently reads as unread (manual mark or unseen completion), so
+      the entry offers Mark read instead. Callers without read-state context
+      omit it and get Mark unread. */
+  readonly isUnread?: boolean;
   readonly supports: {
     readonly settlement: boolean;
     readonly snooze: boolean;
@@ -97,7 +102,9 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    { id: "mark-unread", label: "Mark unread" },
+    state.isUnread === true
+      ? { id: "mark-read" as const, label: "Mark read" }
+      : { id: "mark-unread" as const, label: "Mark unread" },
     { id: "copy-path", label: "Copy path", icon: "copy" },
     ...(state.branch ? [{ id: "copy-branch" as const, label: "Copy branch", icon: "copy" }] : []),
     { id: "delete", label: "Delete", destructive: true, icon: "trash" },

@@ -731,6 +731,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const threadKey = scopedThreadKey(threadRef);
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const isManuallyUnread = useUiStateStore(
+    (state) => state.threadManuallyUnreadById[threadKey] === true,
+  );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const openPrLink = useOpenPrLink();
   const runningTerminalIds = useThreadRunningTerminalIds({
@@ -757,7 +760,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const isUnread = isManuallyUnread || hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
   // A woken thread reappears at its original position (the sort is
   // deliberately static), so the pill has to carry the weight. Snoozing is
@@ -1658,8 +1661,9 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
-  const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const markThreadVisited = useUiStateStore((s) => s.markThreadVisited);
+  const markThreadManuallyUnread = useUiStateStore((s) => s.markThreadManuallyUnread);
+  const markThreadRead = useUiStateStore((s) => s.markThreadRead);
   const acknowledgeWoke = useCallback(
     (threadRef: ScopedThreadRef, visitedAt: string) => {
       markThreadVisited(scopedThreadKey(threadRef), visitedAt);
@@ -2691,6 +2695,17 @@ export default function Sidebar() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
           canSnooze(thread, { now: selectionNow.toISOString() }),
       );
+      const uiState = useUiStateStore.getState();
+      const allUnread = selectedThreads.every((thread) => {
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return (
+          uiState.threadManuallyUnreadById[threadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: uiState.threadLastVisitedAtById[threadKey],
+          })
+        );
+      });
       const titleRegenerationThreads = selectedThreads.filter(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities
@@ -2721,7 +2736,9 @@ export default function Sidebar() {
                 ]
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
-            { id: "mark-unread", label: `Mark unread (${count})` },
+            allUnread
+              ? { id: "mark-read", label: `Mark read (${count})` }
+              : { id: "mark-unread", label: `Mark unread (${count})` },
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
           position,
@@ -2827,8 +2844,15 @@ export default function Sidebar() {
       }
       if (clicked.value === "mark-unread") {
         for (const threadKey of threadKeys) {
+          markThreadManuallyUnread(threadKey);
+        }
+        clearSelection();
+        return;
+      }
+      if (clicked.value === "mark-read") {
+        for (const threadKey of threadKeys) {
           const thread = threadByKeyRef.current.get(threadKey);
-          markThreadUnread(threadKey, thread?.latestTurn?.completedAt);
+          if (thread) markThreadRead(threadKey, thread.updatedAt);
         }
         clearSelection();
         return;
@@ -2880,7 +2904,8 @@ export default function Sidebar() {
       clearSelection,
       confirmThreadDelete,
       deleteThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       performSnooze,
       removeFromSelection,
       serverConfigs,
@@ -2936,6 +2961,12 @@ export default function Sidebar() {
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
+              isUnread:
+                useUiStateStore.getState().threadManuallyUnreadById[threadKey] === true ||
+                hasUnseenCompletion({
+                  ...thread,
+                  lastVisitedAt: useUiStateStore.getState().threadLastVisitedAtById[threadKey],
+                }),
               supports: {
                 settlement: supportsSettlement,
                 snooze: supportsSnooze,
@@ -3016,7 +3047,10 @@ export default function Sidebar() {
             return;
           }
           case "mark-unread":
-            markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+            markThreadManuallyUnread(threadKey);
+            return;
+          case "mark-read":
+            markThreadRead(threadKey, thread.updatedAt);
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
@@ -3080,7 +3114,8 @@ export default function Sidebar() {
       copyPathToClipboard,
       deleteThread,
       handleMultiSelectContextMenu,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       projectCwdByKey,
       serverConfigs,
       startThreadRename,
@@ -3107,6 +3142,26 @@ export default function Sidebar() {
           modelPickerOpen: isModelPickerOpen(),
         },
       });
+      if (command === "thread.readState.toggle") {
+        if (!routeThreadKey) return;
+        const thread = threadByKey.get(routeThreadKey);
+        if (!thread) return;
+        const uiState = useUiStateStore.getState();
+        const isUnread =
+          uiState.threadManuallyUnreadById[routeThreadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: uiState.threadLastVisitedAtById[routeThreadKey],
+          });
+        event.preventDefault();
+        event.stopPropagation();
+        if (isUnread) {
+          uiState.markThreadRead(routeThreadKey, thread.updatedAt);
+        } else {
+          uiState.markThreadManuallyUnread(routeThreadKey);
+        }
+        return;
+      }
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
