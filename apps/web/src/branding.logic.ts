@@ -15,6 +15,12 @@ export function resolveServerBackedAppStageLabel(input: {
   readonly primaryServerVersion: string | null | undefined;
   readonly fallbackStageLabel: string;
 }): string {
+  // Development is a property of this client build. A custom DEV client must keep its
+  // blueprint identity even when it connects to a server whose version is a nightly.
+  if (input.fallbackStageLabel.trim().toLowerCase() === "dev") {
+    return input.fallbackStageLabel;
+  }
+
   return input.primaryServerVersion &&
     NIGHTLY_SERVER_VERSION_PATTERN.test(input.primaryServerVersion)
     ? "Nightly"
