@@ -1,6 +1,10 @@
 import * as React from "react";
 import type { ContextMenuItem } from "@t3tools/contracts";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type {
+  SidebarProjectSortOrder,
+  SidebarThreadSortOrder,
+  SidebarV2ThreadSortOrder,
+} from "@t3tools/contracts/settings";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -508,16 +512,32 @@ export function firstValidTimestamp(
   return null;
 }
 
-// Sidebar sort: static creation order, newest thread on top. Activity NEVER
-// reorders the list — a row holds its position from open until settled, so
-// the screen only moves at lifecycle transitions. Status (including pending
-// approval) is carried by each card's edge strip, not by position.
+/**
+ * Default sidebar thread order. `"created_at"` is the original behaviour:
+ * static creation order, newest on top, where activity NEVER reorders the
+ * list, so a row holds its position from open until settled and the screen
+ * only moves at lifecycle transitions. `"updated_at"` opts into the legacy
+ * sidebar's "Last user message" ordering for users who want the list to track
+ * recency instead.
+ *
+ * Status (including pending approval) is carried by each card's edge strip,
+ * not by position, under either order.
+ *
+ * The id tie-break is ASCENDING, unlike the shared `sortThreads` helper. That
+ * is deliberate: this sidebar has always tie-broken this way and the order is
+ * only required to be stable, not to match the legacy sidebar.
+ */
 export function sortThreadsForSidebar<
-  T extends { readonly id: string; readonly createdAt: string },
->(threads: readonly T[]): T[] {
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly latestUserMessageAt?: string | null;
+  },
+>(threads: readonly T[], sortOrder: SidebarV2ThreadSortOrder): T[] {
   return [...threads].toSorted(
     (left, right) =>
-      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
+      getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder) ||
       left.id.localeCompare(right.id),
   );
 }

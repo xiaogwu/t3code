@@ -99,6 +99,27 @@ describe("ClientSettings sidebar", () => {
     expect(decoded).not.toHaveProperty("sidebarV2ConfiguredByUser");
   });
 
+  it("orders the default sidebar's threads by creation date, independently of legacy", () => {
+    const settings = decodeClientSettings({});
+    // The default sidebar shipped as a static board; legacy is a recency list.
+    // Sharing one key would have reordered every existing sidebar on upgrade.
+    expect(settings.sidebarV2ThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarThreadSortOrder).toBe("updated_at");
+  });
+
+  it("keeps the two sidebar versions' thread orders independent", () => {
+    const settings = decodeClientSettings({
+      sidebarThreadSortOrder: "created_at",
+      sidebarV2ThreadSortOrder: "updated_at",
+    });
+    expect(settings.sidebarThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarV2ThreadSortOrder).toBe("updated_at");
+
+    const patch = decodeClientSettingsPatch({ sidebarV2ThreadSortOrder: "updated_at" });
+    expect(patch.sidebarV2ThreadSortOrder).toBe("updated_at");
+    expect(patch.sidebarThreadSortOrder).toBeUndefined();
+  });
+
   it("preserves an explicit legacy sidebar opt-in", () => {
     expect(decodeClientSettings({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(true);
     expect(decodeClientSettingsPatch({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(

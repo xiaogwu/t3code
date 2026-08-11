@@ -40,6 +40,7 @@ const clientSettings: ClientSettings = {
   sidebarThreadSortOrder: "created_at",
   sidebarThreadPreviewCount: 6,
   legacySidebarEnabled: false,
+  sidebarV2ThreadSortOrder: "updated_at",
   threadActivitySoundMode: "off",
   timestampFormat: "24-hour",
   wordWrap: true,

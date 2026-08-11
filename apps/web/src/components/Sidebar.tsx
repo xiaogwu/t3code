@@ -99,7 +99,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -164,6 +164,7 @@ import { Input } from "./ui/input";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarSortMenu } from "./sidebar/SidebarSortMenu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -1598,6 +1599,8 @@ export default function Sidebar() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const sidebarV2ThreadSortOrder = useClientSettings((s) => s.sidebarV2ThreadSortOrder);
+  const updateSettings = useUpdateClientSettings();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -1955,7 +1958,7 @@ export default function Sidebar() {
           )
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
-      activeThreads: sortThreadsForSidebar(active),
+      activeThreads: sortThreadsForSidebar(active, sidebarV2ThreadSortOrder),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -1971,6 +1974,7 @@ export default function Sidebar() {
     nowMinute,
     scopedProjectKeys,
     serverConfigs,
+    sidebarV2ThreadSortOrder,
     snoozeWakeTick,
     threads,
   ]);
@@ -3297,6 +3301,14 @@ export default function Sidebar() {
                     <XIcon className="size-3" />
                   </Button>
                 ) : null}
+              </div>
+              <div className="shrink-0">
+                <SidebarSortMenu
+                  threadSortOrder={sidebarV2ThreadSortOrder}
+                  onThreadSortOrderChange={(nextSortOrder) => {
+                    updateSettings({ sidebarV2ThreadSortOrder: nextSortOrder });
+                  }}
+                />
               </div>
               <div className="shrink-0">
                 <Tooltip>
