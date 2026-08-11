@@ -545,6 +545,35 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it.effect("hands a dev build its stage marker through the mac Info.plist", () =>
+    Effect.gen(function* () {
+      const dev = yield* createBuildConfig(
+        "mac",
+        "zip",
+        "0.0.33-nightly.20260807.1026",
+        false,
+        false,
+        undefined,
+        undefined,
+        true,
+      );
+      const nightly = yield* createBuildConfig(
+        "mac",
+        "zip",
+        "0.0.33-nightly.20260807.1026",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.deepStrictEqual((dev.mac as Record<string, unknown>).extendInfo, {
+        LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1", T3CODE_DISABLE_AUTO_UPDATE: "1" },
+      });
+      assert.notProperty(nightly.mac as Record<string, unknown>, "extendInfo");
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig(
