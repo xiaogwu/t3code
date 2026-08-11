@@ -678,9 +678,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerElementContexts = composerDraft.elementContexts;
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
+  const replyToMessageId = composerDraft.replyToMessageId;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const setComposerDraftReplyToMessageId = useComposerDraftStore(
+    (store) => store.setReplyToMessageId,
+  );
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -712,6 +716,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (store) => store.syncPersistedAttachments,
   );
   const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
+  const replyTarget =
+    replyToMessageId === null
+      ? null
+      : (activeThread?.messages.find((message) => message.id === replyToMessageId) ?? null);
 
   // ------------------------------------------------------------------
   // Model state
@@ -3016,6 +3024,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
               )}
 
+            {replyToMessageId !== null ? (
+              <div className="mx-3 mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-muted/45 px-2.5 py-2 text-xs sm:mx-4">
+                <div className="min-w-0 flex-1 border-l-2 border-primary/70 pl-2">
+                  <div className="font-medium text-primary">Replying to assistant</div>
+                  <div className="truncate text-muted-foreground">
+                    {replyTarget?.text.trim() || "Original response unavailable"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Remove reply"
+                  onClick={() => setComposerDraftReplyToMessageId(composerDraftTarget, null)}
+                >
+                  <XIcon className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
             <div className="relative">
               <ComposerPromptEditor
                 editorRef={composerEditorRef}

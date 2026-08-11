@@ -1289,6 +1289,9 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const setComposerDraftReplyToMessageId = useComposerDraftStore(
+    (store) => store.setReplyToMessageId,
+  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
@@ -2758,6 +2761,13 @@ function ChatViewContent(props: ChatViewProps) {
       focusComposer();
     });
   }, [focusComposer]);
+  const onReplyToAssistantMessage = useCallback(
+    (messageId: MessageId) => {
+      setComposerDraftReplyToMessageId(composerDraftTarget, messageId);
+      scheduleComposerFocus();
+    },
+    [composerDraftTarget, scheduleComposerFocus, setComposerDraftReplyToMessageId],
+  );
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       composerRef.current?.addTerminalContext(selection);
@@ -4236,6 +4246,9 @@ function ChatViewContent(props: ChatViewProps) {
         draft.reviewComments.length > 0),
     );
   });
+  const composerReplyToMessageId = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.replyToMessageId ?? null,
+  );
   const activeBranchMismatchKey = branchMismatchKey(
     activeThread?.id ?? null,
     localCheckoutBranchMismatch,
@@ -5032,6 +5045,7 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const replyToMessageIdForSend = composerReplyToMessageId;
     const messageTextWithContexts = appendElementContextsToPrompt(
       appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
@@ -5091,6 +5105,7 @@ function ChatViewContent(props: ChatViewProps) {
         id: messageIdForSend,
         role: "user",
         text: outgoingMessageText,
+        ...(replyToMessageIdForSend !== null ? { replyToMessageId: replyToMessageIdForSend } : {}),
         ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
         turnId: null,
         createdAt: messageCreatedAt,
@@ -5220,6 +5235,9 @@ function ChatViewContent(props: ChatViewProps) {
             role: "user",
             text: outgoingMessageText,
             attachments: turnAttachmentsResult.value,
+            ...(replyToMessageIdForSend !== null
+              ? { replyToMessageId: replyToMessageIdForSend }
+              : {}),
           },
           modelSelection: ctxSelectedModelSelection,
           titleSeed: title,
@@ -5262,6 +5280,7 @@ function ChatViewContent(props: ChatViewProps) {
         composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
         composerElementContextsRef.current = composerElementContextsSnapshot;
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
+        setComposerDraftReplyToMessageId(composerDraftTarget, replyToMessageIdForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
         setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
@@ -6193,6 +6212,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onOpenTurnDiff={onOpenTurnDiff}
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
+                onReplyToAssistantMessage={onReplyToAssistantMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}

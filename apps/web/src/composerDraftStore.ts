@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   type EnvironmentId,
+  type MessageId,
   ModelSelection,
   ProjectId,
   ProviderInstanceId,
@@ -57,7 +58,7 @@ const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
-const COMPOSER_DRAFT_STORAGE_VERSION = 8;
+const COMPOSER_DRAFT_STORAGE_VERSION = 9;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -127,6 +128,7 @@ type PersistedElementContextDraft = typeof PersistedElementContextDraft.Type;
 
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
+  replyToMessageId: Schema.optionalKey(Schema.String),
   attachments: Schema.Array(PersistedComposerImageAttachment),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
   elementContexts: Schema.optionalKey(Schema.Array(PersistedElementContextDraft)),
@@ -249,6 +251,8 @@ const PersistedComposerDraftStoreStorage = Schema.Struct({
  */
 export interface ComposerThreadDraftState {
   prompt: string;
+  /** Completed assistant message the next outgoing prompt addresses. */
+  replyToMessageId: MessageId | null;
   images: ComposerImageAttachment[];
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
@@ -427,6 +431,7 @@ interface ComposerDraftStoreState {
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
+  setReplyToMessageId: (threadRef: ComposerThreadTarget, messageId: MessageId | null) => void;
   setTerminalContexts: (threadRef: ComposerThreadTarget, contexts: TerminalContextDraft[]) => void;
   setModelSelection: (
     threadRef: ComposerThreadTarget,
@@ -614,6 +619,7 @@ const EMPTY_COMPOSER_DRAFT_MODEL_STATE = Object.freeze<ComposerDraftModelState>(
 
 const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
+  replyToMessageId: null,
   images: EMPTY_IMAGES,
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
@@ -636,6 +642,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
 export function createEmptyThreadDraft(): ComposerThreadDraftState {
   return {
     prompt: "",
+    replyToMessageId: null,
     images: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
@@ -710,6 +717,7 @@ function normalizeTerminalContextsForThread(
 function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   return (
     draft.prompt.length === 0 &&
+    draft.replyToMessageId === null &&
     draft.images.length === 0 &&
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
@@ -1677,6 +1685,11 @@ function normalizePersistedDraftsByThreadId(
     }
     const draftCandidate = draftValue as PersistedComposerThreadDraftState;
     const promptCandidate = typeof draftCandidate.prompt === "string" ? draftCandidate.prompt : "";
+    const replyToMessageId =
+      typeof draftCandidate.replyToMessageId === "string" &&
+      draftCandidate.replyToMessageId.length > 0
+        ? (draftCandidate.replyToMessageId as MessageId)
+        : null;
     const attachments = Array.isArray(draftCandidate.attachments)
       ? draftCandidate.attachments.flatMap((entry) => {
           const normalized = normalizePersistedAttachment(entry);
@@ -1763,6 +1776,7 @@ function normalizePersistedDraftsByThreadId(
       terminalContexts.length === 0 &&
       elementContexts.length === 0 &&
       reviewComments.length === 0 &&
+      replyToMessageId === null &&
       !hasModelData &&
       !runtimeMode &&
       !interactionMode
@@ -1783,6 +1797,7 @@ function normalizePersistedDraftsByThreadId(
             })();
     nextDraftsByThreadKey[normalizedThreadKey] = {
       prompt,
+      ...(replyToMessageId !== null ? { replyToMessageId } : {}),
       attachments,
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(elementContexts.length > 0 ? { elementContexts } : {}),
@@ -1903,6 +1918,7 @@ function partializeComposerDraftStoreState(
     }
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
       prompt: draft.prompt,
+      ...(draft.replyToMessageId !== null ? { replyToMessageId: draft.replyToMessageId } : {}),
       attachments: draft.persistedAttachments,
       ...(draft.terminalContexts.length > 0
         ? {
@@ -2183,6 +2199,7 @@ function toHydratedThreadDraft(
 
   return {
     prompt: persistedDraft.prompt,
+    replyToMessageId: (persistedDraft.replyToMessageId as MessageId | undefined) ?? null,
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
     nonPersistedImageIds: [],
     persistedAttachments: [...persistedDraft.attachments],
@@ -2672,6 +2689,21 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             } else {
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        setReplyToMessageId: (threadRef, messageId) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) return;
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+            const nextDraft: ComposerThreadDraftState = {
+              ...existing,
+              replyToMessageId: messageId,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadKey[threadKey];
+            else nextDraftsByThreadKey[threadKey] = nextDraft;
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
@@ -3428,6 +3460,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextDraft: ComposerThreadDraftState = {
               ...current,
               prompt: "",
+              replyToMessageId: null,
               images: [],
               nonPersistedImageIds: [],
               persistedAttachments: [],
