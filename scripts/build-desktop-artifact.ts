@@ -962,7 +962,7 @@ const stageClerkPasskeyNativeBinaries = Effect.fn("stageClerkPasskeyNativeBinari
 //
 // Without this the packaged app loads pty.node fine and then every terminal
 // dies with `Error: posix_spawnp failed.`, which does not mention permissions.
-const stageMacNodePtySpawnHelper = Effect.fn("stageMacNodePtySpawnHelper")(function* (
+export const stageMacNodePtySpawnHelper = Effect.fn("stageMacNodePtySpawnHelper")(function* (
   stageAppDir: string,
   arch: typeof BuildArch.Type,
 ) {

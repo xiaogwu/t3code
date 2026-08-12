@@ -2,6 +2,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Sink from "effect/Sink";
@@ -41,6 +43,7 @@ import {
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
+  stageMacNodePtySpawnHelper,
   STAGE_INSTALL_ARGS,
   WINDOWS_ASAR_UNPACK,
 } from "./build-desktop-artifact.ts";
@@ -361,6 +364,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(mac, "asarUnpack");
       assert.notProperty(linux, "asarUnpack");
       assert.deepStrictEqual(win.asarUnpack, WINDOWS_ASAR_UNPACK);
+      // A local mac build cannot reach artifacts.electronjs.org, so
+      // @electron/rebuild has no Electron headers to compile against and the
+      // build dies. Both mac and Windows ship node-pty's and msgpackr-extract's
+      // darwin/win prebuilds instead. Linux still rebuilds.
+      assert.strictEqual(mac.npmRebuild, false);
+      assert.strictEqual(win.npmRebuild, false);
+      assert.notStrictEqual(linux.npmRebuild, false);
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
@@ -809,5 +819,67 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
     }),
+  );
+
+  // node-pty posix_spawn()s a separate `spawn-helper` binary and ships it inside
+  // prebuilds/darwin-*/ as mode 644. Normally the executable bit comes from the
+  // compiler writing build/Release, which only happens when @electron/rebuild
+  // runs -- and mac builds disable that (see npmRebuild above). Without the
+  // chmod the packaged app loads pty.node fine and then every terminal dies with
+  // `Error: posix_spawnp failed.`, which says nothing about permissions.
+  it.effect("makes node-pty's staged mac spawn-helper executable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stageAppDir = yield* fs.makeTempDirectoryScoped();
+      const prebuildDir = path.join(
+        stageAppDir,
+        "node_modules",
+        "node-pty",
+        "prebuilds",
+        "darwin-arm64",
+      );
+      yield* fs.makeDirectory(prebuildDir, { recursive: true });
+      const helperPath = path.join(prebuildDir, "spawn-helper");
+      yield* fs.writeFileString(helperPath, "#!/bin/sh\n");
+      yield* fs.chmod(helperPath, 0o644);
+
+      yield* stageMacNodePtySpawnHelper(stageAppDir, "arm64");
+
+      const info = yield* fs.stat(helperPath);
+      // Mask off the file-type bits; only the permission bits are the claim.
+      assert.equal((Number(info.mode) & 0o777).toString(8), "755");
+    }).pipe(Effect.scoped),
+  );
+
+  // A universal build lipos both slices together, so both prebuilds are staged
+  // and both helpers need the bit. Absent is not an error: node-pty only ships
+  // the helper for platforms that need it.
+  it.effect("chmods both slices for a universal build and tolerates an absent helper", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stageAppDir = yield* fs.makeTempDirectoryScoped();
+      const helperFor = (arch: string) =>
+        path.join(
+          stageAppDir,
+          "node_modules",
+          "node-pty",
+          "prebuilds",
+          `darwin-${arch}`,
+          "spawn-helper",
+        );
+
+      // x64 slice present, arm64 slice missing entirely.
+      yield* fs.makeDirectory(path.dirname(helperFor("x64")), { recursive: true });
+      yield* fs.writeFileString(helperFor("x64"), "#!/bin/sh\n");
+      yield* fs.chmod(helperFor("x64"), 0o644);
+
+      yield* stageMacNodePtySpawnHelper(stageAppDir, "universal");
+
+      const info = yield* fs.stat(helperFor("x64"));
+      assert.equal((Number(info.mode) & 0o777).toString(8), "755");
+      assert.equal(yield* fs.exists(helperFor("arm64")), false);
+    }).pipe(Effect.scoped),
   );
 });
