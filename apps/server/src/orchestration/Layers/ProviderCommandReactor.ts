@@ -1114,8 +1114,9 @@ const make = Effect.gen(function* () {
       message.replyToMessageId === undefined
         ? undefined
         : thread.messages.find((entry) => entry.id === message.replyToMessageId);
-    const providerMessageText = replyTarget
-      ? formatReplyContext({ replyText: replyTarget.text, prompt: message.text })
+    const replyText = message.replyTo?.quote ?? replyTarget?.text;
+    const providerMessageText = replyText
+      ? formatReplyContext({ replyText, prompt: message.text })
       : message.text;
 
     const isFirstUserMessageTurn =

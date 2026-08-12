@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type MessageId,
+  type MessageReplyReference,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
@@ -138,7 +139,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
-  onReplyToAssistantMessage: (messageId: MessageId) => void;
+  onReplyToAssistantMessage: (messageId: MessageId, replyTo?: MessageReplyReference) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
@@ -218,7 +219,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
-  onReplyToAssistantMessage?: (messageId: MessageId) => void;
+  onReplyToAssistantMessage?: (messageId: MessageId, replyTo?: MessageReplyReference) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
@@ -1038,10 +1039,30 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             ))}
           </div>
         ) : null}
-        {row.message.replyToMessageId ? (
-          <div className="mb-2 border-l-2 border-primary/70 pl-2 text-xs text-muted-foreground">
-            Replying to assistant response
-          </div>
+        {row.message.replyToMessageId || row.message.replyTo ? (
+          <button
+            type="button"
+            className="mb-2 block max-w-full border-l-2 border-primary/70 pl-2 text-left text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              const sourceMessageId =
+                row.message.replyTo?.messageId ?? row.message.replyToMessageId;
+              const blockId = row.message.replyTo?.blockId ?? "whole";
+              const target = document.getElementById(`message-block-${sourceMessageId}-${blockId}`);
+              target?.scrollIntoView({ behavior: "smooth", block: "center" });
+              target?.animate(
+                [
+                  { backgroundColor: "transparent" },
+                  { backgroundColor: "var(--accent)" },
+                  { backgroundColor: "transparent" },
+                ],
+                { duration: 1_400 },
+              );
+            }}
+          >
+            <span className="line-clamp-3 whitespace-pre-wrap">
+              {row.message.replyTo?.quote ?? "Replying to assistant response"}
+            </span>
+          </button>
         ) : null}
         <CollapsibleUserMessageBody
           text={elementContextState.promptText}
@@ -1123,13 +1144,15 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
 
   return (
     <>
-      <div className="relative min-w-0 px-1 py-0.5">
+      <div id={`message-block-${row.message.id}-whole`} className="relative min-w-0 px-1 py-0.5">
         <ChatMarkdown
           text={messageText}
           cwd={ctx.markdownCwd}
           threadRef={ctx.threadRef ?? undefined}
           isStreaming={Boolean(row.message.streaming)}
           skills={ctx.skills}
+          messageId={row.message.id}
+          onReplyToBlock={(reply) => ctx.onReplyToAssistantMessage(reply.messageId, reply)}
         />
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}

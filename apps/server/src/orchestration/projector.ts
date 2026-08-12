@@ -511,6 +511,7 @@ export function projectEvent(
             ...(payload.replyToMessageId !== undefined
               ? { replyToMessageId: payload.replyToMessageId }
               : {}),
+            ...(payload.replyTo !== undefined ? { replyTo: payload.replyTo } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,

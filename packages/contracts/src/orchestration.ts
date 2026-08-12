@@ -238,6 +238,13 @@ export type OrchestrationProject = typeof OrchestrationProject.Type;
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
+export const MessageReplyReference = Schema.Struct({
+  messageId: MessageId,
+  blockId: TrimmedNonEmptyString,
+  quote: TrimmedNonEmptyString,
+});
+export type MessageReplyReference = typeof MessageReplyReference.Type;
+
 export const OrchestrationMessage = Schema.Struct({
   id: MessageId,
   role: OrchestrationMessageRole,
@@ -245,6 +252,7 @@ export const OrchestrationMessage = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   /** The completed assistant message this user message explicitly addresses. */
   replyToMessageId: Schema.optional(MessageId),
+  replyTo: Schema.optional(MessageReplyReference),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -820,6 +828,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
     replyToMessageId: Schema.optional(MessageId),
+    replyTo: Schema.optional(MessageReplyReference),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -842,6 +851,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     text: Schema.String,
     attachments: Schema.Array(UploadChatAttachment),
     replyToMessageId: Schema.optional(MessageId),
+    replyTo: Schema.optional(MessageReplyReference),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -1229,6 +1239,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   replyToMessageId: Schema.optional(MessageId),
+  replyTo: Schema.optional(MessageReplyReference),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,

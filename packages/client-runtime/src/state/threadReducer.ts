@@ -292,6 +292,7 @@ export function applyThreadDetailEvent(
         ...(event.payload.replyToMessageId !== undefined
           ? { replyToMessageId: event.payload.replyToMessageId }
           : {}),
+        ...(event.payload.replyTo !== undefined ? { replyTo: event.payload.replyTo } : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
         createdAt: event.payload.createdAt,
@@ -319,6 +320,7 @@ export function applyThreadDetailEvent(
                   ...(message.replyToMessageId !== undefined
                     ? { replyToMessageId: message.replyToMessageId }
                     : {}),
+                  ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
                 },
           )
         : Arr.append(thread.messages, message);

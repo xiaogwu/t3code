@@ -3,6 +3,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CopyIcon,
+  ReplyIcon,
   GlobeIcon,
   InfoIcon,
   LightbulbIcon,
@@ -13,7 +14,11 @@ import {
   TriangleAlertIcon,
   WrapTextIcon,
 } from "lucide-react";
-import type { ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
+import type {
+  MessageReplyReference,
+  ScopedThreadRef,
+  ServerProviderSkill,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -110,6 +115,59 @@ interface ChatMarkdownProps {
   className?: string;
   /** Treat single newlines as hard breaks — chat-style user input. */
   lineBreaks?: boolean;
+  messageId?: MessageReplyReference["messageId"];
+  onReplyToBlock?: ((input: MessageReplyReference) => void) | undefined;
+}
+
+function MarkdownReplyableBlock(props: {
+  messageId: MessageReplyReference["messageId"];
+  blockId: string;
+  quote: string;
+  onReply: (input: MessageReplyReference) => void;
+  children: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div
+      id={`message-block-${props.messageId}-${props.blockId}`}
+      data-message-block-id={props.blockId}
+      className="group/reply-block rounded-sm transition-colors target:bg-accent/45 [&>blockquote]:inline [&>h1]:inline [&>h2]:inline [&>h3]:inline [&>h4]:inline [&>h5]:inline [&>h6]:inline [&>p]:inline"
+    >
+      {props.children}
+      <span className="ms-1 inline-flex align-middle gap-0.5 rounded-md border border-border/60 bg-background/95 p-0.5 opacity-0 shadow-sm transition-opacity group-hover/reply-block:opacity-100 group-focus-within/reply-block:opacity-100 max-sm:opacity-100">
+        <button
+          type="button"
+          aria-label="Reply to this block"
+          data-reply-message-id={props.messageId}
+          data-reply-block-id={props.blockId}
+          data-reply-quote={props.quote}
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() =>
+            props.onReply({
+              messageId: props.messageId,
+              blockId: props.blockId,
+              quote: props.quote,
+            })
+          }
+        >
+          <ReplyIcon className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label={copied ? "Copied block" : "Copy this block"}
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            void writeTextToClipboard(props.quote, "block").then(() => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        </button>
+      </span>
+    </div>
+  );
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -150,7 +208,10 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
-    "*": (defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
+    "*": [
+      ...(defaultSchema.attributes?.["*"] ?? []).filter((attribute) => attribute !== "title"),
+      "dataReplyableBlock",
+    ],
     code: [...(defaultSchema.attributes?.code ?? []), "dataCodeMeta", "dataInlineCode"],
     blockquote: [...(defaultSchema.attributes?.blockquote ?? []), "dataAlert"],
   },
@@ -164,6 +225,7 @@ const CHAT_MARKDOWN_REMARK_PLUGINS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
+  remarkMarkReplyableBlocks,
   remarkPreserveCodeMeta,
   remarkTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
@@ -172,6 +234,7 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
+  remarkMarkReplyableBlocks,
   remarkBreaks,
   remarkPreserveCodeMeta,
   remarkTagInlineCode,
@@ -264,6 +327,24 @@ type MarkdownAstNode = {
   };
   children?: MarkdownAstNode[];
 };
+
+function markReplyableNode(node: MarkdownAstNode): void {
+  node.data ??= {};
+  node.data.hProperties ??= {};
+  node.data.hProperties["data-replyable-block"] = "true";
+}
+
+function remarkMarkReplyableBlocks() {
+  return (tree: MarkdownAstNode) => {
+    for (const child of tree.children ?? []) {
+      if (child.type === "list") {
+        for (const item of child.children ?? []) markReplyableNode(item);
+        continue;
+      }
+      markReplyableNode(child);
+    }
+  };
+}
 
 function remarkPreserveCodeMeta() {
   return (tree: MarkdownAstNode) => {
@@ -589,12 +670,16 @@ function MarkdownCodeBlock({
   fenceTitle,
   theme,
   children,
+  reply,
 }: {
   code: string;
   language: string;
   fenceTitle: string | null;
   theme: "light" | "dark";
   children: ReactNode;
+  reply?:
+    | { target: MessageReplyReference; onReply: (target: MessageReplyReference) => void }
+    | undefined;
 }) {
   const [copied, setCopied] = useState(false);
   const [wrapped, setWrapped] = useState(readInitialWordWrapSetting);
@@ -642,6 +727,7 @@ function MarkdownCodeBlock({
 
   return (
     <div
+      id={reply ? `message-block-${reply.target.messageId}-${reply.target.blockId}` : undefined}
       className="chat-markdown-codeblock border border-border/70 bg-secondary leading-snug dark:border-transparent dark:bg-input/32"
       data-language={language}
       data-wrap={wrapped ? "true" : "false"}
@@ -655,6 +741,25 @@ function MarkdownCodeBlock({
           />
         </span>
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Code block actions">
+          {reply ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="chat-markdown-chrome-action"
+                    onClick={() => reply.onReply(reply.target)}
+                    aria-label="Reply to this code block"
+                  />
+                }
+              >
+                <ReplyIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Reply to code</TooltipPopup>
+            </Tooltip>
+          ) : null}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -1327,6 +1432,8 @@ function ChatMarkdown({
   skills = EMPTY_MARKDOWN_SKILLS,
   className,
   lineBreaks = false,
+  messageId,
+  onReplyToBlock,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -1438,6 +1545,41 @@ function ChatMarkdown({
    * renderers that close over this message's metadata. useMemo keeps them stable until that
    * metadata changes. */
   const markdownComponents = useMemo<Components>(() => {
+    const replyable = (
+      node:
+        | {
+            position?:
+              | { start: { offset?: number | undefined }; end: { offset?: number | undefined } }
+              | undefined;
+            properties?: Record<string, unknown> | undefined;
+          }
+        | undefined,
+      children: ReactNode,
+    ) => {
+      if (
+        node?.properties?.dataReplyableBlock !== "true" &&
+        node?.properties?.dataReplyableBlock !== true
+      ) {
+        return children;
+      }
+      const start = node?.position?.start.offset;
+      const end = node?.position?.end.offset;
+      if (!messageId || !onReplyToBlock || typeof start !== "number" || typeof end !== "number") {
+        return children;
+      }
+      const quote = text.slice(start, end).trim();
+      if (!quote) return children;
+      return (
+        <MarkdownReplyableBlock
+          messageId={messageId}
+          blockId={`${start}-${end}`}
+          quote={quote}
+          onReply={onReplyToBlock}
+        >
+          {children}
+        </MarkdownReplyableBlock>
+      );
+    };
     const fileLinkChip = (
       fileLinkMeta: MarkdownFileLinkMeta,
       copyMarkdown: string,
@@ -1480,27 +1622,31 @@ function ChatMarkdown({
     };
 
     return {
-      p({ node: _node, children, ...props }) {
-        return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
+      p({ node, children, ...props }) {
+        return replyable(
+          node,
+          <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>,
+        );
       },
-      blockquote({ node: _node, children, ...props }) {
+      blockquote({ node, children, ...props }) {
         const alert =
           GITHUB_ALERT_PRESENTATIONS[
             String((props as Record<string, unknown>)["data-alert"] ?? "")
           ];
         if (!alert) {
-          return <blockquote {...props}>{children}</blockquote>;
+          return replyable(node, <blockquote {...props}>{children}</blockquote>);
         }
         // Not a <blockquote>: the stylesheet mutes those, and an alert's body is ordinary
         // text under a colored title — which is how the host renders it.
-        return (
+        return replyable(
+          node,
           <div role="note" className={cn("my-1 border-l-2 pl-3", alert.borderClassName)}>
             <p className={cn("flex items-center gap-1.5 font-medium", alert.titleClassName)}>
               <alert.Icon aria-hidden className="size-3.5 shrink-0" />
               {alert.label}
             </p>
             {children}
-          </div>
+          </div>,
         );
       },
       li({ node, children, ...props }) {
@@ -1509,9 +1655,27 @@ function ChatMarkdown({
           typeof listItemStart === "number" ? findTaskListMarkerOffset(text, listItemStart) : null;
         return (
           <li {...props} data-task-marker-offset={markerOffset ?? undefined}>
-            {renderSkillInlineMarkdownChildren(children, skills)}
+            {replyable(node, renderSkillInlineMarkdownChildren(children, skills))}
           </li>
         );
+      },
+      h1({ node, children, ...props }) {
+        return replyable(node, <h1 {...props}>{children}</h1>);
+      },
+      h2({ node, children, ...props }) {
+        return replyable(node, <h2 {...props}>{children}</h2>);
+      },
+      h3({ node, children, ...props }) {
+        return replyable(node, <h3 {...props}>{children}</h3>);
+      },
+      h4({ node, children, ...props }) {
+        return replyable(node, <h4 {...props}>{children}</h4>);
+      },
+      h5({ node, children, ...props }) {
+        return replyable(node, <h5 {...props}>{children}</h5>);
+      },
+      h6({ node, children, ...props }) {
+        return replyable(node, <h6 {...props}>{children}</h6>);
       },
       input({ node: _node, type, checked, disabled: _disabled, ...props }) {
         if (type !== "checkbox" || !onTaskListChange) {
@@ -1642,8 +1806,8 @@ function ChatMarkdown({
           </code>
         );
       },
-      table({ node: _node, ...props }) {
-        return <MarkdownTable {...props} />;
+      table({ node, ...props }) {
+        return replyable(node, <MarkdownTable {...props} />);
       },
       details({ node: _node, children, open: detailsOpen }) {
         return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
@@ -1656,12 +1820,28 @@ function ChatMarkdown({
 
         const language = extractFenceLanguage(codeBlock.className);
         const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+        const start = node?.position?.start.offset;
+        const end = node?.position?.end.offset;
+        const quote =
+          typeof start === "number" && typeof end === "number" ? text.slice(start, end).trim() : "";
         return (
           <MarkdownCodeBlock
             code={codeBlock.code}
             language={language}
             fenceTitle={fenceTitle}
             theme={resolvedTheme}
+            reply={
+              messageId &&
+              onReplyToBlock &&
+              quote &&
+              (node?.properties?.dataReplyableBlock === "true" ||
+                node?.properties?.dataReplyableBlock === true)
+                ? {
+                    target: { messageId, blockId: `${start}-${end}`, quote },
+                    onReply: onReplyToBlock,
+                  }
+                : undefined
+            }
           >
             <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
               <Suspense fallback={<pre {...props}>{children}</pre>}>
@@ -1692,6 +1872,8 @@ function ChatMarkdown({
     skills,
     text,
     threadRef,
+    messageId,
+    onReplyToBlock,
   ]);
   /* eslint-enable react/no-unstable-nested-components */
 
