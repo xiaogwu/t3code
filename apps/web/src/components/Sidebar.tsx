@@ -38,8 +38,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
   ClockIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -1386,9 +1384,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         )}
                       >
                         {topStatus.icon === "working" ? (
-                          <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
+                          <span
+                            aria-hidden
+                            className="size-2 shrink-0 animate-status-pulse rounded-full bg-current motion-reduce:animate-none"
+                          />
                         ) : topStatus.icon === "done" ? (
-                          <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                          <span aria-hidden className="size-2 shrink-0 rounded-full bg-current" />
                         ) : null}
                         {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
