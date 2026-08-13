@@ -62,6 +62,14 @@ characters and uses SQLite's ASCII case-insensitive matching.
 The full command list and the current defaults are shown in **Settings** → **Keybindings**, which
 always matches the build you are running. Use that rather than a copied list.
 
+## Composer prompt history
+
+With an empty message composer, press Up Arrow to recall your most recently sent prompt. Keep
+pressing Up to walk backward through up to 50 saved prompts; Down Arrow walks forward again and
+returns to an empty composer after the newest prompt. Editing a recalled prompt ends that walk, so
+the arrow keys go back to normal text navigation. Prompt history is shared across threads and
+projects, survives reloads, and stores prompt text only.
+
 Note that `chat.new` and `chat.newLocal` both create a thread through the same path. A new thread
 inherits the project you were in, along with model and mode selections. Branch, worktree, and
 environment mode always come from your configured defaults, not from the thread you were looking

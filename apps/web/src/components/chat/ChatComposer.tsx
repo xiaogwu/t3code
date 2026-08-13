@@ -61,6 +61,7 @@ import {
   usePromptStashStore,
   type PromptStashEntry,
 } from "../../promptStashStore";
+import { usePromptHistoryStore } from "../../promptHistoryStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
@@ -94,6 +95,7 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
+import { resolvePromptHistoryStep } from "./promptHistoryNavigation";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
   getComposerPromptInjectionState,
@@ -983,6 +985,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const dragDepthRef = useRef(0);
   const stashPulseKeyRef = useRef(0);
   const stashPulseTimeoutRef = useRef<number | null>(null);
+  const promptHistoryIndexRef = useRef(-1);
+  const promptHistoryTextRef = useRef<string | null>(null);
   /**
    * Snapshots currently being encoded, keyed by target+prompt+image ids.
    * Keyed rather than boolean so a genuinely different prompt (or a different
@@ -1311,6 +1315,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Sync refs back to parent
   // ------------------------------------------------------------------
   useEffect(() => {
+    if (promptHistoryTextRef.current !== null && prompt !== promptHistoryTextRef.current) {
+      promptHistoryIndexRef.current = -1;
+      promptHistoryTextRef.current = null;
+    }
     promptRef.current = prompt;
     setComposerCursor((existing) => clampCollapsedComposerCursor(prompt, existing));
   }, [prompt, promptRef]);
@@ -1405,6 +1413,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Reset compositor state on thread/draft change
   // ------------------------------------------------------------------
   useEffect(() => {
+    promptHistoryIndexRef.current = -1;
+    promptHistoryTextRef.current = null;
     setComposerHighlightedItemId(null);
     setComposerCursor(collapseExpandedComposerCursor(promptRef.current, promptRef.current.length));
     setComposerTrigger(detectComposerTrigger(promptRef.current, promptRef.current.length));
@@ -1901,6 +1911,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     }
     if (
+      (key === "ArrowUp" || key === "ArrowDown") &&
+      !isComposerApprovalState &&
+      activePendingProgress === null &&
+      pendingUserInputs.length === 0
+    ) {
+      const next = resolvePromptHistoryStep({
+        entries: promptHistoryEntries,
+        index: promptHistoryIndexRef.current,
+        direction: key === "ArrowUp" ? "older" : "newer",
+        prompt: promptRef.current,
+      });
+      if (next) {
+        promptRef.current = next.text;
+        setComposerDraftPrompt(composerDraftTarget, next.text);
+        setComposerCursor(collapseExpandedComposerCursor(next.text, next.text.length));
+        setComposerTrigger(null);
+        promptHistoryIndexRef.current = next.index;
+        promptHistoryTextRef.current = next.text;
+        return true;
+      }
+    }
+    if (
       key === "Enter" &&
       shouldSubmitComposerOnEnter({ isMobileViewport, shiftKey: event.shiftKey })
     ) {
@@ -1917,6 +1949,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // restored into any thread or provider — stash, switch, restore is the
   // whole point.
   const stashQueue = usePromptStashStore((state) => state.entries);
+  const promptHistoryEntries = usePromptHistoryStore((state) => state.entries);
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
   const takeStashEntry = usePromptStashStore((state) => state.takeEntry);
   const finalizeStashEntryImages = usePromptStashStore((state) => state.finalizeEntryImages);

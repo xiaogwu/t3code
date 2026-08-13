@@ -205,6 +205,7 @@ import {
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
+import { usePromptHistoryStore } from "../promptHistoryStore";
 import {
   appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
@@ -1325,6 +1326,7 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const pushPromptHistoryEntry = usePromptHistoryStore((store) => store.pushEntry);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -5170,6 +5172,7 @@ function ChatViewContent(props: ChatViewProps) {
         }),
       );
     }
+    pushPromptHistoryEntry(trimmed);
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
