@@ -49,6 +49,11 @@ successful pick; its hover glow and badge preview the element and token that cli
 
 `thread.readState.toggle` defaults to `mod+alt+u` and toggles the active server thread between read and unread. The state is stored locally on the client; it does nothing for draft or no-thread routes.
 
+`sidebar.toggle` shows or hides the sidebar and defaults to `mod+b`. `sidebar.version.toggle`
+switches between the default sidebar and the legacy one, persists that choice locally, and
+defaults to `mod+alt+b` (`⌥⌘B` on macOS and `Ctrl+Alt+B` elsewhere). `rightPanel.toggle` defaults
+to `mod+shift+b`.
+
 The command palette searches active thread titles, projects, branches, user messages, and final
 agent responses across connected environments. Message matches show one labeled excerpt while
 keeping the thread's project, branch, and machine context visible. Message search begins after two

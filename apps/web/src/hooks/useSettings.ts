@@ -278,6 +278,11 @@ export function useLegacySidebarEnabled(): boolean {
   return settingsHydrated && legacySidebarEnabled;
 }
 
+/** Flip which sidebar is mounted. One key, so there is no configured-by-user companion flag. */
+export function toggleLegacySidebarPreference(currentlyEnabled: boolean): ClientSettingsPatch {
+  return { legacySidebarEnabled: !currentlyEnabled };
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,

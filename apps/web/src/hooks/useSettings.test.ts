@@ -6,7 +6,11 @@ import {
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeEnvironmentSettings, resolveEnvironmentIdentificationMode } from "./useSettings";
+import {
+  mergeEnvironmentSettings,
+  resolveEnvironmentIdentificationMode,
+  toggleLegacySidebarPreference,
+} from "./useSettings";
 
 describe("resolveEnvironmentIdentificationMode", () => {
   it("keeps identification hidden until client settings hydrate", () => {
@@ -47,6 +51,13 @@ describe("resolveEnvironmentIdentificationMode", () => {
         paletteThemeAllowsArtwork: true,
       }),
     ).toBe("artwork");
+  });
+});
+
+describe("toggleLegacySidebarPreference", () => {
+  it("inverts the current sidebar choice", () => {
+    expect(toggleLegacySidebarPreference(false)).toEqual({ legacySidebarEnabled: true });
+    expect(toggleLegacySidebarPreference(true)).toEqual({ legacySidebarEnabled: false });
   });
 });
 

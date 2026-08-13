@@ -86,8 +86,9 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("b"), command: "sidebar.toggle" },
+  { shortcut: modShortcut("b", { altKey: true }), command: "sidebar.version.toggle" },
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
-  { shortcut: modShortcut("b", { altKey: true }), command: "rightPanel.toggle" },
+  { shortcut: modShortcut("b", { shiftKey: true }), command: "rightPanel.toggle" },
   {
     shortcut: modShortcut("d"),
     command: "terminal.split",
@@ -331,11 +332,19 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "MacIntel"),
       "⌘B",
     );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.version.toggle", "MacIntel"),
+      "⌥⌘B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.version.toggle", "Linux"),
+      "Ctrl+Alt+B",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.toggle", "MacIntel"),
-      "⌥⌘B",
+      "⇧⌘B",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "commandPalette.toggle", "MacIntel"),
@@ -709,7 +718,15 @@ describe("resolveShortcutCommand", () => {
         DEFAULT_BINDINGS,
         { platform: "MacIntel" },
       ),
-      "rightPanel.toggle",
+      "sidebar.version.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "Linux" },
+      ),
+      "sidebar.version.toggle",
     );
   });
 });

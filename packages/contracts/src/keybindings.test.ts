@@ -36,8 +36,14 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedSidebarToggle.command, "sidebar.toggle");
 
-    const parsedRightPanelToggle = yield* decode(KeybindingRule, {
+    const parsedSidebarVersionToggle = yield* decode(KeybindingRule, {
       key: "mod+alt+b",
+      command: "sidebar.version.toggle",
+    });
+    assert.strictEqual(parsedSidebarVersionToggle.command, "sidebar.version.toggle");
+
+    const parsedRightPanelToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+b",
       command: "rightPanel.toggle",
     });
     assert.strictEqual(parsedRightPanelToggle.command, "rightPanel.toggle");

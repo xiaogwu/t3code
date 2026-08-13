@@ -14,7 +14,12 @@ import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalSt
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import {
+  toggleLegacySidebarPreference,
+  useEnvironmentIdentificationMode,
+  useLegacySidebarEnabled,
+  useUpdateClientSettings,
+} from "../hooks/useSettings";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
@@ -68,6 +73,8 @@ function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
+  const legacySidebarEnabled = useLegacySidebarEnabled();
+  const updateClientSettings = useUpdateClientSettings();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const stageBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
@@ -83,17 +90,22 @@ function SidebarControl() {
       ) {
         return;
       }
-      if (resolveShortcutCommand(event, keybindings) !== "sidebar.toggle") return;
+      const command = resolveShortcutCommand(event, keybindings);
+      if (command !== "sidebar.toggle" && command !== "sidebar.version.toggle") return;
 
       event.preventDefault();
       event.stopPropagation();
-      toggleSidebar();
+      if (command === "sidebar.toggle") {
+        toggleSidebar();
+        return;
+      }
+      updateClientSettings(toggleLegacySidebarPreference(legacySidebarEnabled));
     };
 
     // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [keybindings, toggleSidebar]);
+  }, [keybindings, legacySidebarEnabled, toggleSidebar, updateClientSettings]);
 
   return (
     <div
