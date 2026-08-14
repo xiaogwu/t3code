@@ -145,10 +145,10 @@ function NightlySkyArt({ compact = false }: { compact?: boolean }) {
           gradientTransform="translate(216 18) rotate(137) scale(120 84)"
           gradientUnits="userSpaceOnUse"
         >
-          <stop style={{ stopColor: "var(--stage-night-highlight)" }} stopOpacity="0.4" />
+          <stop style={{ stopColor: "var(--stage-night-glow-highlight)" }} stopOpacity="0.4" />
           <stop
             offset="0.5"
-            style={{ stopColor: "var(--stage-night-secondary)" }}
+            style={{ stopColor: "var(--stage-night-glow-secondary)" }}
             stopOpacity="0.16"
           />
           <stop offset="1" style={{ stopColor: "var(--stage-night-bottom)" }} stopOpacity="0" />
@@ -178,7 +178,7 @@ function NightlySkyArt({ compact = false }: { compact?: boolean }) {
             ))}
           </g>
           <g
-            style={{ stroke: "var(--stage-night-line)" }}
+            style={{ stroke: "var(--stage-night-sparkle)" }}
             strokeLinecap="round"
             strokeOpacity="0.7"
             strokeWidth="0.6"
@@ -278,10 +278,10 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
           gradientTransform="translate(474 44) rotate(166) scale(156 92)"
           gradientUnits="userSpaceOnUse"
         >
-          <stop style={{ stopColor: "var(--stage-art-highlight)" }} stopOpacity="0.34" />
+          <stop style={{ stopColor: "var(--stage-art-celeste-highlight)" }} stopOpacity="0.34" />
           <stop
             offset="0.5"
-            style={{ stopColor: "var(--stage-art-secondary)" }}
+            style={{ stopColor: "var(--stage-art-celeste-secondary)" }}
             stopOpacity="0.18"
           />
           <stop offset="1" style={{ stopColor: "var(--stage-art-bottom)" }} stopOpacity="0" />
@@ -294,7 +294,7 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
           gradientTransform="translate(704 18) rotate(145) scale(132 88)"
           gradientUnits="userSpaceOnUse"
         >
-          <stop style={{ stopColor: "var(--stage-art-highlight)" }} stopOpacity="0.3" />
+          <stop style={{ stopColor: "var(--stage-art-violet-highlight)" }} stopOpacity="0.3" />
           <stop
             offset="0.52"
             style={{ stopColor: "var(--stage-art-tertiary)" }}
@@ -304,11 +304,11 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
         </radialGradient>
         {/* Half upstream's grid pitch with thinner strokes: at the stage's actual
             rendered height the 8/32 pitch reads as a wash rather than drafting
-            paper. Color stays on --stage-art-line so each theme still owns it. */}
+            paper. Color stays on --stage-art-grid-line so each theme still owns it. */}
         <pattern id={minorGridId} width="4" height="4" patternUnits="userSpaceOnUse">
           <path
             d="M4 0H0V4"
-            style={{ stroke: "var(--stage-art-line)" }}
+            style={{ stroke: "var(--stage-art-grid-line)" }}
             strokeOpacity="0.14"
             strokeWidth="0.35"
           />
@@ -316,7 +316,7 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
         <pattern id={majorGridId} width="16" height="16" patternUnits="userSpaceOnUse">
           <path
             d="M16 0H0V16"
-            style={{ stroke: "var(--stage-art-line)" }}
+            style={{ stroke: "var(--stage-art-grid-line)" }}
             strokeOpacity="0.26"
             strokeWidth="0.5"
           />
