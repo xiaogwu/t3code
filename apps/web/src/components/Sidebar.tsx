@@ -850,19 +850,31 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   icon: null,
                   className: "text-red-700 dark:text-red-300",
                 }
-              : isWoke
+              : // Renaming reads as in-motion, so it borrows Working's hue. It
+                // outranks Woke/Done because it clears in a second or two and
+                // the row falls straight back to them.
+                isRegeneratingTitle
                 ? {
-                    label: "Woke",
-                    icon: "woke" as const,
-                    className: "text-amber-700 dark:text-amber-300",
+                    label: "Renaming",
+                    icon: "working" as const,
+                    className: cn(
+                      "text-sky-600 dark:text-sky-400",
+                      !props.isActive && "opacity-75",
+                    ),
                   }
-                : isUnread
+                : isWoke
                   ? {
-                      label: "Done",
-                      icon: "done" as const,
-                      className: "text-emerald-700 dark:text-emerald-300",
+                      label: "Woke",
+                      icon: "woke" as const,
+                      className: "text-amber-700 dark:text-amber-300",
                     }
-                  : null;
+                  : isUnread
+                    ? {
+                        label: "Done",
+                        icon: "done" as const,
+                        className: "text-emerald-700 dark:text-emerald-300",
+                      }
+                    : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1183,11 +1195,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
             {title}
             {terminalStatusIcon}
-            {isRegeneratingTitle ? (
-              <span role="status" className="sr-only">
-                Regenerating title
-              </span>
-            ) : null}
             {/* The PR badge stays outside the hover-fading slot: it must
               remain visible AND clickable while the row is hovered. Only
               the time/jump label yields to the settle affordance. */}
@@ -1204,6 +1211,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   // last touched — the return ticket is the row's whole story.
                   <span className="text-xs text-blue-600 tabular-nums dark:text-blue-400">
                     {props.snoozeWakeLabelText}
+                  </span>
+                ) : isRegeneratingTitle ? (
+                  <span
+                    role="status"
+                    aria-label="Renaming"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-sky-600 dark:text-sky-400"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-2 shrink-0 animate-status-pulse rounded-full bg-current motion-reduce:animate-none"
+                    />
+                    Renaming
                   </span>
                 ) : isWoke ? (
                   // A wake can land straight in the settled tail (e.g. PR
@@ -1447,14 +1466,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 ) : null}
               </span>
             </div>
-            <div className="mt-1 flex min-w-0">
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
-                </span>
-              ) : null}
-            </div>
+            <div className="mt-1 flex min-w-0">{title}</div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
