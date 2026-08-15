@@ -90,6 +90,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { requestReplyTargetNavigation } from "./replyNavigation";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -692,7 +693,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const replyToMessageId = composerDraft.replyToMessageId;
   const replyTo = composerDraft.replyTo;
+  const [replyNavigationUnavailable, setReplyNavigationUnavailable] = useState(false);
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
+
+  useEffect(() => {
+    setReplyNavigationUnavailable(false);
+  }, [replyToMessageId, replyTo?.blockId]);
+
+  const navigateToReplyTarget = useCallback(() => {
+    if (replyToMessageId === null) return;
+    setReplyNavigationUnavailable(
+      !requestReplyTargetNavigation({ messageId: replyToMessageId, replyTo }),
+    );
+  }, [replyTo, replyToMessageId]);
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftReplyToMessageId = useComposerDraftStore(
@@ -3084,11 +3097,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               )}
 
             {replyToMessageId !== null ? (
-              <div className="mx-3 mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-muted/45 px-2.5 py-2 text-xs sm:mx-4">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label="Show original response"
+                className="mx-3 mb-2 flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-muted/45 px-2.5 py-2 text-xs transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:mx-4"
+                onClick={navigateToReplyTarget}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  navigateToReplyTarget();
+                }}
+              >
                 <div className="min-w-0 flex-1 border-l-2 border-primary/70 pl-2">
                   <div className="font-medium text-primary">Replying to assistant</div>
                   <div className="truncate text-muted-foreground">
-                    {replyTo?.quote ?? replyTarget?.text.trim() ?? "Original response unavailable"}
+                    {replyNavigationUnavailable
+                      ? "Original response unavailable"
+                      : (replyTo?.quote ??
+                        replyTarget?.text.trim() ??
+                        "Original response unavailable")}
                   </div>
                 </div>
                 <Button
@@ -3096,7 +3124,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   size="icon-xs"
                   variant="ghost"
                   aria-label="Remove reply"
-                  onClick={() => setComposerDraftReplyToMessageId(composerDraftTarget, null)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setComposerDraftReplyToMessageId(composerDraftTarget, null);
+                  }}
                 >
                   <XIcon className="size-3.5" />
                 </Button>

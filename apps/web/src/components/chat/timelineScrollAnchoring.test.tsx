@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { getAnchoredTurnMetrics, getRowBottom } from "./timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  getRowBottom,
+  resolveTimelineSendScrollBehavior,
+} from "./timelineScrollAnchoring";
 
 function buildState({
   positions,
@@ -22,6 +26,45 @@ function buildState({
 }
 
 describe("timeline scroll anchoring", () => {
+  it("anchors normal sends and keeps following their streamed output", () => {
+    expect(
+      resolveTimelineSendScrollBehavior({
+        replyToMessageId: null,
+        hasBlockReply: false,
+      }),
+    ).toEqual({
+      mode: "anchoring-new-turn",
+      liveFollowEnabled: true,
+      anchorNewTurn: true,
+    });
+  });
+
+  it("preserves the viewport for whole-message replies while output streams", () => {
+    expect(
+      resolveTimelineSendScrollBehavior({
+        replyToMessageId: "assistant:message-1",
+        hasBlockReply: false,
+      }),
+    ).toEqual({
+      mode: "free-scrolling",
+      liveFollowEnabled: false,
+      anchorNewTurn: false,
+    });
+  });
+
+  it("preserves the viewport for block replies while output streams", () => {
+    expect(
+      resolveTimelineSendScrollBehavior({
+        replyToMessageId: "assistant:message-1",
+        hasBlockReply: true,
+      }),
+    ).toEqual({
+      mode: "free-scrolling",
+      liveFollowEnabled: false,
+      anchorNewTurn: false,
+    });
+  });
+
   it("measures row bottoms from LegendList row position and size", () => {
     const state = buildState({
       positions: [0, 120],

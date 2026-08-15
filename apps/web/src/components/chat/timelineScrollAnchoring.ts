@@ -1,5 +1,33 @@
 export type TimelineScrollMode = "following-end" | "anchoring-new-turn" | "free-scrolling";
 
+export interface TimelineSendScrollBehavior {
+  readonly mode: TimelineScrollMode;
+  readonly liveFollowEnabled: boolean;
+  readonly anchorNewTurn: boolean;
+}
+
+export function resolveTimelineSendScrollBehavior({
+  replyToMessageId,
+  hasBlockReply,
+}: {
+  readonly replyToMessageId: string | null;
+  readonly hasBlockReply: boolean;
+}): TimelineSendScrollBehavior {
+  if (replyToMessageId !== null || hasBlockReply) {
+    return {
+      mode: "free-scrolling",
+      liveFollowEnabled: false,
+      anchorNewTurn: false,
+    };
+  }
+
+  return {
+    mode: "anchoring-new-turn",
+    liveFollowEnabled: true,
+    anchorNewTurn: true,
+  };
+}
+
 export interface TimelineListMeasurementState {
   readonly data: readonly unknown[];
   readonly scroll: number;

@@ -94,7 +94,11 @@ import {
   isLatestTurnSettled,
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
-import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  resolveTimelineSendScrollBehavior,
+  type TimelineScrollMode,
+} from "./chat/timelineScrollAnchoring";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -5182,21 +5186,37 @@ function ChatViewContent(props: ChatViewProps) {
       sizeBytes: image.sizeBytes,
       previewUrl: image.previewUrl,
     }));
-    // Sending always returns to the live edge. The new row becomes the
-    // anchored end-space target so it lands near the top while the response
-    // streams into the reserved space below it.
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "anchoring-new-turn";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
-    pendingTimelineAnchorRef.current = messageIdForSend;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
-    setTimelineAnchor({
-      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageId: messageIdForSend,
+    const sendScrollBehavior = resolveTimelineSendScrollBehavior({
+      replyToMessageId: replyToMessageIdForSend,
+      hasBlockReply: replyToForSend !== null,
     });
+    if (sendScrollBehavior.anchorNewTurn) {
+      // Normal sends return to the live edge. The new row becomes the anchored
+      // end-space target so it lands near the top while the response streams.
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = sendScrollBehavior.mode;
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(sendScrollBehavior.liveFollowEnabled);
+      pendingTimelineAnchorRef.current = messageIdForSend;
+      activeTimelineAnchorIndexRef.current = null;
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      setTimelineAnchor({
+        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+        messageId: messageIdForSend,
+      });
+    } else {
+      // Reply sends keep the source in place. Opt out of both LegendList's end
+      // maintenance and T3's streaming adjustments until Scroll to end is used.
+      anchorUserScrollGenerationRef.current += 1;
+      timelineScrollModeRef.current = sendScrollBehavior.mode;
+      liveFollowUserScrollGenerationRef.current = null;
+      setTimelineLiveFollowEnabled(sendScrollBehavior.liveFollowEnabled);
+      pendingTimelineAnchorRef.current = null;
+      positionedTimelineAnchorRef.current = null;
+      settledTimelineAnchorRef.current = null;
+      activeTimelineAnchorIndexRef.current = null;
+    }
     setOptimisticUserMessages((existing) => [
       ...existing,
       {

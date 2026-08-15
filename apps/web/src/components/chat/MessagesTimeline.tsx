@@ -90,6 +90,11 @@ import {
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
+import {
+  scrollToReplyTarget,
+  scrollToReplyTargetWhenAvailable,
+  subscribeToReplyTargetNavigation,
+} from "./replyNavigation";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -141,6 +146,7 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onReplyToAssistantMessage: (messageId: MessageId, replyTo?: MessageReplyReference) => void;
+  onNavigateToReplySource: (messageId: MessageId, replyTo?: MessageReplyReference) => boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
@@ -505,6 +511,44 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [timelineViewportElement, rows.length]);
 
+  const onNavigateToReplySource = useCallback(
+    (messageId: MessageId, replyTo?: MessageReplyReference) => {
+      onManualNavigation();
+      if (scrollToReplyTarget({ messageId, ...(replyTo ? { replyTo } : {}) })) {
+        return true;
+      }
+
+      const sourceRowIndex = rows.findIndex(
+        (row) => row.kind === "message" && row.message.id === messageId,
+      );
+      if (sourceRowIndex < 0) return false;
+
+      void listRef.current
+        ?.scrollToIndex({
+          index: sourceRowIndex,
+          animated: true,
+          viewPosition: 0,
+          viewOffset: 128,
+        })
+        .then(() => {
+          scrollToReplyTargetWhenAvailable({
+            messageId,
+            ...(replyTo ? { replyTo } : {}),
+          });
+        });
+      return true;
+    },
+    [listRef, onManualNavigation, rows],
+  );
+
+  useEffect(
+    () =>
+      subscribeToReplyTargetNavigation(({ messageId, replyTo }) =>
+        onNavigateToReplySource(messageId, replyTo ?? undefined),
+      ),
+    [onNavigateToReplySource],
+  );
+
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       timestampFormat,
@@ -517,6 +561,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onReplyToAssistantMessage: onReplyToAssistantMessage ?? (() => {}),
+      onNavigateToReplySource,
       onImageExpand,
       onOpenTurnDiff,
       onToggleTurnFold,
@@ -534,6 +579,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onReplyToAssistantMessage,
+      onNavigateToReplySource,
       onImageExpand,
       onOpenTurnDiff,
       onToggleTurnFold,
@@ -1041,17 +1087,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             onClick={() => {
               const sourceMessageId =
                 row.message.replyTo?.messageId ?? row.message.replyToMessageId;
-              const blockId = row.message.replyTo?.blockId ?? "whole";
-              const target = document.getElementById(`message-block-${sourceMessageId}-${blockId}`);
-              target?.scrollIntoView({ behavior: "smooth", block: "center" });
-              target?.animate(
-                [
-                  { backgroundColor: "transparent" },
-                  { backgroundColor: "var(--accent)" },
-                  { backgroundColor: "transparent" },
-                ],
-                { duration: 1_400 },
-              );
+              if (!sourceMessageId) return;
+              ctx.onNavigateToReplySource(sourceMessageId, row.message.replyTo);
             }}
           >
             <span className="line-clamp-3 whitespace-pre-wrap">
@@ -1139,7 +1176,10 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
 
   return (
     <>
-      <div id={`message-block-${row.message.id}-whole`} className="relative min-w-0 px-1 py-0.5">
+      <div
+        id={`message-block-${row.message.id}-whole`}
+        className="relative min-w-0 scroll-mt-32 px-1 py-0.5"
+      >
         <ChatMarkdown
           text={messageText}
           cwd={ctx.markdownCwd}

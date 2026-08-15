@@ -140,7 +140,7 @@ function MarkdownReplyableBlock(props: {
     <div
       id={`message-block-${props.messageId}-${props.blockId}`}
       data-message-block-id={props.blockId}
-      className="group/reply-block rounded-sm transition-colors target:bg-accent/45 [&>blockquote]:inline [&>h1]:inline [&>h2]:inline [&>h3]:inline [&>h4]:inline [&>h5]:inline [&>h6]:inline [&>p]:inline"
+      className="group/reply-block scroll-mt-32 rounded-sm transition-colors target:bg-accent/45 [&>blockquote]:inline [&>h1]:inline [&>h2]:inline [&>h3]:inline [&>h4]:inline [&>h5]:inline [&>h6]:inline [&>p]:inline"
     >
       {props.children}
       <span className="ms-1 inline-flex align-middle gap-0.5 rounded-md border border-border/60 bg-background/95 p-0.5 opacity-0 shadow-sm transition-opacity group-hover/reply-block:opacity-100 group-focus-within/reply-block:opacity-100 max-sm:opacity-100">

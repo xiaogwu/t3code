@@ -249,6 +249,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
 
   const acquireSharedServer = (input: {
     readonly binaryPath: string;
+    readonly prelaunch?: OpenCodeRuntime.OpenCodePrelaunch | null;
     readonly operation:
       | "generateCommitMessage"
       | "generatePrContent"
@@ -302,6 +303,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
                   .startOpenCodeServerProcess({
                     binaryPath: input.binaryPath,
                     environment: resolvedEnvironment,
+                    ...(input.prelaunch ? { prelaunch: input.prelaunch } : {}),
                   })
                   .pipe(
                     Effect.provideService(Scope.Scope, serverScope),
@@ -502,6 +504,9 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         : yield* Effect.acquireUseRelease(
             acquireSharedServer({
               binaryPath: openCodeSettings.binaryPath,
+              ...(openCodeSettings.prelaunchCommand.trim()
+                ? { prelaunch: { command: openCodeSettings.prelaunchCommand.trim() } }
+                : {}),
               operation: input.operation,
             }),
             runAgainstServer,
