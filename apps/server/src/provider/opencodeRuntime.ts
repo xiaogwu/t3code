@@ -39,6 +39,12 @@ const OPENCODE_EMPTY_CONFIG_CONTENT = "{}";
 
 const OPENCODE_SERVER_READY_PREFIX = "opencode server listening";
 const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 30_000;
+// Generous on purpose: the prelaunch command usually boots a local model server,
+// and loading tens of GB of weights takes far longer than the server handshake
+// this budget sits in front of.
+const DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS = 300_000;
+// How long to keep reading the prelaunch command's output after it exits.
+const PRELAUNCH_OUTPUT_DRAIN_GRACE_MS = 500;
 const DEFAULT_HOSTNAME = "127.0.0.1";
 export interface OpenCodeServerProcess {
   readonly url: string;
@@ -49,6 +55,16 @@ export interface OpenCodeServerConnection {
   readonly url: string;
   readonly exitCode: Effect.Effect<number, never> | null;
   readonly external: boolean;
+}
+
+/**
+ * User-configured shell command run to completion before T3 Code spawns the
+ * OpenCode server (see the `prelaunchCommand` OpenCode setting). Intended for
+ * booting a local OpenAI-compatible model server that OpenCode then talks to.
+ */
+export interface OpenCodePrelaunch {
+  readonly command: string;
+  readonly timeoutMs?: number;
 }
 
 const OPENCODE_RUNTIME_ERROR_TAG = "OpenCodeRuntimeError";
@@ -121,6 +137,7 @@ export interface OpenCodeRuntimeShape {
     readonly port?: number;
     readonly hostname?: string;
     readonly timeoutMs?: number;
+    readonly prelaunch?: OpenCodePrelaunch | null;
   }) => Effect.Effect<OpenCodeServerProcess, OpenCodeRuntimeError, Scope.Scope>;
   /**
    * Returns a handle to either an externally-managed OpenCode server (when
@@ -134,6 +151,7 @@ export interface OpenCodeRuntimeShape {
     readonly port?: number;
     readonly hostname?: string;
     readonly timeoutMs?: number;
+    readonly prelaunch?: OpenCodePrelaunch | null;
   }) => Effect.Effect<OpenCodeServerConnection, OpenCodeRuntimeError, Scope.Scope>;
   readonly runOpenCodeCommand: (input: {
     readonly binaryPath: string;
@@ -436,12 +454,111 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       ),
     );
 
+  // Runs the user's prelaunch shell line to completion before the server spawn.
+  // Invokes the interpreter directly rather than `shell: true` so the line is
+  // handed over verbatim instead of being re-joined and re-quoted by Node.
+  const runPrelaunchCommand = (prelaunch: OpenCodePrelaunch, environment?: NodeJS.ProcessEnv) =>
+    Effect.gen(function* () {
+      const command = prelaunch.command.trim();
+      if (command.length === 0) {
+        return;
+      }
+      const prelaunchScope = yield* Scope.Scope;
+      const timeoutMs = prelaunch.timeoutMs ?? DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS;
+      const [interpreter, interpreterArgs]: [string, ReadonlyArray<string>] =
+        hostPlatform === "win32"
+          ? ["cmd.exe", ["/d", "/s", "/c", command]]
+          : ["/bin/sh", ["-c", command]];
+
+      const child = yield* spawner
+        .spawn(
+          ChildProcess.make(
+            interpreter,
+            interpreterArgs,
+            environment ? { env: environment } : { extendEnv: true },
+          ),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OpenCodeRuntimeError({
+                operation: "runOpenCodePrelaunchCommand",
+                detail: `Failed to spawn OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+                cause,
+              }),
+          ),
+        );
+
+      const outputRef = yield* Ref.make("");
+      const drain = (stream: typeof child.stdout) =>
+        stream.pipe(
+          Stream.decodeText(),
+          Stream.runForEach((chunk) => Ref.update(outputRef, (output) => `${output}${chunk}`)),
+          Effect.ignore,
+          Effect.forkIn(prelaunchScope),
+        );
+      // Drain both pipes so a chatty command cannot deadlock on a full buffer.
+      const drainFibers = [yield* drain(child.stdout), yield* drain(child.stderr)];
+
+      const exit = yield* child.exitCode.pipe(
+        Effect.timeoutOption(timeoutMs),
+        Effect.mapError(
+          (cause) =>
+            new OpenCodeRuntimeError({
+              operation: "runOpenCodePrelaunchCommand",
+              detail: `Failed while waiting for the OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+              cause,
+            }),
+        ),
+      );
+
+      // The drains are worth a brief wait — without it the diagnostics below are
+      // usually empty, since EOF lands after the exit code. But they cannot be
+      // waited on outright: a prelaunch that leaves a daemon running hands it
+      // these pipes, and they then stay open indefinitely.
+      yield* Effect.forEach(drainFibers, Fiber.await, { concurrency: "unbounded" }).pipe(
+        Effect.timeoutOption(PRELAUNCH_OUTPUT_DRAIN_GRACE_MS),
+        Effect.ignore,
+      );
+      yield* Effect.forEach(drainFibers, (fiber) => Fiber.interrupt(fiber).pipe(Effect.ignore), {
+        concurrency: "unbounded",
+      });
+
+      const output = (yield* Ref.get(outputRef)).trim();
+      const withOutput = (detail: string) => (output ? `${detail}\n\noutput:\n${output}` : detail);
+
+      if (Option.isNone(exit)) {
+        return yield* new OpenCodeRuntimeError({
+          operation: "runOpenCodePrelaunchCommand",
+          detail: withOutput(
+            `OpenCode prelaunch command timed out after ${timeoutMs}ms: ${command}`,
+          ),
+        });
+      }
+      const exitCode = Number(exit.value);
+      if (exitCode !== 0) {
+        return yield* new OpenCodeRuntimeError({
+          operation: "runOpenCodePrelaunchCommand",
+          detail: withOutput(`OpenCode prelaunch command exited with code ${exitCode}: ${command}`),
+          cause: { exitCode, output },
+        });
+      }
+    }).pipe(Effect.scoped);
+
   const startOpenCodeServerProcess: OpenCodeRuntimeShape["startOpenCodeServerProcess"] = (input) =>
     Effect.gen(function* () {
       // Bind this server's lifetime to the caller's scope. When the caller's
       // scope closes, the spawned child is killed and all associated fibers
       // are interrupted automatically — no `close()` method needed.
       const runtimeScope = yield* Scope.Scope;
+
+      // Before the port is claimed and before the (much tighter) server-startup
+      // budget begins, so a slow model-server boot cannot eat the handshake
+      // timeout. Failures abort the session rather than starting a server whose
+      // backend is not there.
+      if (input.prelaunch) {
+        yield* runPrelaunchCommand(input.prelaunch, input.environment);
+      }
 
       const hostname = input.hostname ?? DEFAULT_HOSTNAME;
       const port =
@@ -597,7 +714,8 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
   const connectToOpenCodeServer: OpenCodeRuntimeShape["connectToOpenCodeServer"] = (input) => {
     const serverUrl = input.serverUrl?.trim();
     if (serverUrl) {
-      // We don't own externally-configured servers — no scope interaction.
+      // We don't own externally-configured servers — no scope interaction, and
+      // no prelaunch: whoever started that server is responsible for its backend.
       return Effect.succeed({
         url: serverUrl,
         exitCode: null,
@@ -611,6 +729,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       ...(input.port !== undefined ? { port: input.port } : {}),
       ...(input.hostname !== undefined ? { hostname: input.hostname } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.prelaunch !== undefined ? { prelaunch: input.prelaunch } : {}),
     }).pipe(
       Effect.map((server) => ({
         url: server.url,

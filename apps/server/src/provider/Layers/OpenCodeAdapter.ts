@@ -1189,6 +1189,7 @@ export function makeOpenCodeAdapter(
         const binaryPath = openCodeSettings.binaryPath;
         const serverUrl = openCodeSettings.serverUrl;
         const serverPassword = openCodeSettings.serverPassword;
+        const prelaunchCommand = openCodeSettings.prelaunchCommand.trim();
         const directory = input.cwd ?? serverConfig.cwd;
         const resumeSessionId = parseOpenCodeResume(input.resumeCursor)?.sessionId;
         const existing = sessions.get(input.threadId);
@@ -1207,6 +1208,7 @@ export function makeOpenCodeAdapter(
               const server = yield* openCodeRuntime.connectToOpenCodeServer({
                 binaryPath,
                 serverUrl,
+                ...(prelaunchCommand ? { prelaunch: { command: prelaunchCommand } } : {}),
                 ...(options?.environment ? { environment: options.environment } : {}),
               });
               const client = openCodeRuntime.createOpenCodeSdkClient({

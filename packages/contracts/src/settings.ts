@@ -513,13 +513,25 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    prelaunchCommand: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Prelaunch command",
+        description:
+          "Shell command run before T3 Code spawns the OpenCode server, for booting a local model server first. Runs on every session start, so make it idempotent. Ignored when Server URL is set.",
+        providerSettingsForm: {
+          placeholder: "Optional",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(Schema.String).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "serverUrl", "serverPassword"],
+    order: ["binaryPath", "serverUrl", "serverPassword", "prelaunchCommand"],
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
@@ -762,6 +774,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   serverUrl: Schema.optionalKey(TrimmedString),
   serverPassword: Schema.optionalKey(TrimmedString),
+  prelaunchCommand: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
