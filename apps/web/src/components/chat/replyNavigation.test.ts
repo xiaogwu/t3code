@@ -1,9 +1,11 @@
 import { MessageId } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { replyTargetElementId } from "./replyNavigation";
+import { replyTargetElementId, scrollToReplyTargetWhenAvailable } from "./replyNavigation";
 
 describe("reply navigation", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("targets an exact response block", () => {
     expect(
       replyTargetElementId(MessageId.make("assistant-1"), {
@@ -18,5 +20,28 @@ describe("reply navigation", () => {
     expect(replyTargetElementId(MessageId.make("assistant-1"))).toBe(
       "message-block-assistant-1-whole",
     );
+  });
+
+  it("retries until a virtualized reply target mounts", () => {
+    const target = {
+      scrollIntoView: vi.fn(),
+      animate: vi.fn(),
+    };
+    const getElementById = vi
+      .fn()
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null)
+      .mockReturnValue(target);
+    vi.stubGlobal("document", { getElementById });
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    scrollToReplyTargetWhenAvailable({ messageId: MessageId.make("assistant-1") });
+
+    expect(getElementById).toHaveBeenCalledTimes(3);
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(target.animate).toHaveBeenCalledOnce();
   });
 });

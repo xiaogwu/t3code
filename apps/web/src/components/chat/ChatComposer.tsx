@@ -89,7 +89,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { scrollToReplyTarget } from "./replyNavigation";
+import { requestReplyTargetNavigation } from "./replyNavigation";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -692,7 +692,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const navigateToReplyTarget = useCallback(() => {
     if (replyToMessageId === null) return;
-    setReplyNavigationUnavailable(!scrollToReplyTarget({ messageId: replyToMessageId, replyTo }));
+    setReplyNavigationUnavailable(
+      !requestReplyTargetNavigation({ messageId: replyToMessageId, replyTo }),
+    );
   }, [replyTo, replyToMessageId]);
 
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);

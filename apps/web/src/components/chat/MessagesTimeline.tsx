@@ -89,7 +89,11 @@ import {
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
-import { scrollToReplyTarget } from "./replyNavigation";
+import {
+  scrollToReplyTarget,
+  scrollToReplyTargetWhenAvailable,
+  subscribeToReplyTargetNavigation,
+} from "./replyNavigation";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -141,7 +145,7 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onReplyToAssistantMessage: (messageId: MessageId, replyTo?: MessageReplyReference) => void;
-  onNavigateToReplySource: (messageId: MessageId, replyTo?: MessageReplyReference) => void;
+  onNavigateToReplySource: (messageId: MessageId, replyTo?: MessageReplyReference) => boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
@@ -510,13 +514,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     (messageId: MessageId, replyTo?: MessageReplyReference) => {
       onManualNavigation();
       if (scrollToReplyTarget({ messageId, ...(replyTo ? { replyTo } : {}) })) {
-        return;
+        return true;
       }
 
       const sourceRowIndex = rows.findIndex(
         (row) => row.kind === "message" && row.message.id === messageId,
       );
-      if (sourceRowIndex < 0) return;
+      if (sourceRowIndex < 0) return false;
 
       void listRef.current
         ?.scrollToIndex({
@@ -526,12 +530,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           viewOffset: 128,
         })
         .then(() => {
-          requestAnimationFrame(() => {
-            scrollToReplyTarget({ messageId, ...(replyTo ? { replyTo } : {}) });
+          scrollToReplyTargetWhenAvailable({
+            messageId,
+            ...(replyTo ? { replyTo } : {}),
           });
         });
+      return true;
     },
     [listRef, onManualNavigation, rows],
+  );
+
+  useEffect(
+    () =>
+      subscribeToReplyTargetNavigation(({ messageId, replyTo }) =>
+        onNavigateToReplySource(messageId, replyTo ?? undefined),
+      ),
+    [onNavigateToReplySource],
   );
 
   const sharedState = useMemo<TimelineRowSharedState>(
