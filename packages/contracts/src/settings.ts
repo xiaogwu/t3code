@@ -518,7 +518,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Prelaunch command",
         description:
-          "Shell command run before T3 Code spawns the OpenCode server, for booting a local model server first. Runs on every session start, so make it idempotent. Ignored when Server URL is set.",
+          "Shell command run before T3 Code spawns the OpenCode server, for booting a local model server first. Runs on every session start, so make it idempotent. The session's model is in $T3_OPENCODE_MODEL, so the command can skip work a remote model does not need. Ignored when Server URL is set.",
         providerSettingsForm: {
           placeholder: "Optional",
           clearWhenEmpty: "omit",

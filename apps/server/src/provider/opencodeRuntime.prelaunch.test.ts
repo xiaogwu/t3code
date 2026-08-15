@@ -12,6 +12,8 @@ import { OpenCodeRuntime, OpenCodeRuntimeLive } from "./opencodeRuntime.ts";
 interface SpawnRecord {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly env?: Record<string, string | undefined> | undefined;
+  readonly extendEnv?: boolean | undefined;
 }
 
 const SERVE_SPAWN_FAILURE = PlatformError.systemError({
@@ -52,7 +54,12 @@ function makeRecordingSpawner(options: {
     if (!ChildProcess.isStandardCommand(command)) {
       return Effect.fail(SERVE_SPAWN_FAILURE);
     }
-    options.spawns.push({ command: command.command, args: command.args });
+    options.spawns.push({
+      command: command.command,
+      args: command.args,
+      env: command.options.env,
+      extendEnv: command.options.extendEnv,
+    });
     if (command.command === "/bin/sh" || command.command === "cmd.exe") {
       return Effect.succeed(
         makeHandle({
@@ -98,7 +105,7 @@ describe("OpenCode prelaunch command", () => {
         ).pipe(Effect.flip),
       );
 
-      expect(spawns).toEqual([
+      expect(spawns.map(({ command, args }) => ({ command, args }))).toEqual([
         { command: "/bin/sh", args: ["-c", "boot-model-server --port 8000"] },
         { command: "opencode", args: ["serve", "--hostname=127.0.0.1", "--port=4096"] },
       ]);
@@ -143,6 +150,45 @@ describe("OpenCode prelaunch command", () => {
       );
 
       expect(spawns.map((spawn) => spawn.command)).toEqual(["opencode"]);
+    }),
+  );
+
+  it.effect("passes the session model to the prelaunch command", () =>
+    Effect.gen(function* () {
+      const spawns: Array<SpawnRecord> = [];
+      yield* withRuntime({ spawns }, (runtime) =>
+        Effect.scoped(
+          runtime.startOpenCodeServerProcess({
+            binaryPath: "opencode",
+            port: 4096,
+            prelaunch: { command: "boot-model-server", model: "mtplx/qwen38-27b" },
+          }),
+        ).pipe(Effect.flip),
+      );
+
+      const prelaunchSpawn = spawns.find((spawn) => spawn.command === "/bin/sh");
+      expect(prelaunchSpawn?.env?.["T3_OPENCODE_MODEL"]).toBe("mtplx/qwen38-27b");
+      // Still inherits the ambient environment, or the command loses PATH.
+      expect(prelaunchSpawn?.extendEnv).toBe(true);
+    }),
+  );
+
+  it.effect("leaves the model variable unset when no model is known", () =>
+    Effect.gen(function* () {
+      const spawns: Array<SpawnRecord> = [];
+      yield* withRuntime({ spawns }, (runtime) =>
+        Effect.scoped(
+          runtime.startOpenCodeServerProcess({
+            binaryPath: "opencode",
+            port: 4096,
+            prelaunch: { command: "boot-model-server" },
+          }),
+        ).pipe(Effect.flip),
+      );
+
+      const prelaunchSpawn = spawns.find((spawn) => spawn.command === "/bin/sh");
+      expect(prelaunchSpawn?.env?.["T3_OPENCODE_MODEL"]).toBeUndefined();
+      expect(prelaunchSpawn?.extendEnv).toBe(true);
     }),
   );
 

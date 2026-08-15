@@ -1208,7 +1208,15 @@ export function makeOpenCodeAdapter(
               const server = yield* openCodeRuntime.connectToOpenCodeServer({
                 binaryPath,
                 serverUrl,
-                ...(prelaunchCommand ? { prelaunch: { command: prelaunchCommand } } : {}),
+                ...(prelaunchCommand
+                  ? {
+                      prelaunch: {
+                        command: prelaunchCommand,
+                        // Lets the command skip setup a remote model does not need.
+                        ...(input.modelSelection ? { model: input.modelSelection.model } : {}),
+                      },
+                    }
+                  : {}),
                 ...(options?.environment ? { environment: options.environment } : {}),
               });
               const client = openCodeRuntime.createOpenCodeSdkClient({

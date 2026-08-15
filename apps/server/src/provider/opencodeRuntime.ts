@@ -45,6 +45,9 @@ const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 30_000;
 const DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS = 300_000;
 // How long to keep reading the prelaunch command's output after it exits.
 const PRELAUNCH_OUTPUT_DRAIN_GRACE_MS = 500;
+// Carries the session's model to the prelaunch command. Keep in sync with the
+// `prelaunchCommand` setting description, which documents the name to users.
+const PRELAUNCH_MODEL_ENV = "T3_OPENCODE_MODEL";
 const DEFAULT_HOSTNAME = "127.0.0.1";
 export interface OpenCodeServerProcess {
   readonly url: string;
@@ -65,6 +68,8 @@ export interface OpenCodeServerConnection {
 export interface OpenCodePrelaunch {
   readonly command: string;
   readonly timeoutMs?: number;
+  /** Session's model, exposed to the command as `T3_OPENCODE_MODEL`. */
+  readonly model?: string;
 }
 
 const OPENCODE_RUNTIME_ERROR_TAG = "OpenCodeRuntimeError";
@@ -470,14 +475,16 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
           ? ["cmd.exe", ["/d", "/s", "/c", command]]
           : ["/bin/sh", ["-c", command]];
 
+      // The command needs to know which model the session picked, so a setup that
+      // only some models need can skip the work. Left unset when the model is not
+      // known, which the command should read as "do the setup".
+      const prelaunchEnv = prelaunch.model ? { [PRELAUNCH_MODEL_ENV]: prelaunch.model } : undefined;
+      const spawnOptions = environment
+        ? { env: { ...environment, ...prelaunchEnv } }
+        : { ...(prelaunchEnv ? { env: prelaunchEnv } : {}), extendEnv: true };
+
       const child = yield* spawner
-        .spawn(
-          ChildProcess.make(
-            interpreter,
-            interpreterArgs,
-            environment ? { env: environment } : { extendEnv: true },
-          ),
-        )
+        .spawn(ChildProcess.make(interpreter, interpreterArgs, spawnOptions))
         .pipe(
           Effect.mapError(
             (cause) =>
