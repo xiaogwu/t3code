@@ -99,6 +99,21 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonStri
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
 const PROVIDER = ProviderDriverKind.make("claudeAgent");
+
+/**
+ * How long the SDK gets to acknowledge an interrupt control request. Its
+ * `interrupt()` can block until the in-flight tool call returns, which stalls
+ * every other thread command behind it on the provider reactor's queue.
+ */
+const INTERRUPT_ACK_TIMEOUT = "5 seconds";
+
+/**
+ * How long the interrupted turn gets to wind down before the session is torn
+ * down. An acknowledged interrupt is not proof the turn stopped, so Stop
+ * escalates rather than trusting the provider.
+ */
+const INTERRUPT_HARD_STOP_DELAY = "5 seconds";
+
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -1689,6 +1704,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }) as ClaudeQueryRuntime);
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
+  // Detached forks that must outlive the request that started them (the Stop
+  // watchdog): the caller returns as soon as the interrupt is requested.
+  const adapterContext = yield* Effect.context<never>();
+  const runAdapterFork = Effect.runForkWith(adapterContext);
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -4518,10 +4537,33 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           { concurrency: 8, discard: true },
         ).pipe(Effect.timeoutOption("10 seconds"), Effect.ignore);
       }
+      // Stop has to actually stop. interrupt() is only a control request: the
+      // SDK can take minutes to answer it while a tool call is in flight, and
+      // an answer still does not prove the turn ended. Arm the teardown first
+      // so a slow ack cannot delay it, then ask nicely.
+      const interruptedTurnId = context.turnState?.turnId;
+      if (interruptedTurnId !== undefined) {
+        runAdapterFork(
+          Effect.sleep(INTERRUPT_HARD_STOP_DELAY).pipe(
+            Effect.flatMap(() =>
+              context.stopped || context.turnState?.turnId !== interruptedTurnId
+                ? Effect.void
+                : Effect.logWarning("Claude turn ignored its interrupt; stopping the session.", {
+                    threadId,
+                    turnId: interruptedTurnId,
+                  }).pipe(Effect.andThen(stopSessionInternal(context, { emitExitEvent: true }))),
+            ),
+            Effect.catchCause((cause) =>
+              Effect.logError("Failed to force-stop the Claude session.", { threadId, cause }),
+            ),
+          ),
+        );
+      }
+
       yield* Effect.tryPromise({
         try: () => context.query.interrupt(),
         catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
-      });
+      }).pipe(Effect.timeoutOption(INTERRUPT_ACK_TIMEOUT));
     },
   );
 

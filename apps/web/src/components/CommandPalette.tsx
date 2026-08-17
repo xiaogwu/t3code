@@ -96,6 +96,7 @@ import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
+import { useThreadMessageRevealStore } from "../threadMessageRevealStore";
 import { cn, isMacPlatform, isWindowsPlatform, newProjectId } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
@@ -1111,10 +1112,17 @@ function OpenCommandPaletteDialog(props: {
           };
         },
         runThread: async (thread) => {
+          const ref = scopeThreadRef(thread.environmentId, thread.id);
+          const match = threadContentMatchByKey.get(threadSearchMatchKey(ref));
           await navigate({
             to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+            params: buildThreadRouteParams(ref),
           });
+          // Request after navigate resolves: requesting before means a thread
+          // switch is in flight and ChatView's reset effect would clear it.
+          if (match) {
+            useThreadMessageRevealStore.getState().requestReveal(ref, match.messageId);
+          }
         },
       }),
     [

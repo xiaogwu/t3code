@@ -136,6 +136,7 @@ import {
   updatePullRequestTabStatus,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { useThreadMessageRevealStore } from "../threadMessageRevealStore";
 import {
   isPreviewSupportedInRuntime,
   setActivePreviewTab,
@@ -1619,6 +1620,8 @@ function ChatViewContent(props: ChatViewProps) {
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }
   const timelineAnchorMessageId = timelineAnchor.messageId;
+  const [highlightedMessageId, setHighlightedMessageId] = useState<MessageId | null>(null);
+  const revealRequest = useThreadMessageRevealStore((state) => state.request);
   const activeRightPanelKind = useRightPanelStore((state) =>
     selectActiveRightPanel(state.byThreadKey, activeThreadRef),
   );
@@ -3718,6 +3721,11 @@ function ChatViewContent(props: ChatViewProps) {
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const anchorUserScrollGenerationRef = useRef(0);
   const liveFollowUserScrollGenerationRef = useRef<number | null>(0);
+  // Hold ids outside the reveal effect below: clearReveal() inside that effect
+  // flips the requestId dep, which would otherwise run this effect's own
+  // cleanup on the very next render and cancel both timers before they fire.
+  const revealStaleAnchorTimeoutRef = useRef<number | null>(null);
+  const revealHighlightTimeoutRef = useRef<number | null>(null);
   // Manual navigation stops live-follow without removing anchored end space.
   // Collapsing that space during a gesture clamps the viewport back to the end.
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
@@ -3915,7 +3923,10 @@ function ChatViewContent(props: ChatViewProps) {
     // Anchored-end space can be remeasured when the turn completes. Once the
     // user has scrolled away (or returned to ordinary end-following), that
     // remeasurement must not restart the send-time anchor positioning.
-    if (timelineScrollModeRef.current !== "anchoring-new-turn") {
+    if (
+      timelineScrollModeRef.current !== "anchoring-new-turn" &&
+      timelineScrollModeRef.current !== "anchoring-reveal"
+    ) {
       return;
     }
     if (pendingTimelineAnchorRef.current === messageId) {
@@ -3951,6 +3962,11 @@ function ChatViewContent(props: ChatViewProps) {
               return;
             }
             settledTimelineAnchorRef.current = messageId;
+            // A reveal has no streaming turn to keep tracking, so hand the list
+            // back to ordinary free scrolling once it has landed.
+            if (timelineScrollModeRef.current === "anchoring-reveal") {
+              timelineScrollModeRef.current = "free-scrolling";
+            }
           });
       });
     };
@@ -3958,6 +3974,12 @@ function ChatViewContent(props: ChatViewProps) {
   }, []);
 
   const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
+    // A reveal starts from the live edge, so LegendList can still report
+    // isAtEnd while the anchor scroll is in flight. Honoring that would flip
+    // the mode back to following-end and cancel the reveal.
+    if (timelineScrollModeRef.current === "anchoring-reveal") {
+      return;
+    }
     if (
       !isAtEnd &&
       liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
@@ -4047,6 +4069,77 @@ function ChatViewContent(props: ChatViewProps) {
     setShowScrollToBottom(false);
     // activeThreadRef resets transitively with the active thread.
   }, [activeThread?.id]);
+
+  // Command-palette content-match reveal. Must be declared after the
+  // thread-change reset effect above: effects run in declaration order, and
+  // an earlier declaration would have this anchor wiped by that reset when a
+  // reveal and a thread switch land in the same commit.
+  useEffect(() => {
+    if (revealRequest === null || revealRequest.threadKey !== activeThreadKey) {
+      // A request for a thread that never became active (navigation failed,
+      // or the user bailed) is left in the store. Benign: it just sits until
+      // either this effect's threadKey check matches later, or a later
+      // requestReveal replaces it. See the reviewed risk in the design doc.
+      return;
+    }
+    // Mirrors the send-flow anchor below, minus the optimistic message. The
+    // mode is its own value so onTimelineAnchorReady still positions the row
+    // while the streaming turn-metrics passes stay out.
+    anchorUserScrollGenerationRef.current += 1;
+    timelineScrollModeRef.current = "anchoring-reveal";
+    liveFollowUserScrollGenerationRef.current = null;
+    isAtEndRef.current = false;
+    pendingTimelineAnchorRef.current = revealRequest.messageId;
+    // Cleared so revealing the same message twice re-runs the positioning;
+    // onTimelineAnchorReady returns early when it is already the positioned id.
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    activeTimelineAnchorIndexRef.current = null;
+    showScrollDebouncer.current.cancel();
+    setShowScrollToBottom(false);
+    setTimelineAnchor({ threadKey: activeThreadKey, messageId: revealRequest.messageId });
+    setHighlightedMessageId(revealRequest.messageId);
+    useThreadMessageRevealStore.getState().clearReveal(revealRequest.requestId);
+
+    // clearReveal above flips revealRequest to null next render, which
+    // changes this effect's requestId dep and would run a same-shaped
+    // cleanup immediately. Timers live in refs instead, so they survive that.
+    if (revealStaleAnchorTimeoutRef.current !== null) {
+      window.clearTimeout(revealStaleAnchorTimeoutRef.current);
+    }
+    if (revealHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(revealHighlightTimeoutRef.current);
+    }
+
+    // Stale-anchor guard: if the message was deleted/compacted away,
+    // resolveChatListAnchoredEndSpace never finds it, onAnchorReady never
+    // fires, and pendingTimelineAnchorRef would stay set forever, permanently
+    // suppressing live-follow. Drop back to following-end if it never lands.
+    revealStaleAnchorTimeoutRef.current = window.setTimeout(() => {
+      revealStaleAnchorTimeoutRef.current = null;
+      if (pendingTimelineAnchorRef.current === revealRequest.messageId) {
+        pendingTimelineAnchorRef.current = null;
+        timelineScrollModeRef.current = "following-end";
+      }
+    }, 5000);
+    // Two pulse cycles (650ms each) plus slack, so a later unrelated
+    // re-render cannot re-trigger the animation.
+    revealHighlightTimeoutRef.current = window.setTimeout(() => {
+      revealHighlightTimeoutRef.current = null;
+      setHighlightedMessageId((current) => (current === revealRequest.messageId ? null : current));
+    }, 1500);
+  }, [revealRequest?.requestId, activeThreadKey]);
+  useEffect(
+    () => () => {
+      if (revealStaleAnchorTimeoutRef.current !== null) {
+        window.clearTimeout(revealStaleAnchorTimeoutRef.current);
+      }
+      if (revealHighlightTimeoutRef.current !== null) {
+        window.clearTimeout(revealHighlightTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -6392,6 +6485,7 @@ function ChatViewContent(props: ChatViewProps) {
                 workspaceRoot={activeWorkspaceRoot}
                 skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
                 anchorMessageId={timelineAnchorMessageId}
+                highlightedMessageId={highlightedMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerOverlayHeight}
                 liveFollowEnabled={timelineLiveFollowEnabled}

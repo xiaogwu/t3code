@@ -1802,9 +1802,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const user = yield* snapshotQuery.searchThreads({ query: "user needle" });
       assert.equal(user.matches[0]?.source, "user");
       assert.match(user.matches[0]?.snippet ?? "", /USER needle/);
+      assert.equal(user.matches[0]?.messageId, MessageId.make("message-user"));
 
       const assistant = yield* snapshotQuery.searchThreads({ query: "FINAL NEEDLE" });
       assert.equal(assistant.matches[0]?.source, "assistant");
+      assert.equal(assistant.matches[0]?.messageId, MessageId.make("message-final"));
 
       const deduped = yield* snapshotQuery.searchThreads({ query: "needle" });
       assert.deepStrictEqual(

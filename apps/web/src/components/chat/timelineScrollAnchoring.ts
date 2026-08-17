@@ -1,4 +1,11 @@
-export type TimelineScrollMode = "following-end" | "anchoring-new-turn" | "free-scrolling";
+// "anchoring-reveal" is a command-palette search hit being pinned near the top.
+// Distinct from "anchoring-new-turn" so the streaming turn-metrics adjustments,
+// which assume an incoming response below the anchor, stay out of it.
+export type TimelineScrollMode =
+  | "following-end"
+  | "anchoring-new-turn"
+  | "anchoring-reveal"
+  | "free-scrolling";
 
 export interface TimelineSendScrollBehavior {
   readonly mode: TimelineScrollMode;
