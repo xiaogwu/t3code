@@ -1611,9 +1611,13 @@ export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSo
 
 // The server's SQLite client is synchronous and single-connection. Bound both
 // scan input and response size so a search cannot monopolize that connection.
+export const OrchestrationThreadSearchScope = Schema.Literals(["active", "archived"]);
+export type OrchestrationThreadSearchScope = typeof OrchestrationThreadSearchScope.Type;
+
 export const OrchestrationSearchThreadsInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+  scope: Schema.optionalKey(OrchestrationThreadSearchScope),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 

@@ -1826,6 +1826,18 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         (yield* snapshotQuery.searchThreads({ query: "hidden needle" })).matches,
         [],
       );
+      const archived = yield* snapshotQuery.searchThreads({
+        query: "hidden needle",
+        scope: "archived",
+      });
+      assert.deepStrictEqual(
+        archived.matches.map((match) => [match.threadId, match.source]),
+        [[ThreadId.make("thread-hidden"), "user"]],
+      );
+      assert.deepStrictEqual(
+        (yield* snapshotQuery.searchThreads({ query: "user needle", scope: "archived" })).matches,
+        [],
+      );
       yield* sql`
         UPDATE projection_threads
         SET deleted_at = '2026-05-01T00:00:20.000Z'
@@ -1833,6 +1845,27 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       assert.deepStrictEqual(
         (yield* snapshotQuery.searchThreads({ query: "user needle" })).matches,
+        [],
+      );
+      yield* sql`
+        UPDATE projection_threads
+        SET deleted_at = '2026-05-01T00:00:21.000Z'
+        WHERE thread_id = 'thread-hidden'
+      `;
+      assert.deepStrictEqual(
+        (yield* snapshotQuery.searchThreads({ query: "hidden needle", scope: "archived" })).matches,
+        [],
+      );
+      yield* sql`
+        UPDATE projection_threads SET deleted_at = NULL WHERE thread_id = 'thread-hidden'
+      `;
+      yield* sql`
+        UPDATE projection_projects
+        SET deleted_at = '2026-05-01T00:00:22.000Z'
+        WHERE project_id = 'project-search'
+      `;
+      assert.deepStrictEqual(
+        (yield* snapshotQuery.searchThreads({ query: "hidden needle", scope: "archived" })).matches,
         [],
       );
     }),

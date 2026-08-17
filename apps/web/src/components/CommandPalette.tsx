@@ -32,12 +32,14 @@ import {
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
+  type ThreadId,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  ArchiveIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -79,6 +81,8 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
+import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -123,9 +127,11 @@ import {
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
+  parseCommandPaletteQuery,
   parseThreadStateFilterQuery,
   RECENT_THREAD_LIMIT,
   reduceCommandPaletteUiState,
+  toggleArchivedFilter,
   toggleThreadStateFilterQuery,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
@@ -391,6 +397,17 @@ const OVERLAY_MODE_BY_COMMAND = {
   "projectSearch.toggle": "content",
 } as const satisfies Partial<Record<string, SearchOverlayMode>>;
 
+// How long to wait for an unarchived thread to reach the client shell before
+// giving up on opening it. Generous: the resync is normally sub-second, and the
+// only cost of waiting is the "Unarchiving…" footer label.
+const UNARCHIVE_OPEN_TIMEOUT_MS = 8000;
+
+// Shared by every chip in the thread filter row so Completed, Unread, and
+// Archived stay visually identical as filters are added.
+const THREAD_FILTER_CHIP_CLASS =
+  "inline-flex items-center rounded-md border border-border/70 px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground";
+const THREAD_FILTER_CHIP_ACTIVE_CLASS = "border-primary/50 bg-primary/10 text-foreground";
+
 function overlayModeForCommand(command: string | null): SearchOverlayMode | null {
   if (command === null) return null;
   return command in OVERLAY_MODE_BY_COMMAND
@@ -580,7 +597,17 @@ function OpenCommandPaletteDialog(props: {
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const isActionsOnly = deferredQuery.startsWith(">");
+  const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
+  const currentView = viewStack.at(-1) ?? null;
+  const parsedQuery = useMemo(
+    () =>
+      currentView === null
+        ? parseCommandPaletteQuery(deferredQuery)
+        : { searchQuery: deferredQuery, archivedOnly: false },
+    [currentView, deferredQuery],
+  );
+  const isArchivedOnly = parsedQuery.archivedOnly;
+  const isActionsOnly = !isArchivedOnly && deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
   const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
@@ -605,6 +632,13 @@ function OpenCommandPaletteDialog(props: {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const { unarchiveThread } = useThreadActions();
+  const [pendingArchivedThread, setPendingArchivedThread] = useState<{
+    readonly key: string;
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+  } | null>(null);
+  const pendingArchivedThreadKeyRef = useRef<string | null>(null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { theme, themeHalves, resolvedTheme } = useTheme();
   const providers = useAtomValue(primaryServerProvidersAtom);
@@ -620,8 +654,6 @@ function OpenCommandPaletteDialog(props: {
     }
     return map;
   }, [environments, primaryEnvironmentId, providers]);
-  const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
-  const currentView = viewStack.at(-1) ?? null;
   const environmentIds = useMemo(
     () =>
       environments
@@ -630,12 +662,17 @@ function OpenCommandPaletteDialog(props: {
     [environments],
   );
   const parsedThreadStateQuery = useMemo(
-    () => parseThreadStateFilterQuery(deferredQuery),
-    [deferredQuery],
+    () => parseThreadStateFilterQuery(parsedQuery.searchQuery),
+    [parsedQuery.searchQuery],
   );
   const threadSearchQuery =
     currentView === null && !isActionsOnly ? parsedThreadStateQuery.searchQuery : "";
-  const threadSearch = useThreadSearch(environmentIds, threadSearchQuery);
+  const threadSearch = useThreadSearch(
+    environmentIds,
+    threadSearchQuery,
+    isArchivedOnly ? "archived" : "active",
+  );
+  const archivedThreadSnapshots = useArchivedThreadSnapshots(isArchivedOnly ? environmentIds : []);
   const threadContentMatchByKey = useMemo(
     () =>
       new Map(
@@ -1140,6 +1177,133 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  const archivedThreadItems = useMemo(() => {
+    const archivedProjects = new Map(
+      archivedThreadSnapshots.snapshots.flatMap(({ environmentId, snapshot }) =>
+        snapshot.projects.map(
+          (project) => [`${environmentId}:${project.id}`, project.title] as const,
+        ),
+      ),
+    );
+    const archivedThreads = archivedThreadSnapshots.snapshots.flatMap(
+      ({ environmentId, snapshot }) =>
+        snapshot.threads.map((thread) => ({ ...thread, environmentId })),
+    );
+
+    return buildThreadActionItems({
+      threads: archivedThreads,
+      projectTitleById,
+      getProjectTitle: (thread) =>
+        archivedProjects.get(`${thread.environmentId}:${thread.projectId}`),
+      sortOrder: clientSettings.sidebarThreadSortOrder,
+      sortByArchivedAt: true,
+      includeArchived: true,
+      valuePrefix: "archived-thread",
+      ...(threadSearchQuery.length < 2 ? { limit: RECENT_THREAD_LIMIT } : {}),
+      icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
+      renderTrailingContent: () => (
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          Archived
+        </span>
+      ),
+      getContentMatch: (thread) => {
+        const match = threadContentMatchByKey.get(
+          threadSearchMatchKey({
+            environmentId: thread.environmentId,
+            threadId: thread.id,
+          }),
+        );
+        return match
+          ? {
+              source: match.source,
+              snippet: match.snippet,
+              query: threadSearchQuery,
+            }
+          : undefined;
+      },
+      runThread: async (thread) => {
+        const threadKey = `${thread.environmentId}:${thread.id}`;
+        if (pendingArchivedThreadKeyRef.current !== null) return;
+        pendingArchivedThreadKeyRef.current = threadKey;
+        setPendingArchivedThread({
+          key: threadKey,
+          environmentId: thread.environmentId,
+          threadId: thread.id,
+        });
+        const target = scopeThreadRef(thread.environmentId, thread.id);
+        const result = await unarchiveThread(target);
+        if (result._tag !== "Success") {
+          pendingArchivedThreadKeyRef.current = null;
+          setPendingArchivedThread(null);
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to unarchive thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
+        }
+        // Navigation is deliberately NOT done here. See the effect below: the
+        // thread route resolves the ref against the client shell, which the
+        // unarchive command has not reached yet.
+      },
+    }).map((item) => ({ ...item, keepOpen: true }));
+  }, [
+    archivedThreadSnapshots.snapshots,
+    clientSettings.sidebarThreadSortOrder,
+    projectTitleById,
+    threadContentMatchByKey,
+    threadSearchQuery,
+    unarchiveThread,
+  ]);
+
+  // An unarchived thread is absent from the client shell until a shell resync
+  // carries it: the shell snapshot query filters `archived_at IS NULL` and no
+  // reducer inserts on thread.unarchived. Navigating as soon as the command
+  // succeeds therefore hit the thread route's "missing" branch, which redirects
+  // to "/" and reads as "it opened a new thread instead". Wait for the shell.
+  useEffect(() => {
+    if (pendingArchivedThread === null) return;
+    const arrived = threads.some(
+      (thread) =>
+        thread.environmentId === pendingArchivedThread.environmentId &&
+        thread.id === pendingArchivedThread.threadId,
+    );
+    if (!arrived) return;
+    pendingArchivedThreadKeyRef.current = null;
+    setPendingArchivedThread(null);
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(
+        scopeThreadRef(pendingArchivedThread.environmentId, pendingArchivedThread.threadId),
+      ),
+    });
+    setOpen(false);
+  }, [navigate, pendingArchivedThread, setOpen, threads]);
+
+  // The thread is unarchived either way, so a resync that never lands must not
+  // wedge the palette on "Unarchiving…".
+  useEffect(() => {
+    if (pendingArchivedThread === null) return;
+    const timer = setTimeout(() => {
+      pendingArchivedThreadKeyRef.current = null;
+      setPendingArchivedThread(null);
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: "Thread unarchived",
+          description: "It is back in the sidebar but did not load in time to open.",
+        }),
+      );
+    }, UNARCHIVE_OPEN_TIMEOUT_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [pendingArchivedThread]);
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -1179,7 +1343,11 @@ function OpenCommandPaletteDialog(props: {
 
   function handleQueryChange(nextQuery: string): void {
     browseNavigation.invalidate();
-    setHighlightedItemValue(null);
+    // Don't clear the highlight here. autoHighlight="always" keeps base-ui's
+    // activeIndex on row 0, and its onItemHighlighted dedupe won't re-fire when
+    // row 0 is unchanged, so clearing leaves us out of sync with the list: row 1
+    // renders unhighlighted and the first ArrowDown appears to skip to row 2.
+    // base-ui reports undefined when the list empties, which clears it for us.
     setQuery(nextQuery);
     if (nextQuery === "" && currentView?.initialQuery) {
       popView();
@@ -1655,10 +1823,11 @@ function OpenCommandPaletteDialog(props: {
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
-    query: deferredQuery,
+    query: parsedQuery.searchQuery,
     isInSubmenu: currentView !== null,
-    projectSearchItems: projectSearchItems,
-    threadSearchItems: allThreadItems,
+    projectSearchItems: isArchivedOnly ? [] : projectSearchItems,
+    threadSearchItems: isArchivedOnly ? archivedThreadItems : allThreadItems,
+    archivedOnly: isArchivedOnly,
   });
 
   const handleAddProjectForEnvironment = useCallback(
@@ -2398,8 +2567,11 @@ function OpenCommandPaletteDialog(props: {
       </Tooltip>
     ) : null;
 
-  const footerActionLabel =
-    addProjectCloneFlow?.step === "repository"
+  const footerActionLabel = highlightedItemValue?.startsWith("archived-thread:")
+    ? pendingArchivedThread !== null
+      ? "Unarchiving…"
+      : "Unarchive and open"
+    : addProjectCloneFlow?.step === "repository"
       ? (remoteProjectButtonLabel ?? "Continue")
       : !canSubmitBrowsePath || hasHighlightedBrowseItem
         ? "Select"
@@ -2492,12 +2664,7 @@ function OpenCommandPaletteDialog(props: {
             return (
               <button
                 aria-pressed={active}
-                className={cn(
-                  "rounded-md border px-2 py-1 text-xs transition-colors",
-                  active
-                    ? "border-primary/50 bg-primary/10 text-foreground"
-                    : "border-border/70 text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
+                className={cn(THREAD_FILTER_CHIP_CLASS, active && THREAD_FILTER_CHIP_ACTIVE_CLASS)}
                 key={filter}
                 onClick={() => {
                   handleQueryChange(toggleThreadStateFilterQuery(query, filter));
@@ -2508,6 +2675,23 @@ function OpenCommandPaletteDialog(props: {
               </button>
             );
           })}
+          {/* Archived is a search scope, not a thread state, but it reads as a
+              third filter so it sits in the same row with the same chip. */}
+          <button
+            aria-pressed={isArchivedOnly}
+            className={cn(
+              THREAD_FILTER_CHIP_CLASS,
+              "gap-1",
+              isArchivedOnly && THREAD_FILTER_CHIP_ACTIVE_CLASS,
+            )}
+            onClick={() => {
+              handleQueryChange(toggleArchivedFilter(query));
+            }}
+            type="button"
+          >
+            <ArchiveIcon className="size-3" />
+            Archived
+          </button>
         </div>
       ) : null}
       <CommandPaletteResults
@@ -2531,9 +2715,13 @@ function OpenCommandPaletteDialog(props: {
                 ? {
                     emptyStateMessage: "Press Enter to create this folder and add it as a project.",
                   }
-                : threadSearch.isPending
-                  ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
+                : archivedThreadSnapshots.error && isArchivedOnly
+                  ? { emptyStateMessage: archivedThreadSnapshots.error }
+                  : (threadSearch.isPending || archivedThreadSnapshots.isLoading) && isArchivedOnly
+                    ? { emptyStateMessage: "Searching archived threads…" }
+                    : threadSearch.isPending
+                      ? { emptyStateMessage: "Searching thread messages…" }
+                      : {})}
       />
     </CommandPaletteContent>
   );

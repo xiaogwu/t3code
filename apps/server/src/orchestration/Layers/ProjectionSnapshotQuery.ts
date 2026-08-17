@@ -122,6 +122,7 @@ const ProjectionCountsRowSchema = Schema.Struct({
 const ProjectionThreadSearchRequest = Schema.Struct({
   pattern: Schema.String,
   limit: Schema.Int,
+  archivedOnly: Schema.Int,
 });
 const ProjectionThreadSearchRow = Schema.Struct({
   threadId: ThreadId,
@@ -775,10 +776,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const searchActiveThreadRows = SqlSchema.findAll({
+  const searchThreadRows = SqlSchema.findAll({
     Request: ProjectionThreadSearchRequest,
     Result: ProjectionThreadSearchRow,
-    execute: ({ pattern, limit }) =>
+    execute: ({ archivedOnly, pattern, limit }) =>
       sql`
         WITH ranked AS (
           SELECT
@@ -812,7 +813,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           INNER JOIN projection_projects AS projects
             ON projects.project_id = threads.project_id
           WHERE threads.deleted_at IS NULL
-            AND threads.archived_at IS NULL
+            AND (
+              (${archivedOnly} = 1 AND threads.archived_at IS NOT NULL)
+              OR (${archivedOnly} = 0 AND threads.archived_at IS NULL)
+            )
             AND projects.deleted_at IS NULL
             AND messages.is_streaming = 0
             AND (
@@ -2262,9 +2266,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     "ProjectionSnapshotQuery.searchThreads",
   )(function* (input) {
     const escapedQuery = escapeLikePattern(input.query);
-    const rows = yield* searchActiveThreadRows({
+    const rows = yield* searchThreadRows({
       pattern: `%${escapedQuery}%`,
       limit: input.limit ?? 50,
+      archivedOnly: input.scope === "archived" ? 1 : 0,
     }).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
