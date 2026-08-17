@@ -95,8 +95,17 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     }
   }
 
+  /**
+   * Models the real SDK's interrupt, which is a control request that can block
+   * until the in-flight tool call returns. Set to make it never answer.
+   */
+  public interruptNeverResolves = false;
+
   readonly interrupt = async (): Promise<void> => {
     this.interruptCalls.push(undefined);
+    if (this.interruptNeverResolves) {
+      await new Promise<never>(() => {});
+    }
   };
 
   readonly stopTask = async (taskId: string): Promise<void> => {
@@ -1659,6 +1668,97 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(stoppedTaskEvent.payload.taskType, "local_agent");
         assert.equal(stoppedTaskEvent.payload.title, "Agent A");
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("interruptTurn stops the session when the interrupt never lands", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const turnStartedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.started"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const exitedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "session.exited"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "work forever",
+        attachments: [],
+      });
+      yield* Fiber.join(turnStartedFiber);
+
+      // The SDK's interrupt() blocks behind an in-flight tool call and never
+      // answers. Stop must not block on it, and must still stop the turn.
+      harness.query.interruptNeverResolves = true;
+      const interruptFiber = yield* adapter.interruptTurn(session.threadId).pipe(Effect.forkChild);
+
+      yield* TestClock.adjust("5 seconds");
+      yield* Fiber.join(interruptFiber);
+      assert.equal(harness.query.interruptCalls.length, 1);
+
+      const exitEvents = Array.from(yield* Fiber.join(exitedFiber));
+      assert.equal(exitEvents.length, 1);
+      assert.equal(harness.query.closeCalls, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("interruptTurn leaves the session open when the turn actually ends", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const turnCompletedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "work",
+        attachments: [],
+      });
+      yield* adapter.interruptTurn(session.threadId);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session",
+        uuid: "result-interrupted",
+      } as unknown as SDKMessage);
+      yield* Fiber.join(turnCompletedFiber);
+
+      // The turn ended, so the watchdog must leave the session alone.
+      yield* TestClock.adjust("30 seconds");
+      assert.equal(harness.query.closeCalls, 0);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
