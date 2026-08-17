@@ -11,6 +11,7 @@ import {
 import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
+  OrchestrationThreadSearchScope,
   OrchestrationThread,
   ProjectContentMatch,
   ProjectEntryKind,
@@ -47,10 +48,10 @@ const EMPTY_THREAD_SEARCH_ATOM = Atom.make({
 }).pipe(Atom.withLabel("web:thread-search:empty"));
 
 const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
-  getSearchAtom: (environmentId, query) =>
+  getSearchAtom: (environmentId, query, scope) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query },
+      input: scope === "archived" ? { query, scope } : { query },
     }),
   labelPrefix: "web:thread-search",
 });
@@ -81,6 +82,7 @@ export function useDebouncedValue<A>(value: A, delayMs: number): A {
 export function useThreadSearch(
   environmentIds: ReadonlyArray<EnvironmentId>,
   query: string,
+  scope: OrchestrationThreadSearchScope = "active",
 ): {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly isPending: boolean;
@@ -90,8 +92,8 @@ export function useThreadSearch(
   const canSearch = environmentIds.length > 0 && normalizedQuery.length >= 2;
   const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
   const searchKey = useMemo(
-    () => (settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery)),
-    [environmentIds, settledQuery],
+    () => (settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery, scope)),
+    [environmentIds, scope, settledQuery],
   );
   const result = useAtomValue(
     searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearchResultsAtom(searchKey),

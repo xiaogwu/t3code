@@ -29,12 +29,20 @@ it("creates keys without array methods unavailable in Hermes", () => {
   Reflect.deleteProperty(Array.prototype, "toSorted");
 
   try {
-    expect(makeThreadSearchKey([envB, envA], "needle")).toBe('[["env-a","env-b"],"needle"]');
+    expect(makeThreadSearchKey([envB, envA], "needle")).toBe(
+      '[["env-a","env-b"],"needle","active"]',
+    );
   } finally {
     if (descriptor !== undefined) {
       Reflect.defineProperty(Array.prototype, "toSorted", descriptor);
     }
   }
+});
+
+it("keeps active and archived searches in separate cache keys", () => {
+  expect(makeThreadSearchKey([envA], "needle", "active")).not.toBe(
+    makeThreadSearchKey([envA], "needle", "archived"),
+  );
 });
 
 it("encodes scoped thread keys without delimiter collisions", () => {

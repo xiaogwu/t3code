@@ -90,6 +90,9 @@ export interface CommandPaletteItem {
   readonly searchTerms: ReadonlyArray<string>;
   readonly title: ReactNode;
   readonly description?: ReactNode;
+  readonly titleTooltip?: string;
+  readonly descriptionTooltip?: string;
+  readonly contentTooltip?: string;
   readonly threadContentMatch?: CommandPaletteThreadContentMatch;
   readonly timestamp?: string;
   readonly icon: ReactNode;
@@ -180,6 +183,27 @@ export function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+const ARCHIVED_FILTER_TOKEN = "is:archived";
+
+export function parseCommandPaletteQuery(query: string): {
+  readonly searchQuery: string;
+  readonly archivedOnly: boolean;
+} {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const archivedOnly = tokens.some((token) => token.toLowerCase() === ARCHIVED_FILTER_TOKEN);
+  return {
+    archivedOnly,
+    searchQuery: tokens.filter((token) => token.toLowerCase() !== ARCHIVED_FILTER_TOKEN).join(" "),
+  };
+}
+
+export function toggleArchivedFilter(query: string): string {
+  const parsed = parseCommandPaletteQuery(query);
+  return parsed.archivedOnly
+    ? parsed.searchQuery
+    : [parsed.searchQuery, ARCHIVED_FILTER_TOKEN].filter(Boolean).join(" ");
+}
+
 export function buildProjectActionItems(input: {
   projects: ReadonlyArray<Project>;
   valuePrefix: string;
@@ -194,6 +218,8 @@ export function buildProjectActionItems(input: {
     searchTerms: [project.title, project.workspaceRoot, ...(input.searchTerms?.(project) ?? [])],
     title: project.title,
     description: project.workspaceRoot,
+    titleTooltip: project.title,
+    descriptionTooltip: project.workspaceRoot,
     icon: input.icon(project),
     ...(input.shortcutCommand !== undefined ? { shortcutCommand: input.shortcutCommand } : {}),
     run: async () => {
@@ -233,18 +259,29 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
   getThreadState?: (thread: TThread) => CommandPaletteItem["threadState"];
+  includeArchived?: boolean;
+  getProjectTitle?: (thread: TThread) => string | undefined;
+  valuePrefix?: string;
+  sortByArchivedAt?: boolean;
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
-  const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
-    input.sortOrder,
+  const filteredThreads = input.threads.filter((thread) =>
+    input.includeArchived ? thread.archivedAt !== null : thread.archivedAt === null,
   );
+  const sortedThreads = input.sortByArchivedAt
+    ? [...filteredThreads].sort(
+        (left, right) =>
+          (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt) ||
+          right.id.localeCompare(left.id),
+      )
+    : sortThreads(filteredThreads, input.sortOrder);
   const visibleThreads =
     input.limit === undefined ? sortedThreads : sortedThreads.slice(0, input.limit);
 
   return visibleThreads.map((thread) => {
-    const projectTitle = input.projectTitleById.get(thread.projectId);
+    const projectTitle =
+      input.getProjectTitle?.(thread) ?? input.projectTitleById.get(thread.projectId);
     const descriptionParts: string[] = [];
 
     if (projectTitle) {
@@ -268,7 +305,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     return Object.assign(
       {
         kind: "action" as const,
-        value: `thread:${thread.id}`,
+        value: input.includeArchived
+          ? `${input.valuePrefix ?? "thread"}:${thread.environmentId}:${thread.id}`
+          : `${input.valuePrefix ?? "thread"}:${thread.id}`,
         searchTerms: [
           thread.title,
           projectTitle ?? ``,
@@ -277,8 +316,14 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         ],
         title: thread.title,
         description,
+        titleTooltip: thread.title,
+        // Mirror the rendered description, not descriptionParts: an archived
+        // result overrides it via renderDescription.
+        descriptionTooltip: description,
         timestamp: formatRelativeTimeLabel(
-          thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+          input.sortByArchivedAt
+            ? (thread.archivedAt ?? thread.createdAt)
+            : (thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt),
         ),
         icon: input.icon,
       },
@@ -286,6 +331,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       trailingContent ? { titleTrailingContent: trailingContent } : {},
       contentMatch ? { threadContentMatch: contentMatch } : {},
       threadState ? { threadState } : {},
+      contentMatch ? { contentTooltip: contentMatch.snippet } : {},
       {
         run: async () => {
           await input.runThread(thread);
@@ -334,6 +380,7 @@ export function filterCommandPaletteGroups(input: {
   isInSubmenu: boolean;
   projectSearchItems: ReadonlyArray<CommandPaletteActionItem>;
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
+  archivedOnly?: boolean;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
   const parsedThreadStateQuery =
@@ -353,6 +400,18 @@ export function filterCommandPaletteGroups(input: {
     }
     return true;
   };
+
+  if (input.archivedOnly) {
+    const items =
+      normalizedQuery.length === 0
+        ? [...input.threadSearchItems]
+        : input.threadSearchItems.filter((item) =>
+            normalizeSearchText(item.searchTerms.join(" ")).includes(normalizedQuery),
+          );
+    return items.length === 0
+      ? []
+      : [{ value: "archived-threads", label: "Archived Threads", items }];
+  }
 
   if (normalizedQuery.length === 0) {
     if (hasThreadStateFilters) {

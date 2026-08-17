@@ -64,6 +64,11 @@ agent responses across connected environments. Message matches show one labeled 
 keeping the thread's project, branch, and machine context visible. Message search begins after two
 characters and uses SQLite's ASCII case-insensitive matching.
 
+Use the **Archived** toggle in the command palette, or type `is:archived`, to search only archived
+threads. With no other search text, the palette shows recently archived threads. Selecting an
+archived result unarchives and opens it. Ordinary search already includes settled threads; settled
+and archived are separate states.
+
 The full command list and the current defaults are shown in **Settings** → **Keybindings**, which
 always matches the build you are running. Use that rather than a copied list.
 

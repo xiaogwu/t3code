@@ -16,8 +16,10 @@ import {
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
+  parseCommandPaletteQuery,
   parseThreadStateFilterQuery,
   reduceCommandPaletteUiState,
+  toggleArchivedFilter,
   toggleThreadStateFilterQuery,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
@@ -48,6 +50,41 @@ describe("browseInputEndPaddingClass", () => {
         hasHighlightedBrowseItem: false,
       }),
     ).toContain("pe-24");
+  });
+});
+
+describe("archived query filter", () => {
+  it("strips a typed token case-insensitively while preserving free text", () => {
+    expect(parseCommandPaletteQuery("database IS:ARCHIVED migration")).toEqual({
+      archivedOnly: true,
+      searchQuery: "database migration",
+    });
+  });
+
+  it("toggles the token without losing free text", () => {
+    expect(toggleArchivedFilter("database migration")).toBe("database migration is:archived");
+    expect(toggleArchivedFilter("database is:archived migration")).toBe("database migration");
+  });
+
+  it("shows only archived thread items while the filter is active", () => {
+    const archivedItem = {
+      kind: "action" as const,
+      value: "archived-thread:env:thread",
+      searchTerms: ["Database migration"],
+      title: "Database migration",
+      icon: null,
+      run: async () => undefined,
+    };
+    expect(
+      filterCommandPaletteGroups({
+        activeGroups: [{ value: "actions", label: "Actions", items: [] }],
+        query: "database",
+        isInSubmenu: false,
+        projectSearchItems: [],
+        threadSearchItems: [archivedItem],
+        archivedOnly: true,
+      }),
+    ).toEqual([{ value: "archived-threads", label: "Archived Threads", items: [archivedItem] }]);
   });
 });
 
@@ -386,6 +423,33 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
+  });
+
+  it("builds environment-scoped archived items ordered by archive time", () => {
+    const items = buildThreadActionItems({
+      threads: [
+        makeThread({
+          id: ThreadId.make("thread-first"),
+          archivedAt: "2026-03-20T00:00:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.make("thread-latest"),
+          archivedAt: "2026-03-22T00:00:00.000Z",
+        }),
+      ],
+      projectTitleById: new Map(),
+      sortOrder: "updated_at",
+      icon: null,
+      includeArchived: true,
+      sortByArchivedAt: true,
+      valuePrefix: "archived-thread",
+      runThread: async () => undefined,
+    });
+
+    expect(items.map((item) => item.value)).toEqual([
+      "archived-thread:environment-local:thread-latest",
+      "archived-thread:environment-local:thread-first",
+    ]);
   });
 });
 
