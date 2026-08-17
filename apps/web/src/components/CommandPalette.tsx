@@ -32,6 +32,7 @@ import {
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
+  type ThreadId,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -396,6 +397,11 @@ const OVERLAY_MODE_BY_COMMAND = {
   "projectSearch.toggle": "content",
 } as const satisfies Partial<Record<string, SearchOverlayMode>>;
 
+// How long to wait for an unarchived thread to reach the client shell before
+// giving up on opening it. Generous: the resync is normally sub-second, and the
+// only cost of waiting is the "Unarchiving…" footer label.
+const UNARCHIVE_OPEN_TIMEOUT_MS = 8000;
+
 // Shared by every chip in the thread filter row so Completed, Unread, and
 // Archived stay visually identical as filters are added.
 const THREAD_FILTER_CHIP_CLASS =
@@ -627,7 +633,11 @@ function OpenCommandPaletteDialog(props: {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const { unarchiveThread } = useThreadActions();
-  const [pendingArchivedThreadKey, setPendingArchivedThreadKey] = useState<string | null>(null);
+  const [pendingArchivedThread, setPendingArchivedThread] = useState<{
+    readonly key: string;
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+  } | null>(null);
   const pendingArchivedThreadKeyRef = useRef<string | null>(null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { theme, themeHalves, resolvedTheme } = useTheme();
@@ -1215,44 +1225,85 @@ function OpenCommandPaletteDialog(props: {
         const threadKey = `${thread.environmentId}:${thread.id}`;
         if (pendingArchivedThreadKeyRef.current !== null) return;
         pendingArchivedThreadKeyRef.current = threadKey;
-        setPendingArchivedThreadKey(threadKey);
-        try {
-          const target = scopeThreadRef(thread.environmentId, thread.id);
-          const result = await unarchiveThread(target);
-          if (result._tag !== "Success") {
-            if (!isAtomCommandInterrupted(result)) {
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Failed to unarchive thread",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                }),
-              );
-            }
-            return;
-          }
-          await navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(target),
-          });
-          setOpen(false);
-        } finally {
+        setPendingArchivedThread({
+          key: threadKey,
+          environmentId: thread.environmentId,
+          threadId: thread.id,
+        });
+        const target = scopeThreadRef(thread.environmentId, thread.id);
+        const result = await unarchiveThread(target);
+        if (result._tag !== "Success") {
           pendingArchivedThreadKeyRef.current = null;
-          setPendingArchivedThreadKey(null);
+          setPendingArchivedThread(null);
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to unarchive thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
         }
+        // Navigation is deliberately NOT done here. See the effect below: the
+        // thread route resolves the ref against the client shell, which the
+        // unarchive command has not reached yet.
       },
     }).map((item) => ({ ...item, keepOpen: true }));
   }, [
     archivedThreadSnapshots.snapshots,
     clientSettings.sidebarThreadSortOrder,
-    navigate,
     projectTitleById,
-    setOpen,
     threadContentMatchByKey,
     threadSearchQuery,
     unarchiveThread,
   ]);
+
+  // An unarchived thread is absent from the client shell until a shell resync
+  // carries it: the shell snapshot query filters `archived_at IS NULL` and no
+  // reducer inserts on thread.unarchived. Navigating as soon as the command
+  // succeeds therefore hit the thread route's "missing" branch, which redirects
+  // to "/" and reads as "it opened a new thread instead". Wait for the shell.
+  useEffect(() => {
+    if (pendingArchivedThread === null) return;
+    const arrived = threads.some(
+      (thread) =>
+        thread.environmentId === pendingArchivedThread.environmentId &&
+        thread.id === pendingArchivedThread.threadId,
+    );
+    if (!arrived) return;
+    pendingArchivedThreadKeyRef.current = null;
+    setPendingArchivedThread(null);
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(
+        scopeThreadRef(pendingArchivedThread.environmentId, pendingArchivedThread.threadId),
+      ),
+    });
+    setOpen(false);
+  }, [navigate, pendingArchivedThread, setOpen, threads]);
+
+  // The thread is unarchived either way, so a resync that never lands must not
+  // wedge the palette on "Unarchiving…".
+  useEffect(() => {
+    if (pendingArchivedThread === null) return;
+    const timer = setTimeout(() => {
+      pendingArchivedThreadKeyRef.current = null;
+      setPendingArchivedThread(null);
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: "Thread unarchived",
+          description: "It is back in the sidebar but did not load in time to open.",
+        }),
+      );
+    }, UNARCHIVE_OPEN_TIMEOUT_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [pendingArchivedThread]);
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -2517,7 +2568,7 @@ function OpenCommandPaletteDialog(props: {
     ) : null;
 
   const footerActionLabel = highlightedItemValue?.startsWith("archived-thread:")
-    ? pendingArchivedThreadKey !== null
+    ? pendingArchivedThread !== null
       ? "Unarchiving…"
       : "Unarchive and open"
     : addProjectCloneFlow?.step === "repository"
