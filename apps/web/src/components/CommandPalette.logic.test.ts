@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import {
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
   browseInputEndPaddingClass,
@@ -309,6 +317,50 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(item?.description).toBe("T3 Code:feat/search:wt");
+  });
+
+  it("requests a reveal only for the thread row with a content match", async () => {
+    const matchedThread = makeThread({ id: ThreadId.make("thread-matched") });
+    const unmatchedThread = makeThread({ id: ThreadId.make("thread-unmatched") });
+    const matchedMessageId = MessageId.make("message-matched");
+    const matchByKey = new Map([
+      [
+        threadSearchMatchKey(scopeThreadRef(matchedThread.environmentId, matchedThread.id)),
+        matchedMessageId,
+      ],
+    ]);
+    const requestReveal = vi.fn();
+
+    const items = buildThreadActionItems({
+      threads: [matchedThread, unmatchedThread],
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      getContentMatch: (thread) =>
+        matchByKey.has(threadSearchMatchKey(scopeThreadRef(thread.environmentId, thread.id)))
+          ? { source: "user", snippet: "needle", query: "needle" }
+          : undefined,
+      // Mirrors CommandPalette.tsx's real runThread: the reveal decision lives
+      // in this closure, not in buildThreadActionItems.
+      runThread: async (thread) => {
+        const ref = scopeThreadRef(thread.environmentId, thread.id);
+        const messageId = matchByKey.get(threadSearchMatchKey(ref));
+        if (messageId) {
+          requestReveal(ref, messageId);
+        }
+      },
+    });
+
+    const matchedItem = items.find((item) => item.value === "thread:thread-matched");
+    const unmatchedItem = items.find((item) => item.value === "thread:thread-unmatched");
+    await matchedItem?.run();
+    await unmatchedItem?.run();
+
+    expect(requestReveal).toHaveBeenCalledTimes(1);
+    expect(requestReveal).toHaveBeenCalledWith(
+      scopeThreadRef(matchedThread.environmentId, matchedThread.id),
+      matchedMessageId,
+    );
   });
 
   it("filters archived threads out of thread search items", () => {

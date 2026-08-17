@@ -129,6 +129,7 @@ const ProjectionThreadSearchRow = Schema.Struct({
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
+  messageId: MessageId,
 });
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
@@ -789,6 +790,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             END AS source,
             messages.text AS match_text,
             messages.created_at AS message_created_at,
+            messages.message_id AS message_id,
             CASE messages.role
               WHEN 'user' THEN 0
               ELSE 1
@@ -831,7 +833,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           source,
           match_text AS "matchText",
-          message_created_at AS "messageCreatedAt"
+          message_created_at AS "messageCreatedAt",
+          message_id AS "messageId"
         FROM ranked
         WHERE thread_match_rank = 1
         ORDER BY
@@ -2277,6 +2280,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         source: row.source,
         snippet: buildSearchSnippet(row.matchText, input.query),
         messageCreatedAt: row.messageCreatedAt,
+        messageId: row.messageId,
       })),
     };
   });
