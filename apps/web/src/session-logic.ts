@@ -762,6 +762,9 @@ export function deriveWorkLogEntries(
     if (activity.kind === "task.started" && !isAgentTaskStartedActivity(activity)) continue;
     if (activity.kind === "task.updated") continue;
     if (activity.kind === "tool.progress") continue;
+    // The resolved user-input row duplicates the reply it resolves, so the work
+    // log renders a second reply icon under the block.
+    if (activity.kind === "user-input.resolved") continue;
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;

@@ -771,6 +771,28 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress", "task-complete"]);
   });
 
+  it("shows user-input requests but omits their resolved activities", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-requested",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "user-input-resolved",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries.map((entry) => entry.id)).toEqual(["user-input-requested"]);
+  });
+
   it("uses payload summary as label for task entries when available", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

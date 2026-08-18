@@ -275,7 +275,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("ms-1 inline-flex align-middle");
     expect(markup).not.toContain("absolute right-0");
     expect(markup).not.toContain("translate-x-full");
-    expect(markup).toContain('aria-label="Reply to this response"');
+    // The message-level reply button was removed: the inline block controls are
+    // the only reply affordance, so the two no longer stack as a doubled icon.
+    expect(markup).not.toContain('aria-label="Reply to this response"');
   });
 
   it("renders a persisted user reply quote linked to its source block", () => {
