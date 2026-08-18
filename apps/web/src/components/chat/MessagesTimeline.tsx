@@ -1219,28 +1219,12 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
-        {row.showAssistantMeta || !row.message.streaming ? (
+        {/* No message-level reply button: every markdown block already carries its
+            own inline reply control, and the two stacked up as a doubled icon. */}
+        {row.showAssistantMeta ? (
           <div className="mt-1.5 flex items-center gap-2 text-xs tabular-nums opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/assistant:opacity-100">
-            {!row.message.streaming ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      aria-label="Reply to this response"
-                      onClick={() => ctx.onReplyToAssistantMessage(row.message.id)}
-                    />
-                  }
-                >
-                  <MessageCircleIcon className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Reply</TooltipPopup>
-              </Tooltip>
-            ) : null}
-            {row.showAssistantMeta ? <AssistantCopyButton row={row} /> : null}
-            {row.showAssistantMeta && !row.message.streaming && (
+            <AssistantCopyButton row={row} />
+            {!row.message.streaming && (
               <Tooltip>
                 <TooltipTrigger
                   render={<p className="text-muted-foreground text-xs tabular-nums" />}
