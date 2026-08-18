@@ -2,7 +2,26 @@ import { type CSSProperties, memo } from "react";
 import { type ProviderDriverKind } from "@t3tools/contracts";
 
 import { PROVIDER_ICON_BY_PROVIDER } from "./providerIconUtils";
+import { PiAgentIcon, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
+
+// An instance can ride a driver that is not its own agent: `pi` is hosted on the
+// generic gemini ACP driver, so the driver icon would show Gemini. Drop this once
+// the native piAgent driver ships and the instance can use its own kind.
+const ICON_BY_INSTANCE: Record<string, Icon> = {
+  pi: PiAgentIcon,
+};
+
+function resolveInstanceIcon(
+  driverKind: ProviderDriverKind,
+  instanceId: string | undefined,
+  displayName: string,
+): Icon | null {
+  // Call sites without an instance id fall back to the display name, which for
+  // a hosted instance is the agent's own name.
+  const key = (instanceId ?? displayName).trim().toLowerCase();
+  return ICON_BY_INSTANCE[key] ?? PROVIDER_ICON_BY_PROVIDER[driverKind] ?? null;
+}
 
 export function providerInstanceInitials(label: string): string {
   const words = label.replace(/[_-]+/g, " ").split(/\s+/u).filter(Boolean);
@@ -17,6 +36,7 @@ export function providerInstanceInitials(label: string): string {
 export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   driverKind: ProviderDriverKind;
   displayName: string;
+  instanceId?: string | undefined;
   accentColor?: string | undefined;
   showBadge?: boolean;
   badgeContent?: "initials" | "none";
@@ -26,7 +46,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   statusDotClassName?: string;
   indicatorBackground?: string;
 }) {
-  const Icon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
+  const Icon = resolveInstanceIcon(props.driverKind, props.instanceId, props.displayName);
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentStyle = props.accentColor
     ? ({ "--provider-accent": props.accentColor } as CSSProperties)

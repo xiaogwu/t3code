@@ -178,6 +178,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                 <ProviderInstanceIcon
                   driverKind={entry.driverKind}
                   displayName={entry.displayName}
+                  instanceId={String(entry.instanceId)}
                   accentColor={entry.accentColor}
                   showBadge={showInstanceBadge}
                   className="size-6"

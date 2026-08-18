@@ -332,6 +332,7 @@ function SidebarThreadTooltip({
                 displayName={
                   providerEntry?.displayName ?? thread.session?.providerName ?? modelInstanceId
                 }
+                instanceId={modelInstanceId ? String(modelInstanceId) : undefined}
                 accentColor={providerEntry?.accentColor}
                 // Initials would swallow a size-3 glyph: accent dot, name in label.
                 showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
@@ -1597,6 +1598,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                         thread.session?.providerName ??
                         modelInstanceId
                       }
+                      instanceId={modelInstanceId ? String(modelInstanceId) : undefined}
                       accentColor={providerEntry?.accentColor}
                       showBadge={showInstanceBadge}
                       // Glyph dims, badge stays saturated; offset matches the composer trigger.
