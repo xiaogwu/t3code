@@ -696,3 +696,14 @@ export const PiAgentIcon: Icon = ({ className, ...props }) => (
     <path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z" />
   </svg>
 );
+
+// little-coder's wordmark, redrawn as a square app icon: the "lc" letterforms and
+// the accent bar, geometry and colors traced from the upstream logo.
+export const LittleCoderIcon: Icon = ({ className, ...props }) => (
+  <svg {...props} viewBox="0 0 800 800" className={cn("fill-none", className)}>
+    <rect width="800" height="800" rx="160" fill="#191411" />
+    <path fill="#F1EBDE" d="M80 249h116v42H80zM140 249h56v281h-56zM80 489h177v41H80z" />
+    <path fill="#F1EBDE" d="M456 381A90.6 90.6 0 1 0 456 485L409 452A33.2 33.2 0 1 1 409 414Z" />
+    <rect x="528" y="242" width="192" height="317" fill="#D16333" />
+  </svg>
+);

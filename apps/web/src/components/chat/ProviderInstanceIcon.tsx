@@ -2,14 +2,18 @@ import { type CSSProperties, memo } from "react";
 import { type ProviderDriverKind } from "@t3tools/contracts";
 
 import { PROVIDER_ICON_BY_PROVIDER } from "./providerIconUtils";
-import { PiAgentIcon, type Icon } from "../Icons";
+import { LittleCoderIcon, PiAgentIcon, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
 
-// An instance can ride a driver that is not its own agent: `pi` is hosted on the
-// generic gemini ACP driver, so the driver icon would show Gemini. Drop this once
-// the native piAgent driver ships and the instance can use its own kind.
+// An instance can ride a driver that is not its own agent: `pi` and `little-coder`
+// are both hosted on the generic gemini ACP driver, so the driver icon would show
+// Gemini. Drop this once the native piAgent driver ships and the instance can use
+// its own kind. Keyed on the instance id and on the display name, because some
+// call sites only have the latter.
 const ICON_BY_INSTANCE: Record<string, Icon> = {
   pi: PiAgentIcon,
+  littlecoder: LittleCoderIcon,
+  "little-coder": LittleCoderIcon,
 };
 
 function resolveInstanceIcon(
