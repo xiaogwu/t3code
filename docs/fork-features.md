@@ -3,26 +3,41 @@
 Features this fork adds on top of upstream `t3code`, newest first. Upstream nightly merges
 are omitted: this is only the fork's own work.
 
-Before 2026-08-15 features landed as local topic-branch merges into `integration` with no
-pull request, so there is no PR to link. The compare link gives the same diff a PR would
-have shown: the topic branch measured against the base it was merged onto.
+No feature has a PR to link, because features land as local merges into `integration`. The
+compare link stands in for the PR diff: the topic branch measured against the base it was
+merged onto.
 
-## Workflow going forward
+## Workflow
 
-One pull request per feature, so every change has a stable number and URL to refer to:
+One local topic-branch merge per feature. Pull requests were tried and dropped on 2026-08-17:
+CI never runs on this fork, so a PR adds a round trip and reviews nothing. Only PR #2 ever
+completed. PR #1 was lost when a local merge pushed its commits into `integration`, which made
+GitHub auto-close the still-draft PR.
 
-1. Branch off `integration` with a descriptive kebab-case name (`ui/...`, `build/...`, `provider/...`).
-2. Push the branch and open a **draft** PR against `integration`.
-3. Merge through GitHub (`gh pr merge --merge`), not with a local `git merge`.
+1. Branch off `integration`, kebab-case, prefixed by area (`ui/...`, `build/...`, `fork/...`).
+2. Commit the work there and run the gates for the packages you touched.
+3. `git merge --no-ff <branch> -m "merge: <one-line description>"` onto `integration`.
+4. Add the feature's row to the table below and commit it on `integration`.
+5. Push `integration`.
 
-Step 3 is the part that matters. Merging locally and pushing `integration` puts the branch's
-commits in the base branch, and GitHub then auto-closes the PR as merged. PR #1 was lost
-that way on 2026-08-15: it stayed a draft, and pushing `integration` closed it.
+Step 4 is part of landing a feature, not a chore for later. Skipping it is how the index went
+five features stale between 2026-08-15 and 2026-08-20. It is its own commit rather than part of
+the merge because the row cites the merge commit, which does not exist until step 3. Fill
+**Merge** with that SHA, and **Diff** with `compare/<the commit integration was on>...<the
+topic branch tip>`. Capture the topic branch tip before deleting the branch; three branches
+from 2026-08-18 had to be recovered from a reflog in another clone.
+
+Upstream nightly merges and upstream-reconciliation merges do not get rows.
 
 ## Features
 
 | Date       | Feature                                                           | Topic branch                      | Merge                                                                                            | Diff                                                                                                                                     |
 | ---------- | ----------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-18 | little-coder provider gets its own icon                           | `fork/little-coder-provider-icon` | [`023c1d7c6`](https://github.com/xiaogwu/t3code/commit/023c1d7c63550e5563b6449c5769f47cb9e49c87) | [compare](https://github.com/xiaogwu/t3code/compare/92611da8844e3e29a9649752c40a7a88515c2c99...9256d0087825051a475a719694471c616a9b3d9f) |
+| 2026-08-18 | One reply affordance per assistant message                        | `fork/single-reply-affordance`    | [`bb60c6d1c`](https://github.com/xiaogwu/t3code/commit/bb60c6d1cd2abf0ac8fa63b1fb03372a07260a23) | [compare](https://github.com/xiaogwu/t3code/compare/9382984d04540554afff1e27e3fa2d35fa1025bd...91376e1a80147f34593c9d076193a2675dc0043d) |
+| 2026-08-18 | pi provider instance shows the pi logo                            | `fork/pi-provider-logo`           | [`9382984d0`](https://github.com/xiaogwu/t3code/commit/9382984d04540554afff1e27e3fa2d35fa1025bd) | [compare](https://github.com/xiaogwu/t3code/compare/53a1c3a7dbcd624a8a50189edf9072b908b75bb8...574a245b7112c218ddfcf6a0532366c41fb382ea) |
+| 2026-08-18 | Thread output no longer blanks when the right panel opens         | `ui/thread-blank-on-panel-toggle` | [`53a1c3a7d`](https://github.com/xiaogwu/t3code/commit/53a1c3a7dbcd624a8a50189edf9072b908b75bb8) | [compare](https://github.com/xiaogwu/t3code/compare/86dc609cedc6704c8696f6c0f08f81a5119d04a5...3af8715d1581e914382070aaf38a617956502ce5) |
+| 2026-08-17 | Search archived threads from the command palette                  | `archived-thread-search`          | [`c777e5800`](https://github.com/xiaogwu/t3code/commit/c777e5800dbdab144d27bc22b8efa22e30390923) | [compare](https://github.com/xiaogwu/t3code/compare/cccd340d6ae267e9ad81bec922bc01140e7ef0ae...b58be7206031bca2afa1895a3a09e3444689808a) |
 | 2026-08-15 | OpenCode prelaunch command, plus repeatable reply anchors         | `opencode-prelaunch-command`      | [`72ae6bb5f`](https://github.com/xiaogwu/t3code/commit/72ae6bb5fb363b12dff465ba63a35044e0e6389c) | [compare](https://github.com/xiaogwu/t3code/compare/13cae54a2bc963fca2ad010afd9acecff82e7d6e...6affe6d0e5680f628918e89c712e126fcc8fa644) |
 | 2026-08-12 | Sidebar status dots restored, reply to individual response blocks | `fork-integration`                | [`d726830c2`](https://github.com/xiaogwu/t3code/commit/d726830c249d60c0bcd72a45d137b0f90e72c72d) | [compare](https://github.com/xiaogwu/t3code/compare/d99ba4e8983e4c8e82f615d94f2630ccc22fe1d9...70827cbf24de4e04c71b7c3e3cc9e5ccbff3f82e) |
 | 2026-08-11 | Sidebar v2 gets its own thread sort order                         | `ui/sidebar-v2-thread-sort`       | [`a6b3e80f0`](https://github.com/xiaogwu/t3code/commit/a6b3e80f051749f87b52f6641873785c50457f1e) | [compare](https://github.com/xiaogwu/t3code/compare/e52a4f8d29dc921fa424f254f17c54046a73f0ea...63e93706e002a9a76bd47ed04896b36f5cae3221) |
