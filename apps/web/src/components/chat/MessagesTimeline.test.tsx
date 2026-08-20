@@ -241,6 +241,41 @@ function buildAssistantTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders the worked-for row at assistant response text size", () => {
+    const turnId = TurnId.make("turn-with-fold");
+    const assistantEntry = buildAssistantTimelineEntry("Done.");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        latestTurn={{
+          turnId,
+          state: "completed",
+          startedAt: "2026-03-17T19:12:20.000Z",
+          completedAt: "2026-03-17T19:12:28.000Z",
+        }}
+        timelineEntries={[
+          {
+            id: "work-entry-with-fold",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:22.000Z",
+            entry: {
+              id: "work-with-fold",
+              createdAt: "2026-03-17T19:12:22.000Z",
+              turnId,
+              label: "Ran command",
+              tone: "tool",
+              toolLifecycleStatus: "completed",
+            },
+          },
+          { ...assistantEntry, message: { ...assistantEntry.message, turnId } },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Worked for 8.0s");
+    expect(markup).toContain("px-1 text-sm leading-relaxed text-muted-foreground");
+  });
+
   it("renders block and whole-message reply controls beside copy controls", () => {
     const messageId = MessageId.make("message-reply-actions");
     const markup = renderToStaticMarkup(
@@ -795,7 +830,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
-  it("formats changed file paths from the workspace root", () => {
+  it("keeps changed file paths out of the collapsed tool summary", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -817,7 +852,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
+    expect(markup).toContain("Changed 1 file");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
