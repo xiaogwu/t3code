@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import {
+  PINNED_SORTABLE_ANIMATION_OPTIONS,
   animatePinnedLayoutChanges,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
@@ -78,6 +79,65 @@ describe("animatePinnedLayoutChanges", () => {
 
   it("keeps layout movement while the user is sorting", () => {
     expect(animatePinnedLayoutChanges({ ...baseArgs, isSorting: true })).toBe(true);
+  });
+});
+
+// Guards the fork's pinned-drop fix, which has no runtime coverage anywhere
+// else: dragging is a pointer interaction the suite never drives, so the only
+// thing standing between a bad merge resolution and a visibly broken reorder is
+// these assertions. Upstream keeps editing the same useSortable() call (#7676
+// most recently), and the tempting resolution — take upstream's
+// `animatePinnedLayoutChanges` and drop the fork's hunk — silently reintroduces
+// the bug. Both tests below fail loudly if that happens.
+describe("PINNED_SORTABLE_ANIMATION_OPTIONS", () => {
+  const baseArgs: Parameters<AnimateLayoutChanges>[0] = {
+    active: null,
+    containerId: "pinned-threads",
+    isDragging: false,
+    isSorting: false,
+    id: "thread-a",
+    index: 1,
+    items: ["thread-b", "thread-a"],
+    newIndex: 0,
+    previousItems: ["thread-a", "thread-b"],
+    previousContainerId: "pinned-threads",
+    transition: { duration: 200, easing: "ease" },
+    wasDragging: true,
+  };
+
+  it("never replays layout movement, including while sorting", () => {
+    // The "including while sorting" half is the one that diverges from
+    // upstream: `animatePinnedLayoutChanges` returns true here. Swapping this
+    // predicate for upstream's turns this assertion red.
+    expect(PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges(baseArgs)).toBe(false);
+    expect(
+      PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges({ ...baseArgs, isSorting: true }),
+    ).toBe(false);
+    expect(
+      PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges({
+        ...baseArgs,
+        isDragging: true,
+        isSorting: true,
+        wasDragging: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("suppresses the displacement transition on the cards that were not dragged", () => {
+    // Upstream has no equivalent for this half, so a resolution that adopts
+    // upstream's predicate alone drops it and the other cards resume sliding —
+    // they are then still mid-slide when the drop commits, which is what made a
+    // finished reorder look like it was undoing itself.
+    expect(PINNED_SORTABLE_ANIMATION_OPTIONS.transition).toBeNull();
+  });
+
+  it("disagrees with upstream's predicate, so the two are not interchangeable", () => {
+    // Pins the reason both must coexist. If a future upstream release makes
+    // these agree, that is the signal to revisit whether the fork's override is
+    // still carrying its weight — a deliberate call, not a silent merge.
+    const sorting = { ...baseArgs, isSorting: true };
+    expect(animatePinnedLayoutChanges(sorting)).toBe(true);
+    expect(PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges(sorting)).toBe(false);
   });
 });
 

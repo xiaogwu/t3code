@@ -121,6 +121,7 @@ import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
+  PINNED_SORTABLE_ANIMATION_OPTIONS,
   buildBulkTitleRegenerationContextMenuItem,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
@@ -451,25 +452,9 @@ function SortablePinnedThreadRow(props: {
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.id,
-    // No layout-change animation. dnd-kit's default FLIP fires on drop, and
-    // because the row is already in its new slot (the optimistic order lands
-    // in the same commit) the animation starts by offsetting the row back to
-    // where it was dragged from — it reads as the drop being rejected. The
-    // reorder is a discrete edit, so land it discretely.
-    //
-    // Upstream #7676 shipped `animatePinnedLayoutChanges` (in Sidebar.logic.ts)
-    // for the same post-drop reshuffle, but it only returns false once sorting
-    // has ended and still runs dnd-kit's default FLIP while `isSorting` is
-    // true. That half is incompatible with `transition: null` below: a derived
-    // FLIP transform with no transition to play it out is a one-frame offset
-    // and then a snap. `() => false` is the strict superset, so it stays.
-    animateLayoutChanges: () => false,
-    // No transition on the displacement transforms either: the cards other
-    // than the dragged one swap places instantly instead of sliding. With a
-    // transition they are still mid-slide when the drop lands, which is what
-    // made a finished reorder look like it was undoing itself. Upstream has no
-    // equivalent for this half.
-    transition: null,
+    // Both halves of the fork's pinned-drop fix, and why upstream's #7676
+    // predicate is not a substitute for them, live with the constant.
+    ...PINNED_SORTABLE_ANIMATION_OPTIONS,
   });
   return props.children({ listeners, setNodeRef, transform, transition, isDragging });
 }

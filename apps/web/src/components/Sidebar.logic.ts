@@ -34,6 +34,37 @@ export const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
 export const animatePinnedLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
+// What a pinned card's useSortable() call is given. Extracted from Sidebar.tsx
+// so the two halves below can be asserted: they are the fork's fix for a
+// reorder reading as though it had been rejected, and upstream keeps landing
+// its own partial version on top of them (see #7676).
+export type PinnedSortableAnimationOptions = {
+  readonly animateLayoutChanges: AnimateLayoutChanges;
+  readonly transition: null;
+};
+
+export const PINNED_SORTABLE_ANIMATION_OPTIONS: PinnedSortableAnimationOptions = {
+  // No layout-change animation. dnd-kit's default FLIP fires on drop, and
+  // because the row is already in its new slot (the optimistic order lands in
+  // the same commit) the animation starts by offsetting the row back to where
+  // it was dragged from — it reads as the drop being rejected. The reorder is a
+  // discrete edit, so land it discretely.
+  //
+  // Upstream #7676 shipped `animatePinnedLayoutChanges` above for the same
+  // post-drop reshuffle, but it only returns false once sorting has ended and
+  // still runs dnd-kit's default FLIP while `isSorting` is true. That half is
+  // incompatible with `transition: null` below: a derived FLIP transform with
+  // no transition to play it out is a one-frame offset and then a snap. This
+  // predicate is the strict superset, so it stays.
+  animateLayoutChanges: () => false,
+  // No transition on the displacement transforms either: the cards other than
+  // the dragged one swap places instantly instead of sliding. With a transition
+  // they are still mid-slide when the drop lands, which is what made a finished
+  // reorder look like it was undoing itself. Upstream has no equivalent for
+  // this half, so a resolution that takes upstream's predicate alone drops it.
+  transition: null,
+};
+
 type SidebarProject = {
   id: string;
   title: string;
