@@ -58,6 +58,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "appearance",
   },
   {
+    // Prefixed because the slider control already owns the `appearance-contrast` id.
+    id: "setting-appearance-contrast",
+    title: "Contrast",
+    to: "/settings/appearance",
+  },
+  {
     // Prefixed because the slider control already owns the `glass-opacity` id.
     id: "setting-glass-opacity",
     title: "Glass opacity",
@@ -128,6 +134,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "agent-sounds",
     title: "Agent sounds",
+    to: "/settings/general",
+  },
+  {
+    id: "skills-in-slash-menu",
+    title: "Show skills in slash menu",
     to: "/settings/general",
   },
   {

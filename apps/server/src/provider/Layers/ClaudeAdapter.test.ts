@@ -54,12 +54,11 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   private done = false;
   private failure: unknown | undefined;
 
-  public readonly interruptCalls: Array<void> = [];
-  public readonly stopTaskCalls: Array<string> = [];
   public readonly setModelCalls: Array<string | undefined> = [];
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public closeCalls = 0;
+  public closeError: unknown | undefined;
 
   emit(message: SDKMessage): void {
     if (this.done) {
@@ -95,23 +94,6 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     }
   }
 
-  /**
-   * Models the real SDK's interrupt, which is a control request that can block
-   * until the in-flight tool call returns. Set to make it never answer.
-   */
-  public interruptNeverResolves = false;
-
-  readonly interrupt = async (): Promise<void> => {
-    this.interruptCalls.push(undefined);
-    if (this.interruptNeverResolves) {
-      await new Promise<never>(() => {});
-    }
-  };
-
-  readonly stopTask = async (taskId: string): Promise<void> => {
-    this.stopTaskCalls.push(taskId);
-  };
-
   readonly setModel = async (model?: string): Promise<void> => {
     this.setModelCalls.push(model);
   };
@@ -126,6 +108,9 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly close = (): void => {
     this.closeCalls += 1;
+    if (this.closeError !== undefined) {
+      throw this.closeError;
+    }
     this.finish();
   };
 
@@ -1589,7 +1574,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("interruptTurn settles every acknowledged live task before interrupting", () => {
+  it.effect("interruptTurn settles live tasks and closes the provider session", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -1654,9 +1639,12 @@ describe("ClaudeAdapterLive", () => {
       );
       yield* adapter.interruptTurn(session.threadId);
 
-      // Only the still-live task is stopped; interrupt always fires after.
-      assert.deepEqual(harness.query.stopTaskCalls, ["task-live"]);
-      assert.equal(harness.query.interruptCalls.length, 1);
+      // Closing the session is the hard stop because SDK interrupt can leave
+      // resumed background work alive.
+      assert.equal(harness.query.closeCalls, 1);
+
+      const sessions = yield* adapter.listSessions();
+      assert.equal(sessions.length, 0);
 
       const stoppedTaskEvents = Array.from(yield* Fiber.join(stoppedTaskEventFiber));
       assert.equal(stoppedTaskEvents.length, 1);
@@ -1668,97 +1656,6 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(stoppedTaskEvent.payload.taskType, "local_agent");
         assert.equal(stoppedTaskEvent.payload.title, "Agent A");
       }
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("interruptTurn stops the session when the interrupt never lands", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const turnStartedFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "turn.started"),
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-      const exitedFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "session.exited"),
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: ProviderDriverKind.make("claudeAgent"),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "work forever",
-        attachments: [],
-      });
-      yield* Fiber.join(turnStartedFiber);
-
-      // The SDK's interrupt() blocks behind an in-flight tool call and never
-      // answers. Stop must not block on it, and must still stop the turn.
-      harness.query.interruptNeverResolves = true;
-      const interruptFiber = yield* adapter.interruptTurn(session.threadId).pipe(Effect.forkChild);
-
-      yield* TestClock.adjust("5 seconds");
-      yield* Fiber.join(interruptFiber);
-      assert.equal(harness.query.interruptCalls.length, 1);
-
-      const exitEvents = Array.from(yield* Fiber.join(exitedFiber));
-      assert.equal(exitEvents.length, 1);
-      assert.equal(harness.query.closeCalls, 1);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("interruptTurn leaves the session open when the turn actually ends", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const turnCompletedFiber = yield* adapter.streamEvents.pipe(
-        Stream.filter((event) => event.type === "turn.completed"),
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkChild,
-      );
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: ProviderDriverKind.make("claudeAgent"),
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "work",
-        attachments: [],
-      });
-      yield* adapter.interruptTurn(session.threadId);
-
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "sdk-session",
-        uuid: "result-interrupted",
-      } as unknown as SDKMessage);
-      yield* Fiber.join(turnCompletedFiber);
-
-      // The turn ended, so the watchdog must leave the session alone.
-      yield* TestClock.adjust("30 seconds");
-      assert.equal(harness.query.closeCalls, 0);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -1927,6 +1824,84 @@ describe("ClaudeAdapterLive", () => {
       if (progress?.type === "task.progress") {
         assert.equal(progress.payload.model, "claude-sonnet-5[1m]");
         assert.equal(progress.payload.effort, "max");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("a subagent snapshot that beats task_started still wins over the seed", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const taskEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type.startsWith("task.")),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-4-6",
+          [{ id: "effort", value: "max" }],
+        ),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "spawn an agent",
+        attachments: [],
+      });
+
+      // The subagent streams its first assistant snapshot before the task is
+      // registered, so there is no agent to refine yet.
+      harness.query.emit({
+        type: "assistant",
+        parent_tool_use_id: "toolu_agent_early",
+        message: {
+          model: "claude-sonnet-5[1m]",
+          content: [],
+        },
+        uuid: "early-snapshot-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-early",
+        description: "Agent E",
+        task_type: "local_agent",
+        tool_use_id: "toolu_agent_early",
+        uuid: "task-early-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-early",
+        description: "Agent E",
+        usage: { total_tokens: 100, tool_uses: 1, duration_ms: 10 },
+        uuid: "task-early-progress-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+
+      const taskEvents = Array.from(yield* Fiber.join(taskEventsFiber));
+      const started = taskEvents[0];
+      assert.equal(started?.type, "task.started");
+      if (started?.type === "task.started") {
+        assert.equal(started.payload.model, "claude-sonnet-5[1m]");
+        assert.equal(started.payload.effort, "max");
+      }
+      const progress = taskEvents[1];
+      assert.equal(progress?.type, "task.progress");
+      if (progress?.type === "task.progress") {
+        assert.equal(progress.payload.model, "claude-sonnet-5[1m]");
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
