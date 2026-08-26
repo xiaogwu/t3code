@@ -91,6 +91,7 @@ import { isMacPlatform } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
+import { openSnoozeForDialog } from "../snoozeForDialog";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import {
   buildSidebarProjectSnapshots,
@@ -157,12 +158,7 @@ import {
   type ThreadChangeRequestSnapshot,
   type TerminalStatusIndicator,
 } from "./ThreadStatusIndicators";
-import {
-  resolveSnoozePresets,
-  snoozeWakeDescription,
-  snoozeWakeLabel,
-  type SnoozePreset,
-} from "./Sidebar.snooze";
+import { resolveSnoozePresets, snoozeWakeDescription, snoozeWakeLabel } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -180,6 +176,7 @@ import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./u
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarSortMenu } from "./sidebar/SidebarSortMenu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
+import { Separator } from "./ui/separator";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
   composerDraftHasUserContent,
@@ -389,10 +386,11 @@ function SidebarThreadTooltip({
 function SnoozePopoverButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSnooze: (preset: SnoozePreset) => void;
+  onSnooze: (snoozedUntil: string) => void;
+  onSnoozeFor: () => void;
   timestampFormat: TimestampFormat;
 }) {
-  const { open, onOpenChange, onSnooze, timestampFormat } = props;
+  const { open, onOpenChange, onSnooze, onSnoozeFor, timestampFormat } = props;
   // Presets resolve at open time so "In 1 hour" is relative to the click,
   // not to when the row mounted.
   const presets = useMemo(
@@ -429,7 +427,7 @@ function SnoozePopoverButton(props: {
             onClick={(event) => {
               event.stopPropagation();
               onOpenChange(false);
-              onSnooze(preset);
+              onSnooze(preset.snoozedUntil);
             }}
             className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
           >
@@ -439,6 +437,18 @@ function SnoozePopoverButton(props: {
             </span>
           </button>
         ))}
+        <Separator className="my-1 bg-border/60" />
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenChange(false);
+            onSnoozeFor();
+          }}
+          className="flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+        >
+          Until…
+        </button>
       </PopoverPopup>
     </Popover>
   );
@@ -747,7 +757,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onContextMenu: (threadRef: ScopedThreadRef, position: { x: number; y: number }) => void;
   onSettle: (threadRef: ScopedThreadRef) => void;
   onUnsettle: (threadRef: ScopedThreadRef) => void;
-  onSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
+  onSnooze: (threadRef: ScopedThreadRef, snoozedUntil: string) => void;
+  onSnoozeFor: (threadRef: ScopedThreadRef) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
@@ -768,6 +779,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     onRenameTitleChange,
     onSettle,
     onSnooze,
+    onSnoozeFor,
     onStartRename,
     onThreadActivate,
     onThreadClick,
@@ -1087,12 +1099,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     },
     [onUnpin, threadRef],
   );
-  const handleSnoozePreset = useCallback(
-    (preset: SnoozePreset) => {
-      onSnooze(threadRef, preset);
+  const handleSnooze = useCallback(
+    (snoozedUntil: string) => {
+      onSnooze(threadRef, snoozedUntil);
     },
     [onSnooze, threadRef],
   );
+  const handleSnoozeFor = useCallback(() => onSnoozeFor(threadRef), [onSnoozeFor, threadRef]);
   // While the snooze popover is open the pointer leaves the row, which
   // would fade the hover actions out from under the open menu; pin them.
   const [snoozeMenuOpenRaw, setSnoozeMenuOpen] = useState(false);
@@ -1543,7 +1556,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       <SnoozePopoverButton
                         open={snoozeMenuOpen}
                         onOpenChange={setSnoozeMenuOpen}
-                        onSnooze={handleSnoozePreset}
+                        onSnooze={handleSnooze}
+                        onSnoozeFor={handleSnoozeFor}
                         timestampFormat={props.timestampFormat}
                       />
                     ) : null}
@@ -2835,7 +2849,7 @@ export default function Sidebar() {
   const performSnooze = useCallback(
     async (
       threadRef: ScopedThreadRef,
-      preset: SnoozePreset,
+      snoozedUntil: string,
       opts: { coSnoozingKeys?: ReadonlySet<string> } = {},
     ) => {
       const threadKey = scopedThreadKey(threadRef);
@@ -2847,7 +2861,7 @@ export default function Sidebar() {
         // Snoozing the open thread moves you forward, same as settle —
         // both park the thread you're done with for now.
         const navigateAfterSnooze = planForwardNavigation(threadKey, opts.coSnoozingKeys);
-        const result = await snoozeThread(threadRef, preset.snoozedUntil);
+        const result = await snoozeThread(threadRef, snoozedUntil);
         if (result._tag === "Failure") {
           // Never navigate away from a thread that did not snooze.
           return isAtomCommandInterrupted(result)
@@ -2869,11 +2883,11 @@ export default function Sidebar() {
   const attemptSnooze = useCallback(
     (
       threadRef: ScopedThreadRef,
-      preset: SnoozePreset,
+      snoozedUntil: string,
       opts: { coSnoozingKeys?: ReadonlySet<string> } = {},
     ) => {
       void (async () => {
-        const outcome = await performSnooze(threadRef, preset, opts);
+        const outcome = await performSnooze(threadRef, snoozedUntil, opts);
         if (outcome.status === "failure") {
           toastManager.add(
             stackedThreadToast({
@@ -2891,7 +2905,7 @@ export default function Sidebar() {
         toastManager.add(
           stackedThreadToast({
             type: "success",
-            title: `Snoozed until ${snoozeWakeDescription(preset.snoozedUntil, new Date(), timestampFormat)}`,
+            title: `Snoozed until ${snoozeWakeDescription(snoozedUntil, new Date(), timestampFormat)}`,
             timeout: 5_000,
             actionProps: {
               children: "Undo",
@@ -2902,6 +2916,14 @@ export default function Sidebar() {
       })();
     },
     [attemptUnsnooze, performSnooze, timestampFormat],
+  );
+  const openSnoozeForThread = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      openSnoozeForDialog({
+        onSnooze: (snoozedUntil) => attemptSnooze(threadRef, snoozedUntil),
+      });
+    },
+    [attemptSnooze],
   );
 
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
@@ -2954,6 +2976,59 @@ export default function Sidebar() {
         actionableCount: regeneratableTitleThreads.length,
       });
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+      const snoozeSelectionUntil = async (snoozedUntil: string) => {
+        // Post-snooze navigation must skip threads snoozing in this same
+        // batch — they are all leaving the card block together.
+        const coSnoozingKeys = new Set(threadKeys);
+        clearSelection();
+        const outcomes = await Promise.all(
+          selectedThreads.map(async (thread) => {
+            const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+            const outcome = await performSnooze(threadRef, snoozedUntil, { coSnoozingKeys });
+            return { outcome, threadRef };
+          }),
+        );
+        const snoozedThreadRefs = outcomes.flatMap(({ outcome, threadRef }) =>
+          outcome.status === "success" ? [threadRef] : [],
+        );
+        const failures = outcomes.flatMap(({ outcome }) =>
+          outcome.status === "failure" ? [outcome.error] : [],
+        );
+
+        if (snoozedThreadRefs.length > 0) {
+          const snoozedCount = snoozedThreadRefs.length;
+          const failedCount = failures.length;
+          toastManager.add(
+            stackedThreadToast({
+              type: failedCount > 0 ? "warning" : "success",
+              title:
+                failedCount > 0
+                  ? `Snoozed ${snoozedCount} of ${selectedThreads.length} threads`
+                  : `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
+              description:
+                failedCount > 0
+                  ? `${failedCount} thread${failedCount === 1 ? "" : "s"} couldn't be snoozed.`
+                  : undefined,
+              timeout: 5_000,
+              actionProps: {
+                children: "Undo",
+                onClick: () => {
+                  for (const threadRef of snoozedThreadRefs) attemptUnsnooze(threadRef);
+                },
+              },
+            }),
+          );
+        } else if (failures.length > 0) {
+          const firstError = failures[0];
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to snooze threads",
+              description: firstError instanceof Error ? firstError.message : "An error occurred.",
+            }),
+          );
+        }
+      };
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
@@ -2963,10 +3038,13 @@ export default function Sidebar() {
                   {
                     id: "snooze",
                     label: `Snooze (${count})`,
-                    children: snoozePresets.map((preset) => ({
-                      id: `snooze:${preset.id}`,
-                      label: `${preset.label} (${preset.whenLabel})`,
-                    })),
+                    children: [
+                      ...snoozePresets.map((preset) => ({
+                        id: `snooze:${preset.id}`,
+                        label: `${preset.label} (${preset.whenLabel})`,
+                      })),
+                      { id: "snooze-for", label: "Until…" },
+                    ],
                   },
                 ]
               : []),
@@ -2985,59 +3063,15 @@ export default function Sidebar() {
           (candidate) => `snooze:${candidate.id}` === clicked.value,
         );
         if (preset) {
-          // Post-snooze navigation must skip threads snoozing in this same
-          // batch — they are all leaving the card block together.
-          const coSnoozingKeys = new Set(threadKeys);
-          clearSelection();
-          const outcomes = await Promise.all(
-            selectedThreads.map(async (thread) => {
-              const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-              const outcome = await performSnooze(threadRef, preset, { coSnoozingKeys });
-              return { outcome, threadRef };
-            }),
-          );
-          const snoozedThreadRefs = outcomes.flatMap(({ outcome, threadRef }) =>
-            outcome.status === "success" ? [threadRef] : [],
-          );
-          const failures = outcomes.flatMap(({ outcome }) =>
-            outcome.status === "failure" ? [outcome.error] : [],
-          );
-
-          if (snoozedThreadRefs.length > 0) {
-            const snoozedCount = snoozedThreadRefs.length;
-            const failedCount = failures.length;
-            toastManager.add(
-              stackedThreadToast({
-                type: failedCount > 0 ? "warning" : "success",
-                title:
-                  failedCount > 0
-                    ? `Snoozed ${snoozedCount} of ${selectedThreads.length} threads`
-                    : `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
-                description:
-                  failedCount > 0
-                    ? `${failedCount} thread${failedCount === 1 ? "" : "s"} couldn't be snoozed.`
-                    : undefined,
-                timeout: 5_000,
-                actionProps: {
-                  children: "Undo",
-                  onClick: () => {
-                    for (const threadRef of snoozedThreadRefs) attemptUnsnooze(threadRef);
-                  },
-                },
-              }),
-            );
-          } else if (failures.length > 0) {
-            const firstError = failures[0];
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Failed to snooze threads",
-                description:
-                  firstError instanceof Error ? firstError.message : "An error occurred.",
-              }),
-            );
-          }
+          await snoozeSelectionUntil(preset.snoozedUntil);
         }
+        return;
+      }
+      if (clicked.value === "snooze-for") {
+        openSnoozeForDialog({
+          threadCount: selectedThreads.length,
+          onSnooze: (snoozedUntil) => void snoozeSelectionUntil(snoozedUntil),
+        });
         return;
       }
       if (clicked.value === "regenerate-title") {
@@ -3235,7 +3269,11 @@ export default function Sidebar() {
           const preset = snoozePresets.find(
             (candidate) => `snooze:${candidate.id}` === clicked.value,
           );
-          if (preset) attemptSnooze(threadRef, preset);
+          if (preset) attemptSnooze(threadRef, preset.snoozedUntil);
+          return;
+        }
+        if (clicked.value === "snooze-for") {
+          openSnoozeForThread(threadRef);
           return;
         }
         switch (clicked.value) {
@@ -3409,6 +3447,7 @@ export default function Sidebar() {
       markThreadManuallyUnread,
       markThreadRead,
       movePinnedThread,
+      openSnoozeForThread,
       projectCwdByKey,
       serverConfigs,
       reorderablePinnedThreads,
@@ -3924,6 +3963,7 @@ export default function Sidebar() {
                         onSettle={attemptSettle}
                         onUnsettle={attemptUnsettle}
                         onSnooze={attemptSnooze}
+                        onSnoozeFor={openSnoozeForThread}
                         onUnsnooze={attemptUnsnooze}
                         onUnpin={attemptUnpin}
                         onAcknowledgeWoke={acknowledgeWoke}
