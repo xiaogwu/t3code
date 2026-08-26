@@ -8,6 +8,7 @@ import {
   type SnoozeForDialogState,
 } from "../snoozeForDialog";
 import { formatSnoozeForInput, parseSnoozeForInput } from "./Sidebar.snooze";
+import { SnoozeDateTimePicker } from "./SnoozeDateTimePicker";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -18,7 +19,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
 const FORM_ID = "snooze-for-form";
@@ -56,16 +56,13 @@ function SnoozeForForm(props: {
       <DialogPanel>
         <form id={FORM_ID} className="space-y-2" noValidate onSubmit={submit}>
           <Label htmlFor="snooze-for-time">Date and time</Label>
-          <Input
+          <SnoozeDateTimePicker
             id="snooze-for-time"
-            type="datetime-local"
-            step={15 * 60}
-            autoFocus
             value={input}
-            aria-invalid={error !== null}
-            aria-describedby={error ? "snooze-for-error" : undefined}
-            onChange={(event) => {
-              setInput(event.currentTarget.value);
+            invalid={error !== null}
+            {...(error ? { describedBy: "snooze-for-error" } : {})}
+            onChange={(value) => {
+              setInput(value);
               if (error) setError(null);
             }}
           />
