@@ -7,6 +7,7 @@ import type {
   SidebarV2ThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import {
+  activeThreadAnchorTimestampMs,
   getThreadSortTimestamp,
   sortThreads,
   toSortableTimestamp,
@@ -19,7 +20,7 @@ import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
-export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
+export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
 // nearby thread usually reuses an already-hot subscription. Each prewarmed
 // thread holds a live, fully hydrated detail subscription (all messages and
@@ -582,10 +583,9 @@ export function firstValidTimestamp(
 /**
  * Default sidebar thread order. `"created_at"` is the original behaviour:
  * static creation order, newest on top, where activity NEVER reorders the
- * list, so a row holds its position from open until settled and the screen
- * only moves at lifecycle transitions. `"updated_at"` opts into the legacy
- * sidebar's "Last user message" ordering for users who want the list to track
- * recency instead.
+ * list, except that an un-settle re-entry stamp surfaces a thread at the top.
+ * `"updated_at"` opts into the legacy sidebar's "Last user message" ordering
+ * for users who want the list to track recency instead.
  *
  * Status (including pending approval) is carried by each card's edge strip,
  * not by position, under either order.
@@ -600,11 +600,14 @@ export function sortThreadsForSidebar<
     readonly createdAt: string;
     readonly updatedAt: string;
     readonly latestUserMessageAt?: string | null;
+    readonly unsettledAt?: string | null | undefined;
   },
 >(threads: readonly T[], sortOrder: SidebarV2ThreadSortOrder): T[] {
   return [...threads].toSorted(
     (left, right) =>
-      getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder) ||
+      (sortOrder === "created_at"
+        ? activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left)
+        : getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder)) ||
       left.id.localeCompare(right.id),
   );
 }

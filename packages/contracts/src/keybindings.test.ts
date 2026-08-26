@@ -119,6 +119,13 @@ it.effect("parses keybinding rules", () =>
       command: "thread.readState.toggle",
     });
     assert.strictEqual(parsedThreadReadState.command, "thread.readState.toggle");
+
+    const parsedThreadSettle = yield* decode(KeybindingRule, {
+      key: "mod+shift+s",
+      command: "thread.settle",
+      when: "!terminalFocus",
+    });
+    assert.strictEqual(parsedThreadSettle.command, "thread.settle");
   }),
 );
 

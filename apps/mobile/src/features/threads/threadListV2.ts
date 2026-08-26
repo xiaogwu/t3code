@@ -13,10 +13,16 @@ import type {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
+  activeThreadAnchorTimestampMs,
   getThreadSortTimestamp,
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId, SidebarThreadSortOrder } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  SidebarThreadSortOrder,
+  ThreadLinkedPullRequest,
+} from "@t3tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -32,6 +38,35 @@ export { snoozeWakeLabel };
  */
 export type ThreadListV2Status = "approval" | "input" | "working" | "failed" | "ready";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
+
+export interface ThreadListV2ChangeRequestState extends ChangeRequestSettleSource {
+  readonly linkedPullRequestKey?: string | null;
+}
+
+function linkedPullRequestKey(
+  linkedPullRequest: ThreadLinkedPullRequest | null | undefined,
+): string | null {
+  if (linkedPullRequest == null) return null;
+  return JSON.stringify([
+    linkedPullRequest.projectId,
+    linkedPullRequest.repository.toLowerCase(),
+    linkedPullRequest.number,
+  ]);
+}
+
+/** Keep the previous linked PR state while its detail query reloads. */
+export function resolveThreadListV2ChangeRequestState(input: {
+  readonly linkedPullRequest: ThreadLinkedPullRequest | null | undefined;
+  readonly state: ChangeRequestSettleSource["state"] | null;
+  readonly updatedAt: string | null;
+}): ThreadListV2ChangeRequestState | null | undefined {
+  if (input.state === null) return input.linkedPullRequest == null ? null : undefined;
+  return {
+    state: input.state,
+    updatedAt: input.updatedAt,
+    linkedPullRequestKey: linkedPullRequestKey(input.linkedPullRequest),
+  };
+}
 
 export function resolveThreadListV2SnoozeMenuSelection(input: {
   readonly event: string;
@@ -166,8 +201,9 @@ function firstValidTimestampMs(...candidates: ReadonlyArray<string | null | unde
 
 /**
  * v2 thread order. `"created_at"` is the original v2 behaviour: static
- * creation order, newest on top, where activity NEVER reorders the list.
- * `"updated_at"` opts into "Last user message" ordering. Mirrors web's
+ * creation order, newest on top, where activity NEVER reorders the list,
+ * except that a lifecycle re-entry stamp surfaces an explicitly un-settled
+ * thread. `"updated_at"` opts into "Last user message" ordering. Mirrors web's
  * sortThreadsForSidebar, including its ascending id tie-break.
  */
 export function sortThreadsForListV2<
@@ -176,13 +212,16 @@ export function sortThreadsForListV2<
     readonly createdAt: string;
     readonly updatedAt: string;
     readonly latestUserMessageAt?: string | null;
+    readonly unsettledAt?: string | null | undefined;
   },
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
   // .sort() on a copy, not .toSorted(): Hermes doesn't ship the ES2023
   // change-by-copy array methods.
   return [...threads].sort(
     (left, right) =>
-      getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder) ||
+      (sortOrder === "created_at"
+        ? activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left)
+        : getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder)) ||
       left.id.localeCompare(right.id),
   );
 }
@@ -330,7 +369,7 @@ export function buildThreadListV2Items(input: {
   readonly searchQuery: string;
   readonly matchedThreadKeys?: ReadonlySet<string>;
   /** Per-row PR reported up by visible rows ("env:threadId" keys). */
-  readonly changeRequestByKey?: ReadonlyMap<string, ChangeRequestSettleSource>;
+  readonly changeRequestByKey?: ReadonlyMap<string, ThreadListV2ChangeRequestState>;
   /** Environments whose server supports thread.settle/unsettle. Threads on
       other environments never classify as settled — the user could neither
       un-settle nor pin them. Absent = no gating (tests). */
@@ -396,8 +435,14 @@ export function buildThreadListV2Items(input: {
     }
     const supportsSettlement = input.settlementEnvironmentIds?.has(thread.environmentId) ?? true;
     const supportsSnooze = input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true;
-    const changeRequest =
+    const cachedChangeRequest =
       input.changeRequestByKey?.get(`${thread.environmentId}:${thread.id}`) ?? null;
+    const changeRequest =
+      cachedChangeRequest !== null &&
+      (cachedChangeRequest.linkedPullRequestKey ?? null) ===
+        linkedPullRequestKey(thread.linkedPullRequest)
+        ? cachedChangeRequest
+        : null;
     // Snooze outranks settlement and pinning until the thread wakes.
     if (supportsSnooze && effectiveSnoozed(thread, { now: snoozeNow })) {
       snoozed.push(thread);
