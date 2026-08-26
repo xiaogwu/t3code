@@ -78,6 +78,34 @@ function LoopingTimeColumn<Value extends number | string>(props: {
   );
 }
 
+function PeriodToggle(props: {
+  readonly value: "AM" | "PM";
+  readonly onChange: (value: "AM" | "PM") => void;
+}) {
+  const other: "AM" | "PM" = props.value === "AM" ? "PM" : "AM";
+  return (
+    <div className="min-w-14">
+      <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">Period</div>
+      <div className="flex h-36 flex-col justify-between rounded-md bg-muted/35">
+        {[props.value, other].map((period, index) => (
+          <button
+            key={period}
+            type="button"
+            className={cn(
+              "flex h-9 w-full items-center justify-center rounded-md text-sm hover:bg-accent hover:text-accent-foreground",
+              index === 0 && "bg-primary text-primary-foreground hover:bg-primary",
+            )}
+            aria-pressed={index === 0}
+            onClick={() => props.onChange(period)}
+          >
+            {period}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function monthDays(month: Date): readonly Date[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const start = new Date(first);
@@ -128,7 +156,6 @@ export function SnoozeDateTimePicker(props: {
     [usesTwelveHourTime],
   );
   const minuteValues = useMemo(() => Array.from({ length: 60 }, (_, index) => index), []);
-  const periodValues = useMemo(() => ["AM", "PM"] as const, []);
   const yearValues = useMemo(
     () => Array.from({ length: 101 }, (_, index) => month.getFullYear() - 50 + index),
     [month],
@@ -313,11 +340,8 @@ export function SnoozeDateTimePicker(props: {
               onChange={(value) => update((next) => next.setMinutes(value))}
             />
             {usesTwelveHourTime ? (
-              <LoopingTimeColumn
-                label="Period"
-                values={periodValues}
+              <PeriodToggle
                 value={selected.getHours() >= 12 ? "PM" : "AM"}
-                format={(value) => value}
                 onChange={(period) =>
                   update((next) =>
                     next.setHours((next.getHours() % 12) + (period === "PM" ? 12 : 0)),
