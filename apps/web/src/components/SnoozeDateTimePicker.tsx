@@ -1,4 +1,4 @@
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { CalendarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -11,24 +11,24 @@ const ROW_HEIGHT = 36;
 const LOOP_COUNT = 7;
 const CENTER_LOOP = Math.floor(LOOP_COUNT / 2);
 
-function loopingValues(values: readonly number[]): readonly number[] {
+function loopingValues<Value>(values: readonly Value[]): readonly Value[] {
   return Array.from(
     { length: values.length * LOOP_COUNT },
     (_, index) => values[index % values.length]!,
   );
 }
 
-function LoopingTimeColumn(props: {
+function LoopingTimeColumn<Value extends number | string>(props: {
   readonly label: string;
-  readonly values: readonly number[];
-  readonly value: number;
-  readonly format: (value: number) => string;
-  readonly onChange: (value: number) => void;
+  readonly values: readonly Value[];
+  readonly value: Value;
+  readonly format: (value: Value) => string;
+  readonly onChange: (value: Value) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const repeated = useMemo(() => loopingValues(props.values), [props.values]);
 
-  const pinToTop = (value: number, behavior: ScrollBehavior = "smooth") => {
+  const pinToTop = (value: Value, behavior: ScrollBehavior = "smooth") => {
     const valueIndex = props.values.indexOf(value);
     viewportRef.current?.scrollTo({
       top: (CENTER_LOOP * props.values.length + valueIndex) * ROW_HEIGHT,
@@ -114,6 +114,7 @@ export function SnoozeDateTimePicker(props: {
   const [month, setMonth] = useState(
     () => new Date(selected.getFullYear(), selected.getMonth(), 1),
   );
+  const [choosingMonth, setChoosingMonth] = useState(false);
   const days = useMemo(() => monthDays(month), [month]);
   const usesTwelveHourTime = useMemo(
     () => new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12 === true,
@@ -127,6 +128,11 @@ export function SnoozeDateTimePicker(props: {
     [usesTwelveHourTime],
   );
   const minuteValues = useMemo(() => Array.from({ length: 60 }, (_, index) => index), []);
+  const periodValues = useMemo(() => ["AM", "PM"] as const, []);
+  const yearValues = useMemo(
+    () => Array.from({ length: 101 }, (_, index) => month.getFullYear() - 50 + index),
+    [month],
+  );
   const displayHour = usesTwelveHourTime ? selected.getHours() % 12 || 12 : selected.getHours();
 
   const update = (mutate: (next: Date) => void) => {
@@ -171,9 +177,17 @@ export function SnoozeDateTimePicker(props: {
               >
                 <ChevronLeftIcon />
               </Button>
-              <span className="text-sm font-semibold">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="gap-1 px-2 font-semibold"
+                aria-expanded={choosingMonth}
+                onClick={() => setChoosingMonth((current) => !current)}
+              >
                 {month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-              </span>
+                <ChevronDownIcon className="size-3.5" />
+              </Button>
               <Button
                 type="button"
                 size="icon-sm"
@@ -184,6 +198,47 @@ export function SnoozeDateTimePicker(props: {
                 <ChevronRightIcon />
               </Button>
             </div>
+            {choosingMonth ? (
+              <div className="mb-2 rounded-lg border border-border/70 bg-muted/20 p-2">
+                <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  Year
+                  <select
+                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    value={month.getFullYear()}
+                    onChange={(event) =>
+                      setMonth(new Date(Number(event.currentTarget.value), month.getMonth(), 1))
+                    }
+                  >
+                    {yearValues.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid grid-cols-4 gap-1">
+                  {Array.from({ length: 12 }, (_, monthIndex) => (
+                    <button
+                      key={monthIndex}
+                      type="button"
+                      className={cn(
+                        "h-8 rounded-md text-xs hover:bg-accent hover:text-accent-foreground",
+                        monthIndex === month.getMonth() &&
+                          "bg-primary text-primary-foreground hover:bg-primary",
+                      )}
+                      onClick={() => {
+                        setMonth(new Date(month.getFullYear(), monthIndex, 1));
+                        setChoosingMonth(false);
+                      }}
+                    >
+                      {new Date(2026, monthIndex, 1).toLocaleDateString(undefined, {
+                        month: "short",
+                      })}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="grid grid-cols-7 text-center text-[11px] font-medium text-muted-foreground">
               {Array.from({ length: 7 }, (_, index) => (
                 <div key={index} className="py-1">
@@ -214,6 +269,23 @@ export function SnoozeDateTimePicker(props: {
                 </button>
               ))}
             </div>
+            <div className="mt-2 flex justify-end border-border/70 border-t pt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const today = new Date();
+                  setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                  setChoosingMonth(false);
+                  update((next) =>
+                    next.setFullYear(today.getFullYear(), today.getMonth(), today.getDate()),
+                  );
+                }}
+              >
+                Today
+              </Button>
+            </div>
           </div>
           <div className="flex gap-2 border-border sm:border-l sm:pl-4">
             <LoopingTimeColumn
@@ -241,35 +313,17 @@ export function SnoozeDateTimePicker(props: {
               onChange={(value) => update((next) => next.setMinutes(value))}
             />
             {usesTwelveHourTime ? (
-              <div className="min-w-14">
-                <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-                  Period
-                </div>
-                <div className="overflow-hidden rounded-md bg-muted/35">
-                  {["AM", "PM"].map((period) => {
-                    const selectedPeriod = selected.getHours() >= 12 ? "PM" : "AM";
-                    return (
-                      <button
-                        key={period}
-                        type="button"
-                        className={cn(
-                          "flex h-9 w-full items-center justify-center rounded-md text-sm hover:bg-accent hover:text-accent-foreground",
-                          period === selectedPeriod &&
-                            "bg-primary text-primary-foreground hover:bg-primary",
-                        )}
-                        aria-pressed={period === selectedPeriod}
-                        onClick={() =>
-                          update((next) =>
-                            next.setHours((next.getHours() % 12) + (period === "PM" ? 12 : 0)),
-                          )
-                        }
-                      >
-                        {period}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <LoopingTimeColumn
+                label="Period"
+                values={periodValues}
+                value={selected.getHours() >= 12 ? "PM" : "AM"}
+                format={(value) => value}
+                onChange={(period) =>
+                  update((next) =>
+                    next.setHours((next.getHours() % 12) + (period === "PM" ? 12 : 0)),
+                  )
+                }
+              />
             ) : null}
           </div>
         </div>
