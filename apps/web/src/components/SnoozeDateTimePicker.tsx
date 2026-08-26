@@ -86,7 +86,7 @@ function PeriodToggle(props: {
   return (
     <div className="min-w-14">
       <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">Period</div>
-      <div className="flex h-36 flex-col justify-between rounded-md bg-muted/35">
+      <div className="flex h-18 flex-col justify-between rounded-md bg-muted/35">
         {[props.value, other].map((period, index) => (
           <button
             key={period}
