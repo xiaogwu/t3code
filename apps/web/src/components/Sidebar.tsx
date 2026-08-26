@@ -43,6 +43,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  HashIcon,
   MessageSquareIcon,
   PinIcon,
   PlusIcon,
@@ -368,6 +369,12 @@ function SidebarThreadTooltip({
               <div className="min-w-0 truncate">Error occurred</div>
             </div>
           ) : null}
+          <div className="flex min-w-0 items-start gap-2">
+            <HashIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-muted-foreground" />
+            <div className="min-w-0 flex-1 wrap-break-word font-mono text-foreground/75 select-text">
+              {thread.id}
+            </div>
+          </div>
         </div>
       </div>
     </TooltipPopup>
