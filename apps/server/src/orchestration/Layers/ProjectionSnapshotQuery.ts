@@ -3,6 +3,7 @@ import {
   CheckpointRef,
   IsoDateTime,
   MessageId,
+  MessageReplyReference,
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
@@ -49,7 +50,6 @@ import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
-import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
@@ -80,12 +80,53 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
 );
-const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
-  Struct.assign({
-    isStreaming: Schema.Number,
-    attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-  }),
-);
+const ProjectionReplyContext = Schema.Struct({
+  replyToMessageId: Schema.optional(MessageId),
+  replyTo: Schema.optional(MessageReplyReference),
+});
+const ProjectionReplyContextValue = Schema.Union([MessageReplyReference, ProjectionReplyContext]);
+const ProjectionThreadMessageDbRowSchema = Schema.Struct({
+  messageId: MessageId,
+  threadId: ThreadId,
+  turnId: Schema.NullOr(TurnId),
+  role: Schema.Literals(["user", "assistant", "system"]),
+  text: Schema.String,
+  attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+  replyToContext: Schema.NullOr(
+    Schema.fromJsonString(ProjectionReplyContextValue),
+  ),
+  isStreaming: Schema.Number,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+function mapProjectedMessage(row: Schema.Schema.Type<typeof ProjectionThreadMessageDbRowSchema>) {
+  const message = {
+    id: row.messageId,
+    role: row.role,
+    text: row.text,
+    ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+    turnId: row.turnId,
+    streaming: row.isStreaming === 1,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+  if (row.replyToContext === null) return message satisfies OrchestrationMessage;
+  if ("quote" in row.replyToContext) {
+    return {
+      ...message,
+      replyToMessageId: row.replyToContext.messageId,
+      replyTo: row.replyToContext,
+    } satisfies OrchestrationMessage;
+  }
+  return {
+    ...message,
+    ...(row.replyToContext.replyToMessageId !== undefined
+      ? { replyToMessageId: row.replyToContext.replyToMessageId }
+      : {}),
+    ...(row.replyToContext.replyTo !== undefined ? { replyTo: row.replyToContext.replyTo } : {}),
+  } satisfies OrchestrationMessage;
+}
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
@@ -542,6 +583,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          reply_to_json AS "replyToContext",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -992,6 +1034,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          reply_to_json AS "replyToContext",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1235,6 +1278,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          reply_to_json AS "replyToContext",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -1572,16 +1616,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               for (const row of messageRows) {
                 updatedAt = maxIso(updatedAt, row.updatedAt);
                 const threadMessages = messagesByThread.get(row.threadId) ?? [];
-                threadMessages.push({
-                  id: row.messageId,
-                  role: row.role,
-                  text: row.text,
-                  ...(row.attachments !== null ? { attachments: row.attachments } : {}),
-                  turnId: row.turnId,
-                  streaming: row.isStreaming === 1,
-                  createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
-                });
+                threadMessages.push(mapProjectedMessage(row));
                 messagesByThread.set(row.threadId, threadMessages);
               }
 
@@ -2657,21 +2692,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         deletedAt: null,
-        messages: messageRows.map((row) => {
-          const message = {
-            id: row.messageId,
-            role: row.role,
-            text: row.text,
-            turnId: row.turnId,
-            streaming: row.isStreaming === 1,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-          };
-          if (row.attachments !== null) {
-            return Object.assign(message, { attachments: row.attachments });
-          }
-          return message;
-        }),
+        messages: messageRows.map(mapProjectedMessage),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),
         activities: selectedActivityRows.map((row) => {
           const activity = {

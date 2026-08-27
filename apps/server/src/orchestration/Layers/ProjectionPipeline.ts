@@ -1017,6 +1017,16 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             role: event.payload.role,
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+            ...(event.payload.replyToMessageId !== undefined
+              ? { replyToMessageId: event.payload.replyToMessageId }
+              : previousMessage?.replyToMessageId !== undefined
+                ? { replyToMessageId: previousMessage.replyToMessageId }
+                : {}),
+            ...(event.payload.replyTo !== undefined
+              ? { replyTo: event.payload.replyTo }
+              : previousMessage?.replyTo !== undefined
+                ? { replyTo: previousMessage.replyTo }
+                : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,

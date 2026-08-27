@@ -4,8 +4,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Struct from "effect/Struct";
-import { ChatAttachment } from "@t3tools/contracts";
+import {
+  ChatAttachment,
+  IsoDateTime,
+  MessageId,
+  MessageReplyReference,
+  OrchestrationMessageRole,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -17,17 +24,29 @@ import {
   ProjectionThreadMessage,
 } from "../Services/ProjectionThreadMessages.ts";
 
-const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
-  Struct.assign({
-    isStreaming: Schema.Number,
-    attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-  }),
-);
+const ProjectionReplyContext = Schema.Struct({
+  replyToMessageId: Schema.optional(MessageId),
+  replyTo: Schema.optional(MessageReplyReference),
+});
+const ProjectionReplyContextValue = Schema.Union([MessageReplyReference, ProjectionReplyContext]);
+
+const ProjectionThreadMessageDbRowSchema = Schema.Struct({
+  messageId: MessageId,
+  threadId: ThreadId,
+  turnId: Schema.NullOr(TurnId),
+  role: OrchestrationMessageRole,
+  text: Schema.String,
+  attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+  replyToContext: Schema.NullOr(Schema.fromJsonString(ProjectionReplyContextValue)),
+  isStreaming: Schema.Number,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
 
 function toProjectionThreadMessage(
   row: Schema.Schema.Type<typeof ProjectionThreadMessageDbRowSchema>,
 ): ProjectionThreadMessage {
-  return {
+  const message = {
     messageId: row.messageId,
     threadId: row.threadId,
     turnId: row.turnId,
@@ -37,6 +56,17 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+  };
+  if (row.replyToContext === null) return message;
+  if ("quote" in row.replyToContext) {
+    return { ...message, replyToMessageId: row.replyToContext.messageId, replyTo: row.replyToContext };
+  }
+  return {
+    ...message,
+    ...(row.replyToContext.replyToMessageId !== undefined
+      ? { replyToMessageId: row.replyToContext.replyToMessageId }
+      : {}),
+    ...(row.replyToContext.replyTo !== undefined ? { replyTo: row.replyToContext.replyTo } : {}),
   };
 }
 
@@ -48,6 +78,15 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const nextReplyContextJson =
+        row.replyToMessageId !== undefined || row.replyTo !== undefined
+          ? JSON.stringify({
+              ...(row.replyToMessageId !== undefined
+                ? { replyToMessageId: row.replyToMessageId }
+                : {}),
+              ...(row.replyTo !== undefined ? { replyTo: row.replyTo } : {}),
+            })
+          : null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -56,6 +95,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json,
+          reply_to_json,
           is_streaming,
           created_at,
           updated_at
@@ -74,6 +114,14 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
               WHERE message_id = ${row.messageId}
             )
           ),
+          COALESCE(
+            ${nextReplyContextJson},
+            (
+              SELECT reply_to_json
+              FROM projection_thread_messages
+              WHERE message_id = ${row.messageId}
+            )
+          ),
           ${row.isStreaming ? 1 : 0},
           ${row.createdAt},
           ${row.updatedAt}
@@ -87,6 +135,10 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
+          ),
+          reply_to_json = COALESCE(
+            excluded.reply_to_json,
+            projection_thread_messages.reply_to_json
           ),
           is_streaming = excluded.is_streaming,
           created_at = excluded.created_at,
@@ -107,6 +159,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          reply_to_json AS "replyToContext",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -128,6 +181,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          reply_to_json AS "replyToContext",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"

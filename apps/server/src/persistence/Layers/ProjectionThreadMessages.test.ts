@@ -2,6 +2,7 @@ import { MessageId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ProjectionThreadMessageRepository } from "../Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "./ProjectionThreadMessages.ts";
@@ -109,6 +110,79 @@ layer("ProjectionThreadMessageRepository", (it) => {
       assert.equal(rows.length, 1);
       assert.equal(rows[0]?.text, "cleared");
       assert.deepEqual(rows[0]?.attachments, []);
+    }),
+  );
+
+  it.effect("round-trips reply metadata and preserves it on streaming updates", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.make("thread-reply-context");
+      const messageId = MessageId.make("message-reply-context");
+      const replyToMessageId = MessageId.make("message-assistant-target");
+      const replyTo = {
+        messageId: replyToMessageId,
+        blockId: "block-1",
+        quote: "The exact quoted assistant response",
+      } as const;
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "user",
+        text: "Please clarify this",
+        replyToMessageId,
+        replyTo,
+        isStreaming: false,
+        createdAt: "2026-02-28T19:20:00.000Z",
+        updatedAt: "2026-02-28T19:20:01.000Z",
+      });
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "user",
+        text: "Please clarify this further",
+        isStreaming: true,
+        createdAt: "2026-02-28T19:20:00.000Z",
+        updatedAt: "2026-02-28T19:20:02.000Z",
+      });
+
+      const result = yield* repository.getByMessageId({ messageId });
+      assert.equal(result._tag, "Some");
+      if (result._tag === "Some") {
+        assert.equal(result.value.replyToMessageId, replyToMessageId);
+        assert.deepEqual(result.value.replyTo, replyTo);
+      }
+    }),
+  );
+
+  it.effect("reads the direct reply reference format from older fork databases", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const repository = yield* ProjectionThreadMessageRepository;
+      yield* sql`
+        INSERT INTO projection_thread_messages
+          (message_id, thread_id, turn_id, role, text, reply_to_json, is_streaming,
+           created_at, updated_at)
+        VALUES
+          ('message-legacy-reply', 'thread-legacy-reply', NULL, 'user', 'follow up',
+           '{"messageId":"message-assistant","blockId":"10-42","quote":"legacy quote"}',
+           0, '2026-02-28T19:30:00.000Z', '2026-02-28T19:30:00.000Z')
+      `;
+
+      const result = yield* repository.getByMessageId({
+        messageId: MessageId.make("message-legacy-reply"),
+      });
+      assert.equal(result._tag, "Some");
+      if (result._tag === "Some") {
+        assert.equal(result.value.replyToMessageId, MessageId.make("message-assistant"));
+        assert.deepEqual(result.value.replyTo, {
+          messageId: MessageId.make("message-assistant"),
+          blockId: "10-42",
+          quote: "legacy quote",
+        });
+      }
     }),
   );
 });

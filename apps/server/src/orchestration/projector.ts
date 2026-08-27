@@ -553,6 +553,10 @@ export function projectEvent(
                     ...(message.attachments !== undefined
                       ? { attachments: message.attachments }
                       : {}),
+                    ...(message.replyToMessageId !== undefined
+                      ? { replyToMessageId: message.replyToMessageId }
+                      : {}),
+                    ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
                   }
                 : entry,
             )
