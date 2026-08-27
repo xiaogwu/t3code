@@ -462,8 +462,9 @@ export function resolveSnoozePresets(now: Date): ReadonlyArray<SnoozePreset> {
 
 /**
  * Compact "wakes in" label for snoozed rows: "2h", "18h", "3d". Minutes
- * round up so a snooze never reads "0m" while still hidden. Shared by web
- * and mobile so the same wake time never reads differently per client.
+ * and hours round up so a snooze never reads "0m" while still hidden; days
+ * count local calendar boundaries. Shared by web and mobile so the same wake
+ * time never reads differently per client.
  */
 export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: string }): string {
   const wakeMs = Date.parse(snoozedUntil);
@@ -473,5 +474,9 @@ export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: s
   if (remainingMs <= 0) return "now";
   if (remainingMs < HOUR_MS) return `${Math.max(1, Math.ceil(remainingMs / 60_000))}m`;
   if (remainingMs < DAY_MS) return `${Math.ceil(remainingMs / HOUR_MS)}h`;
-  return `${Math.ceil(remainingMs / DAY_MS)}d`;
+  const wake = new Date(wakeMs);
+  const now = new Date(nowMs);
+  const wakeDay = Date.UTC(wake.getFullYear(), wake.getMonth(), wake.getDate());
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return `${Math.round((wakeDay - today) / DAY_MS)}d`;
 }

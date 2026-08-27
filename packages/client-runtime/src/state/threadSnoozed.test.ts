@@ -248,10 +248,16 @@ describe("threadWokeAt", () => {
 describe("snoozeWakeLabel", () => {
   const now = "2026-06-02T00:00:00.000Z";
 
-  it("formats remaining time coarsely, rounding up", () => {
+  it("formats remaining time coarsely", () => {
     expect(snoozeWakeLabel("2026-06-02T00:30:00.000Z", { now })).toBe("30m");
     expect(snoozeWakeLabel("2026-06-02T01:30:00.000Z", { now })).toBe("2h");
-    expect(snoozeWakeLabel("2026-06-03T02:00:00.000Z", { now })).toBe("2d");
+    expect(snoozeWakeLabel("2026-06-03T02:00:00.000Z", { now })).toBe("1d");
+  });
+
+  it("counts calendar days once the wake time is at least a day away", () => {
+    expect(snoozeWakeLabel("2026-08-31T17:00:00.000Z", { now: "2026-08-27T16:54:06.737Z" })).toBe(
+      "4d",
+    );
   });
 
   it("never reads zero or negative while still snoozed", () => {
