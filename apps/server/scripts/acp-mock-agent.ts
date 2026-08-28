@@ -28,6 +28,8 @@ const emitXAiAskUserQuestionThenHang =
 const emitContentThenHang = process.env.T3_ACP_EMIT_CONTENT_THEN_HANG === "1";
 const emitPlanThenHang = process.env.T3_ACP_EMIT_PLAN_THEN_HANG === "1";
 const emitActiveToolThenHang = process.env.T3_ACP_EMIT_ACTIVE_TOOL_THEN_HANG === "1";
+const emitUnsettledToolCallThenEndTurn =
+  process.env.T3_ACP_EMIT_UNSETTLED_TOOL_CALL_THEN_END_TURN === "1";
 const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
 const hangFirstPromptForever = process.env.T3_ACP_HANG_FIRST_PROMPT_FOREVER === "1";
@@ -603,6 +605,31 @@ const program = Effect.gen(function* () {
           },
         });
         return yield* Effect.never;
+      }
+
+      if (emitUnsettledToolCallThenEndTurn) {
+        const toolCallId = "tool-call-unsettled-1";
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: "Unsettled tool",
+            kind: "execute",
+            status: "pending",
+            rawInput: { command: ["unsettled-tool"] },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+          },
+        });
+        // Deliberately end the turn without settling the tool call.
+        return { stopReason: "end_turn" };
       }
 
       if (emitXAiPromptCompleteThenHang) {
