@@ -163,6 +163,9 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain(
       "Name the product change, not the mock, plan, report, branch, or PR used to produce it.",
     );
+    expect(result.prompt).toContain(
+      "Omit PR numbers unless the request is work on a pull request and includes its URL;",
+    );
     expect(result.prompt).not.toContain(
       "Title should summarize the user's request, not restate it verbatim.",
     );
@@ -203,6 +206,9 @@ describe("buildThreadTitlePrompt", () => {
     );
     expect(result.prompt).toContain(
       "Do not promote one assistant finding into the thread subject unless the user adopts it as a new goal.",
+    );
+    expect(result.prompt).toContain(
+      "Omit PR numbers unless the thread is doing work on a pull request and contains its URL;",
     );
     expect(result.prompt).toContain(
       'A subagent-monitoring review that finds a Codex roster bug remains "Review Subagent Monitoring Risks,"',
