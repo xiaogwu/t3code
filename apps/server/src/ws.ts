@@ -2016,6 +2016,16 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.shellOpenInEditor, externalLauncher.launchEditor(input), {
             "rpc.aggregate": "workspace",
           }),
+        [WS_METHODS.shellOpenInTerminal]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.shellOpenInTerminal,
+            serverSettings.getSettings.pipe(
+              Effect.flatMap((settings) =>
+                externalLauncher.launchTerminal({ ...input, terminal: settings.externalTerminal }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           observeRpcEffect(
             WS_METHODS.filesystemBrowse,

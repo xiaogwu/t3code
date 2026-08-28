@@ -122,6 +122,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "external-terminal",
+    title: "External terminal",
+    to: "/settings/general",
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",

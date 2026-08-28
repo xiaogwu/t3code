@@ -18,6 +18,17 @@ import {
   type FileManagerRevealKind,
   type LaunchEditorInput,
 } from "@t3tools/contracts";
+import {
+  ExternalTerminalCommandNotFoundError,
+  ExternalTerminalCwdNotDirectoryError,
+  ExternalTerminalCwdNotFoundError,
+  ExternalTerminalCwdStatError,
+  ExternalTerminalError,
+  ExternalTerminalUnsupportedError,
+  ExternalTerminalSpawnError,
+  type ExternalTerminalId,
+  type LaunchExternalTerminalInput,
+} from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
@@ -46,6 +57,15 @@ export {
   ExternalLauncherUnknownEditorError,
   ExternalLauncherUnsupportedEditorError,
   isExternalLauncherError,
+} from "@t3tools/contracts";
+export {
+  ExternalTerminalCommandNotFoundError,
+  ExternalTerminalCwdNotDirectoryError,
+  ExternalTerminalCwdNotFoundError,
+  ExternalTerminalCwdStatError,
+  ExternalTerminalError,
+  ExternalTerminalSpawnError,
+  ExternalTerminalUnsupportedError,
 } from "@t3tools/contracts";
 export type { LaunchEditorInput };
 interface EditorLaunch {
@@ -114,6 +134,23 @@ const CommandLookupEnvConfig = Config.all({
 
 const readBrowserLaunchEnv = BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
+
+const ExternalTerminalLaunchEnvConfig = Config.all({
+  PATH: Config.string("PATH").pipe(Config.option),
+  Path: Config.string("Path").pipe(Config.option),
+  path: Config.string("path").pipe(Config.option),
+  PATHEXT: Config.string("PATHEXT").pipe(Config.option),
+  SYSTEMROOT: Config.string("SYSTEMROOT").pipe(Config.option),
+  windir: Config.string("windir").pipe(Config.option),
+  DISPLAY: Config.string("DISPLAY").pipe(Config.option),
+  WAYLAND_DISPLAY: Config.string("WAYLAND_DISPLAY").pipe(Config.option),
+  TERMINAL: Config.string("TERMINAL").pipe(Config.option),
+  SSH_CONNECTION: Config.string("SSH_CONNECTION").pipe(Config.option),
+  SSH_TTY: Config.string("SSH_TTY").pipe(Config.option),
+}).pipe(Config.map(compactEnv));
+const readExternalTerminalEnv = ExternalTerminalLaunchEnvConfig.pipe(
+  Effect.orElseSucceed(() => ({})),
+);
 
 function parseTargetPathAndPosition(target: string): Option.Option<TargetPathAndPosition> {
   const match = TARGET_WITH_POSITION_PATTERN.exec(target);
@@ -512,6 +549,10 @@ export class ExternalLauncher extends Context.Service<
      * Launches the editor as a detached process so server startup is not blocked.
      */
     readonly launchEditor: (input: LaunchEditorInput) => Effect.Effect<void, ExternalLauncherError>;
+    /** Launch a native terminal with the supplied directory as its cwd. */
+    readonly launchTerminal: (
+      input: LaunchExternalTerminalInput,
+    ) => Effect.Effect<void, ExternalTerminalError>;
   }
 >()("t3/process/externalLauncher") {}
 
@@ -675,10 +716,10 @@ const resolveFileManagerRevealLaunch = Effect.fn("resolveFileManagerRevealLaunch
   return { editor: "file-manager", target, command, args: [path.dirname(target)] };
 });
 
-const launchAndUnref = Effect.fn("externalLauncher.launchAndUnref")(function* (
+const launchAndUnref = Effect.fn("externalLauncher.launchAndUnref")(function* <E>(
   launch: ProcessLaunch,
-  onError: (cause: unknown) => ExternalLauncherError,
-): Effect.fn.Return<void, ExternalLauncherError, ChildProcessSpawner.ChildProcessSpawner> {
+  onError: (cause: unknown) => E,
+): Effect.fn.Return<void, E, ChildProcessSpawner.ChildProcessSpawner> {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const command = ChildProcess.make(launch.command, launch.args, launch.options);
 
@@ -745,6 +786,182 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
   );
 });
 
+interface TerminalLaunch extends ProcessLaunch {
+  readonly terminal: ExternalTerminalId;
+}
+
+const terminalCommandForId = (terminal: ExternalTerminalId): ReadonlyArray<string> => {
+  switch (terminal) {
+    case "terminal":
+      return ["open"];
+    case "iterm2":
+      return ["open"];
+    case "windows-terminal":
+      return ["wt", "wt.exe"];
+    case "powershell":
+      return ["pwsh", "powershell"];
+    case "gnome-terminal":
+      return ["gnome-terminal"];
+    case "konsole":
+      return ["konsole"];
+    case "alacritty":
+      return ["alacritty"];
+    case "kitty":
+      return ["kitty"];
+    case "wezterm":
+      return ["wezterm"];
+    case "automatic":
+      return [];
+  }
+};
+
+const isTerminalSupportedOnPlatform = (
+  terminal: ExternalTerminalId,
+  platform: NodeJS.Platform,
+): boolean => {
+  if (terminal === "automatic") return true;
+  if (platform === "darwin") return terminal === "terminal" || terminal === "iterm2";
+  if (platform === "win32") return terminal === "windows-terminal" || terminal === "powershell";
+  return (
+    terminal === "gnome-terminal" ||
+    terminal === "konsole" ||
+    terminal === "alacritty" ||
+    terminal === "kitty" ||
+    terminal === "wezterm"
+  );
+};
+
+const powershellTerminalArgs = (cwd: string): ReadonlyArray<string> => [
+  "-NoProfile",
+  "-ExecutionPolicy",
+  "Bypass",
+  "-NoExit",
+  "-EncodedCommand",
+  encodeUtf16LeBase64(`Set-Location -LiteralPath ${escapePowerShellStringLiteral(cwd)}`),
+];
+
+const terminalLaunchForCommand = (
+  terminal: ExternalTerminalId,
+  command: string,
+  cwd: string,
+  platform: NodeJS.Platform,
+): TerminalLaunch => {
+  if (platform === "darwin") {
+    return {
+      terminal,
+      command,
+      args: ["-a", terminal === "iterm2" ? "iTerm" : "Terminal", cwd],
+      options: DETACHED_IGNORE_STDIO_OPTIONS,
+    };
+  }
+  if (platform === "win32") {
+    if (terminal === "windows-terminal") {
+      return { terminal, command, args: ["-d", cwd], options: DETACHED_IGNORE_STDIO_OPTIONS };
+    }
+    return {
+      terminal,
+      command,
+      args: powershellTerminalArgs(cwd),
+      options: DETACHED_IGNORE_STDIO_OPTIONS,
+    };
+  }
+  const args =
+    terminal === "gnome-terminal"
+      ? ["--working-directory", cwd]
+      : terminal === "konsole"
+        ? ["--workdir", cwd]
+        : terminal === "alacritty"
+          ? ["--working-directory", cwd]
+          : terminal === "kitty"
+            ? ["--directory", cwd]
+            : terminal === "wezterm"
+              ? ["start", "--cwd", cwd]
+              : [];
+  return { terminal, command, args, options: { ...DETACHED_IGNORE_STDIO_OPTIONS, cwd } };
+};
+
+const resolveTerminalLaunch = Effect.fn("externalLauncher.resolveTerminalLaunch")(function* (
+  input: LaunchExternalTerminalInput,
+): Effect.fn.Return<TerminalLaunch, ExternalTerminalError, FileSystem.FileSystem | Path.Path> {
+  const platform = yield* HostProcessPlatform;
+  const env = (yield* readExternalTerminalEnv) as NodeJS.ProcessEnv;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const stats = yield* fileSystem.stat(input.cwd).pipe(
+    Effect.catchTags({
+      PlatformError: (cause) =>
+        cause.reason._tag === "NotFound"
+          ? new ExternalTerminalCwdNotFoundError({ cwd: input.cwd })
+          : new ExternalTerminalCwdStatError({ cwd: input.cwd, cause }),
+    }),
+  );
+  if (stats.type !== "Directory") {
+    return yield* new ExternalTerminalCwdNotDirectoryError({ cwd: input.cwd });
+  }
+
+  if (platform === "linux" && env.DISPLAY === undefined && env.WAYLAND_DISPLAY === undefined) {
+    return yield* new ExternalTerminalUnsupportedError({ terminal: input.terminal });
+  }
+
+  let terminal = input.terminal;
+  if (!isTerminalSupportedOnPlatform(terminal, platform)) {
+    return yield* new ExternalTerminalUnsupportedError({ terminal });
+  }
+  let commands = terminalCommandForId(terminal);
+  if (terminal === "automatic") {
+    if (platform === "darwin") {
+      terminal = "terminal";
+      commands = ["open"];
+    } else if (platform === "win32") {
+      terminal = "windows-terminal";
+      commands = ["wt", "wt.exe", "pwsh", "powershell"];
+    } else {
+      const configured = env.TERMINAL?.trim();
+      commands = configured
+        ? [configured, "xdg-terminal-exec", "gnome-terminal", "konsole"]
+        : ["xdg-terminal-exec", "gnome-terminal", "konsole"];
+    }
+  }
+  const command = yield* resolveAvailableCommand(commands, env);
+  if (Option.isNone(command)) {
+    return yield* new ExternalTerminalCommandNotFoundError({
+      terminal,
+      command: commands[0] ?? "",
+    });
+  }
+  const resolvedTerminal =
+    terminal === "windows-terminal" && command.value !== "wt" && command.value !== "wt.exe"
+      ? "powershell"
+      : terminal === "automatic" && platform === "linux"
+        ? command.value === "gnome-terminal"
+          ? "gnome-terminal"
+          : command.value === "konsole"
+            ? "konsole"
+            : "automatic"
+        : terminal;
+  return terminalLaunchForCommand(resolvedTerminal, command.value, input.cwd, platform);
+});
+
+const launchTerminalProcess = Effect.fn("externalLauncher.launchTerminalProcess")(function* (
+  input: LaunchExternalTerminalInput,
+): Effect.fn.Return<
+  void,
+  ExternalTerminalError,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
+  const launch = yield* resolveTerminalLaunch(input);
+  yield* launchAndUnref(
+    launch,
+    (cause) =>
+      new ExternalTerminalSpawnError({
+        terminal: launch.terminal,
+        cwd: input.cwd,
+        command: launch.command,
+        args: [...launch.args],
+        cause,
+      }),
+  );
+});
+
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -794,6 +1011,12 @@ export const make = Effect.gen(function* () {
       provideCommandResolutionServices(
         Effect.flatMap(resolveEditorLaunch(input), launchEditorProcess),
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+    launchTerminal: (input) =>
+      provideCommandResolutionServices(
+        launchTerminalProcess(input).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+      ),
   });
 });
 

@@ -670,6 +670,7 @@ const buildAppUnderTest = (options?: {
           Layer.mock(ExternalLauncher.ExternalLauncher)({
             resolveAvailableEditors: () => Effect.succeed([]),
             resolveFileManagerRevealKind: () => Effect.sync((): undefined => undefined),
+            launchTerminal: () => Effect.void,
             ...options?.layers?.externalLauncher,
           }),
           Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
@@ -5630,6 +5631,40 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, externalLauncherError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc shell.openInTerminal with the server terminal preference", () =>
+    Effect.gen(function* () {
+      let openedInput: { cwd: string; terminal: string } | null = null;
+      yield* buildAppUnderTest({
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              externalTerminal: "terminal",
+            }),
+          },
+          externalLauncher: {
+            launchTerminal: (input) =>
+              Effect.sync(() => {
+                openedInput = input;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellOpenInTerminal]({
+            cwd: "/tmp/project",
+            terminal: "automatic",
+          }),
+        ),
+      );
+
+      assert.deepEqual(openedInput, { cwd: "/tmp/project", terminal: "terminal" });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

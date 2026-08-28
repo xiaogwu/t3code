@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  EXTERNAL_TERMINALS,
   type BackgroundActivityProfile,
   type DesktopUpdateChannel,
   ProviderDriverKind,
@@ -1917,6 +1918,45 @@ export function GeneralSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection title="General">
+        <SettingsRow
+          {...searchableSetting("external-terminal")}
+          title="External terminal"
+          description="Choose the native terminal opened by Open Worktree in External Terminal. Automatic uses a host-appropriate fallback."
+          resetAction={
+            settings.externalTerminal !== DEFAULT_UNIFIED_SETTINGS.externalTerminal ? (
+              <SettingResetButton
+                label="external terminal"
+                onClick={() =>
+                  updateSettings({ externalTerminal: DEFAULT_UNIFIED_SETTINGS.externalTerminal })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.externalTerminal}
+              onValueChange={(value) => {
+                if (EXTERNAL_TERMINALS.some((terminal) => terminal.id === value)) {
+                  updateSettings({ externalTerminal: value as typeof settings.externalTerminal });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="External terminal">
+                <SelectValue>
+                  {EXTERNAL_TERMINALS.find((terminal) => terminal.id === settings.externalTerminal)
+                    ?.label ?? "Automatic"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {EXTERNAL_TERMINALS.map((terminal) => (
+                  <SelectItem hideIndicator key={terminal.id} value={terminal.id}>
+                    {terminal.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."

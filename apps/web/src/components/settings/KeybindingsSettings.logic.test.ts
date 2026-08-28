@@ -125,6 +125,7 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("themeEditor.toggle")).toBe("Theme Editor: Toggle");
     expect(commandLabel("thread.readState.toggle")).toBe("Thread: Read State: Toggle");
     expect(commandLabel("sidebar.version.toggle")).toBe("Sidebar: Version: Toggle");
+    expect(commandLabel("shell.openInTerminal")).toBe("Open Worktree in External Terminal");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
   });
 
