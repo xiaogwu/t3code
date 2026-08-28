@@ -51,7 +51,11 @@ import {
   makeAcpRequestResolvedEvent,
   makeAcpToolCallEvent,
 } from "../acp/AcpCoreRuntimeEvents.ts";
-import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
+import {
+  type AcpToolCallState,
+  mergeToolCallState,
+  parsePermissionRequest,
+} from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import {
   applyGeminiAcpModelSelection,
@@ -103,6 +107,7 @@ interface GeminiSessionContext {
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   lastPlanFingerprint: string | undefined;
+  readonly toolCalls: Map<string, AcpToolCallState>;
   activeTurnId: TurnId | undefined;
   /** Turns already interrupted; late prompt RPCs must not resurrect them. */
   interruptedTurnIds: Set<TurnId>;
@@ -216,6 +221,14 @@ export function geminiPromptSettlementBelongsToContext(input: {
   return (
     input.liveAcpSessionId === input.expectedAcpSessionId &&
     (input.liveActiveTurnId === input.turnId || input.liveSessionActiveTurnId === input.turnId)
+  );
+}
+
+export function geminiHasUnsettledToolCalls(
+  toolCalls: ReadonlyMap<string, AcpToolCallState>,
+): boolean {
+  return Array.from(toolCalls.values()).some(
+    (toolCall) => toolCall.status === "pending" || toolCall.status === "inProgress",
   );
 }
 
@@ -724,6 +737,7 @@ export function makeGeminiAdapter(
             pendingUserInputs,
             turns: [],
             lastPlanFingerprint: undefined,
+            toolCalls: new Map(),
             activeTurnId: undefined,
             interruptedTurnIds: new Set(),
             promptsInFlight: 0,
@@ -795,6 +809,13 @@ export function makeGeminiAdapter(
                     );
                     return;
                   case "ToolCallUpdated":
+                    ctx.toolCalls.set(
+                      event.toolCall.toolCallId,
+                      mergeToolCallState(
+                        ctx.toolCalls.get(event.toolCall.toolCallId),
+                        event.toolCall,
+                      ),
+                    );
                     yield* offerRuntimeEvent(
                       makeAcpToolCallEvent({
                         stamp,
@@ -985,6 +1006,7 @@ export function makeGeminiAdapter(
               };
 
               if (steeringTurnId === undefined) {
+                ctx.toolCalls.clear();
                 yield* offerRuntimeEvent({
                   type: "turn.started",
                   ...(yield* makeEventStamp()),
@@ -1136,6 +1158,7 @@ export function makeGeminiAdapter(
                   ...(prepared.displayModel ? { model: prepared.displayModel } : {}),
                 };
                 const completedStopReason = completedStopReasonFromPromptResponse(result);
+                const hasUnsettledToolCalls = geminiHasUnsettledToolCalls(ctx.toolCalls);
                 yield* offerRuntimeEvent({
                   type: "turn.completed",
                   ...(yield* makeEventStamp()),
@@ -1143,10 +1166,18 @@ export function makeGeminiAdapter(
                   threadId: input.threadId,
                   turnId: prepared.turnId,
                   payload: {
-                    state: result.stopReason === "cancelled" ? "cancelled" : "completed",
-                    stopReason: completedStopReason,
+                    ...(result.stopReason === "cancelled"
+                      ? { state: "cancelled" as const, stopReason: completedStopReason }
+                      : hasUnsettledToolCalls
+                        ? {
+                            state: "failed" as const,
+                            errorMessage:
+                              "ACP provider ended the turn while a tool call was still pending.",
+                          }
+                        : { state: "completed" as const, stopReason: completedStopReason }),
                   },
                 });
+                ctx.toolCalls.clear();
                 ctx.interruptedTurnIds.delete(prepared.turnId);
                 yield* Ref.set(promptSettled, true);
               } else if (remainingPrompts > 0) {
