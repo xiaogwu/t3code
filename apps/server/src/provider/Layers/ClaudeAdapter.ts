@@ -1321,6 +1321,8 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
   }
 
   for (const attachment of input.attachments ?? []) {
+    // Claude ingests images only. Generic files reach the agent through the
+    // path line ProviderService puts in the prompt.
     if (attachment.type !== "image") {
       continue;
     }
