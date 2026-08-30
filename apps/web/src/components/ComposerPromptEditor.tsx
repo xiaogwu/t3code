@@ -894,7 +894,7 @@ interface ComposerPromptEditorProps {
     terminalContextIds: string[],
   ) => void;
   onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "HistorySearch" | "Tab",
     event: KeyboardEvent,
   ) => boolean;
   onPaste: React.ClipboardEventHandler<HTMLElement>;
@@ -903,7 +903,7 @@ interface ComposerPromptEditorProps {
 
 function ComposerCommandKeyPlugin(props: {
   onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "HistorySearch" | "Tab",
     event: KeyboardEvent,
   ) => boolean;
 }) {
@@ -911,7 +911,7 @@ function ComposerCommandKeyPlugin(props: {
 
   useEffect(() => {
     const handleCommand = (
-      key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+      key: "ArrowDown" | "ArrowUp" | "Enter" | "HistorySearch" | "Tab",
       event: KeyboardEvent | null,
     ): boolean => {
       if (!props.onCommandKeyDown || !event) {
@@ -951,12 +951,30 @@ function ComposerCommandKeyPlugin(props: {
       (event) => handleCommand("Tab", event),
       COMMAND_PRIORITY_HIGH,
     );
+    const unregisterHistorySearch = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => {
+        if (
+          event.key.toLowerCase() !== "r" ||
+          !event.ctrlKey ||
+          event.metaKey ||
+          event.altKey ||
+          event.shiftKey ||
+          event.isComposing
+        ) {
+          return false;
+        }
+        return handleCommand("HistorySearch", event);
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
 
     return () => {
       unregisterArrowDown();
       unregisterArrowUp();
       unregisterEnter();
       unregisterTab();
+      unregisterHistorySearch();
     };
   }, [editor, props]);
 
