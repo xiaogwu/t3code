@@ -4,6 +4,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { vi } from "vite-plus/test";
 
+vi.mock("electron", () => ({
+  systemPreferences: {
+    getUserDefault: vi.fn(() => ({ gregorian: 2 })),
+  },
+}));
+
 import type * as Electron from "electron";
 
 import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
@@ -14,7 +20,19 @@ import {
   getLocalEnvironmentBootstraps,
   getWindowFullscreenState,
   pickProjectFavicon,
+  resolveMacFirstDayOfWeek,
 } from "./window.ts";
+
+describe("resolveMacFirstDayOfWeek", () => {
+  it("converts Apple's one-based weekday to JavaScript's weekday index", () => {
+    assert.strictEqual(resolveMacFirstDayOfWeek({ gregorian: 2 }, "darwin"), 1);
+    assert.strictEqual(resolveMacFirstDayOfWeek({ gregorian: 1 }, "darwin"), 0);
+  });
+
+  it("ignores the macOS preference on other platforms", () => {
+    assert.strictEqual(resolveMacFirstDayOfWeek({ gregorian: 2 }, "win32"), null);
+  });
+});
 
 const readyWslConfig: DesktopBackendManager.DesktopBackendStartConfig = {
   executablePath: "wsl.exe",

@@ -1078,6 +1078,8 @@ export interface DesktopBridge {
    * regardless of OS settings.
    */
   getSystemLocale?: () => string | null;
+  /** Calendar weekday index using JavaScript's Sunday=0 through Saturday=6 convention. */
+  getFirstDayOfWeek?: () => number | null;
   // One bootstrap per pool instance currently registered with bootstrap
   // info (omits instances whose backend hasn't produced a config yet).
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.

@@ -15,6 +15,7 @@ import {
 import { WORKSPACE_IMAGE_PREVIEW_EXTENSIONS } from "@t3tools/shared/filePreview";
 import { isCommandAvailable } from "@t3tools/shared/shell";
 import * as NodeOS from "node:os";
+import * as Electron from "electron";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
@@ -73,6 +74,29 @@ export const getSystemLocale = DesktopIpc.makeSyncIpcMethod({
     const electronApp = yield* ElectronApp.ElectronApp;
     return yield* electronApp.systemLocale;
   }),
+});
+
+export function resolveMacFirstDayOfWeek(
+  preference: unknown,
+  platform: NodeJS.Platform,
+): number | null {
+  if (platform !== "darwin" || typeof preference !== "object" || preference === null) return null;
+  const gregorian = Reflect.get(preference, "gregorian");
+  return typeof gregorian === "number" && gregorian >= 1 && gregorian <= 7 ? gregorian - 1 : null;
+}
+
+export const getFirstDayOfWeek = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_FIRST_DAY_OF_WEEK_CHANNEL,
+  result: Schema.NullOr(Schema.Number),
+  handler: Effect.fn("desktop.ipc.window.getFirstDayOfWeek")(() =>
+    Effect.sync(() => {
+      const preference =
+        process.platform === "darwin"
+          ? Electron.systemPreferences.getUserDefault("AppleFirstWeekday", "dictionary")
+          : null;
+      return resolveMacFirstDayOfWeek(preference, process.platform);
+    }),
+  ),
 });
 
 export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
