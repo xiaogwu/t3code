@@ -99,6 +99,10 @@ returns to an empty composer after the newest prompt. Editing a recalled prompt 
 the arrow keys go back to normal text navigation. Prompt history is shared across threads and
 projects, survives reloads, and stores prompt text only.
 
+Press Ctrl+R while the composer is focused to search that history. Type to filter, use Up and Down
+or press Ctrl+R again to move through matches, press Enter to restore the highlighted prompt, and
+press Escape to close the search without changing the current draft.
+
 Note that `chat.new` and `chat.newLocal` both create a thread through the same path. A new thread
 inherits the project you were in, along with model and mode selections. Branch, worktree, and
 environment mode always come from your configured defaults, not from the thread you were looking
