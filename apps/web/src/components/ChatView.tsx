@@ -1,5 +1,6 @@
 import {
   type ApprovalRequestId,
+  type ChatFileAttachment,
   DEFAULT_MODEL,
   defaultInstanceIdForDriver,
   type EnvironmentId,
@@ -18,6 +19,7 @@ import {
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderInteractionMode,
   ProviderDriverKind,
   RuntimeMode,
@@ -132,6 +134,7 @@ import {
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   isImageAttachment,
+  videoMimeType,
   type SessionPhase,
   type Thread,
   type TurnDiffSummary,
@@ -237,6 +240,7 @@ import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
   composerDraftHasUserContent,
+  type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
   finalizePromotedDraftThreadByRef,
@@ -244,7 +248,6 @@ import {
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
-import { usePromptHistoryStore } from "../promptHistoryStore";
 import {
   appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
@@ -264,6 +267,7 @@ import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import {
+  environmentServerConfigsAtom,
   primaryServerAvailableEditorsAtom,
   primaryServerKeybindingsAtom,
   primaryServerSettingsAtom,
@@ -353,6 +357,8 @@ import {
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
+  shoulderTabReserve,
+  shouldShowPlanFollowUpPrompt,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
@@ -361,6 +367,8 @@ import {
   cloneComposerImageForRetry,
   deriveLockedProvider,
   readFileAsDataUrl,
+  loadVideoPreviewUrl,
+  isVideoPreviewRequestCurrent,
   reconcileMountedTerminalThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
@@ -378,13 +386,19 @@ import { useComposerHandleContext } from "../composerHandleContext";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
-  releaseAttachmentUploads,
+  releaseDraftAttachments,
   startAttachmentUpload,
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { previewEnvironment } from "../state/preview";
+import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFiles";
+import { assetEnvironment } from "../state/assets";
+import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { Button } from "./ui/button";
 import {
   AlertDialog,
@@ -405,10 +419,10 @@ import {
   resolveServerSelfUpdateCapability,
   serverUpdateGuidance,
 } from "../versionSkew";
-import { useAssetUrls } from "../assets/assetUrls";
+import { resolveAssetUrl, useAssetUrls } from "../assets/assetUrls";
 
-const IMAGE_ONLY_BOOTSTRAP_PROMPT =
-  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
+  "[User attached one or more files without additional text. Respond using the conversation context and the attached files.]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1280,7 +1294,7 @@ function ChatViewContent(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, unpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1306,6 +1320,9 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const createAttachmentAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
+    reportFailure: false,
+  });
   const uploadThreadFeedback = useAtomCommand(threadEnvironment.uploadFeedback, {
     reportFailure: false,
   });
@@ -1349,7 +1366,6 @@ function ChatViewContent(props: ChatViewProps) {
     [routeServerThreadShell, threadDetailLoading],
   );
   const activeServerThread = serverThread ?? loadingServerThread;
-  const clearThreadManuallyUnread = useUiStateStore((store) => store.clearThreadManuallyUnread);
   // Pagination window state for the routed server thread: drives the
   // "load earlier turns" header when the loaded window has older history.
   const routeThreadState = useEnvironmentThread(
@@ -1392,11 +1408,16 @@ function ChatViewContent(props: ChatViewProps) {
   const composerHasUnsentContent = useComposerDraftStore((store) =>
     composerDraftHasUserContent(store.getComposerDraft(composerDraftTarget)),
   );
+  const composerHasAttachments = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(composerDraftTarget);
+    return (draft?.images.length ?? 0) > 0 || (draft?.files.length ?? 0) > 0;
+  });
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftReplyToMessageId = useComposerDraftStore(
     (store) => store.setReplyToMessageId,
   );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
@@ -1413,7 +1434,6 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
-  const pushPromptHistoryEntry = usePromptHistoryStore((store) => store.pushEntry);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -1424,13 +1444,29 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
+  const routeThreadKeyRef = useRef(routeThreadKey);
+  routeThreadKeyRef.current = routeThreadKey;
+  const videoPreviewRequestIdRef = useRef(0);
+  const videoPreviewAbortControllerRef = useRef<AbortController | null>(null);
+  const cancelVideoPreviewRequest = useCallback(() => {
+    videoPreviewRequestIdRef.current += 1;
+    videoPreviewAbortControllerRef.current?.abort();
+    videoPreviewAbortControllerRef.current = null;
+  }, []);
+  const [openingVideoAttachmentId, setOpeningVideoAttachmentId] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
+  useEffect(() => {
+    const item = expandedImage?.images[expandedImage.index];
+    if (item?.type !== "video" || !item.src.startsWith("blob:")) return;
+    return () => revokeBlobPreviewUrl(item.src);
+  }, [expandedImage]);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const [feedbackSubmissionsByThreadKey, setFeedbackSubmissionsByThreadKey] = useState<
     Record<string, ReadonlyArray<CodexFeedbackSubmission>>
@@ -1499,31 +1535,13 @@ function ChatViewContent(props: ChatViewProps) {
   const legendListRef = useRef<LegendListRef | null>(null);
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
+  const [scrollToEndClearance, setScrollToEndClearance] = useState(0);
   const isAtEndRef = useRef(true);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewPromotionInFlightByMessageIdRef = useRef<Record<string, true>>({});
   const sendInFlightRef = useRef(false);
   const feedbackUploadsInFlightRef = useRef(new Set<string>());
   const terminalUiOpenByThreadRef = useRef<Record<string, boolean>>({});
-
-  useLayoutEffect(() => {
-    if (!composerOverlayElement) return;
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(composerOverlayElement.getBoundingClientRect().height);
-      if (nextHeight <= 0) return;
-      setComposerOverlayHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(composerOverlayElement);
-    return () => observer.disconnect();
-  }, [composerOverlayElement]);
 
   const terminalUiState = useTerminalUiStateStore((state) =>
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
@@ -2117,13 +2135,6 @@ function ChatViewContent(props: ChatViewProps) {
     [openOrReuseProjectDraftThread],
   );
 
-  // Opening a thread clears any manual unread mark. Visit stamping itself
-  // happens off latestTurn.completedAt below, so a read never rewinds it.
-  useEffect(() => {
-    if (routeKind !== "server") return;
-    clearThreadManuallyUnread(routeThreadKey);
-  }, [clearThreadManuallyUnread, routeKind, routeThreadKey]);
-
   const selectedProviderByThreadId = composerActiveProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.instanceId ??
@@ -2145,6 +2156,12 @@ function ChatViewContent(props: ChatViewProps) {
   const attachmentUploadsCapabilityKnown = attachmentEnvironmentConfig !== null;
   const supportsAttachmentUploads =
     attachmentEnvironmentConfig?.environment.capabilities.attachmentUploads === true;
+  const advertisedFileAttachmentBytes =
+    attachmentEnvironmentConfig?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null;
+  const maxFileAttachmentBytes =
+    advertisedFileAttachmentBytes === null
+      ? null
+      : clampFileAttachmentUploadBytes(advertisedFileAttachmentBytes);
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -2424,11 +2441,13 @@ function ChatViewContent(props: ChatViewProps) {
       null
     );
   }, [activeLatestTurn?.turnId, activePlan]);
-  const showPlanFollowUpPrompt =
-    pendingUserInputs.length === 0 &&
-    interactionMode === "plan" &&
-    latestTurnSettled &&
-    hasActionableProposedPlan(activeProposedPlan);
+  const showPlanFollowUpPrompt = shouldShowPlanFollowUpPrompt({
+    pendingUserInputCount: pendingUserInputs.length,
+    interactionMode,
+    latestTurnSettled,
+    hasActionableProposedPlan: hasActionableProposedPlan(activeProposedPlan),
+    hasComposerAttachments: composerHasAttachments,
+  });
   const activePendingApproval = pendingApprovals[0] ?? null;
   const {
     beginLocalDispatch,
@@ -2447,11 +2466,6 @@ function ChatViewContent(props: ChatViewProps) {
     threadError,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
-  const activeTurnInProgress = isWorking || !latestTurnSettled;
-  const activeTurnInProgressRef = useRef(activeTurnInProgress);
-  useEffect(() => {
-    activeTurnInProgressRef.current = activeTurnInProgress;
-  }, [activeTurnInProgress]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -2494,11 +2508,12 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     return () => {
       clearAttachmentPreviewHandoffs();
+      cancelVideoPreviewRequest();
       for (const message of optimisticUserMessagesRef.current) {
         revokeUserMessagePreviewUrls(message);
       }
     };
-  }, [clearAttachmentPreviewHandoffs]);
+  }, [cancelVideoPreviewRequest, clearAttachmentPreviewHandoffs]);
   const handoffAttachmentPreviews = useCallback((messageId: MessageId, previewUrls: string[]) => {
     if (previewUrls.length === 0) return;
 
@@ -2519,11 +2534,109 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
   const serverMessages = activeThread?.messages;
+  const openFileAttachment = useCallback(
+    async (attachment: ChatFileAttachment) => {
+      const connection = readPreparedConnection(environmentId);
+      if (!connection) {
+        toastManager.add({ type: "error", title: "The environment is not connected." });
+        return;
+      }
+      const videoMime = videoMimeType(attachment);
+      const isVideo = videoMime !== null;
+      const action = isVideo ? "play" : "download";
+      const videoPreviewAbortController = isVideo ? new AbortController() : null;
+      if (isVideo) {
+        videoPreviewAbortControllerRef.current?.abort();
+        videoPreviewAbortControllerRef.current = videoPreviewAbortController;
+      }
+      const videoPreviewRequestId = isVideo ? ++videoPreviewRequestIdRef.current : 0;
+      const isCurrentRequest = () =>
+        !isVideo ||
+        isVideoPreviewRequestCurrent(
+          routeThreadKey,
+          routeThreadKeyRef.current,
+          videoPreviewRequestId,
+          videoPreviewRequestIdRef.current,
+        );
+      const finishVideoPreviewRequest = () => {
+        if (videoPreviewRequestIdRef.current === videoPreviewRequestId) {
+          setOpeningVideoAttachmentId(null);
+          videoPreviewAbortControllerRef.current = null;
+        }
+      };
+      if (isVideo) setOpeningVideoAttachmentId(attachment.id);
+
+      // fileName and mimeType ride in the signed claims so videos render
+      // inline while other files keep their real download name and type.
+      const result = await createAttachmentAssetUrl({
+        environmentId,
+        input: {
+          resource: {
+            _tag: "attachment",
+            attachmentId: attachment.id,
+            fileName: attachment.name,
+            mimeType: videoMime ?? attachment.mimeType,
+          },
+        },
+      });
+      if (!isCurrentRequest()) {
+        finishVideoPreviewRequest();
+        return;
+      }
+      if (result._tag === "Failure") {
+        finishVideoPreviewRequest();
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Could not " + action + " " + attachment.name,
+          description: error instanceof Error ? error.message : "The attachment is unavailable.",
+        });
+        return;
+      }
+
+      const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
+      if (!url) {
+        finishVideoPreviewRequest();
+        toastManager.add({ type: "error", title: "Could not " + action + " " + attachment.name });
+        return;
+      }
+      if (isVideo) {
+        try {
+          const previewUrl = await loadVideoPreviewUrl(url, videoPreviewAbortController?.signal);
+          if (!isCurrentRequest()) {
+            revokeBlobPreviewUrl(previewUrl);
+            return;
+          }
+          setExpandedImage({
+            images: [{ src: previewUrl, name: attachment.name, type: "video" }],
+            index: 0,
+          });
+        } catch (error) {
+          if (!isCurrentRequest()) return;
+          toastManager.add({
+            type: "error",
+            title: "Could not play " + attachment.name,
+            description: error instanceof Error ? error.message : "The attachment is unavailable.",
+          });
+        } finally {
+          finishVideoPreviewRequest();
+        }
+        return;
+      }
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = attachment.name;
+      anchor.click();
+    },
+    [createAttachmentAssetUrl, environmentId, routeThreadKey],
+  );
   const serverAttachmentIds = useMemo(() => {
     const attachmentIds = new Set<string>();
     for (const message of serverMessages ?? []) {
       for (const attachment of message.attachments ?? []) {
-        attachmentIds.add(attachment.id);
+        if (isImageAttachment(attachment)) {
+          attachmentIds.add(attachment.id);
+        }
       }
     }
     return [...attachmentIds];
@@ -3956,10 +4069,6 @@ function ChatViewContent(props: ChatViewProps) {
   const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
   const settledTimelineAnchorRef = useRef<MessageId | null>(null);
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
-  // True once the armed anchor's end space has shrunk to zero — the response
-  // outgrew the reserved blank space, so the anchored view is identical to
-  // ordinary end-following and the anchor can be released.
-  const timelineAnchorEndSpaceCollapsedRef = useRef(false);
   const anchorUserScrollGenerationRef = useRef(0);
   const liveFollowUserScrollGenerationRef = useRef<number | null>(0);
   // Hold ids outside the reveal effect below: clearReveal() inside that effect
@@ -3978,7 +4087,6 @@ function ChatViewContent(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
-    timelineAnchorEndSpaceCollapsedRef.current = false;
   }, []);
   const cancelTimelineLiveFollowForUserNavigationRef = useRef(
     cancelTimelineLiveFollowForUserNavigation,
@@ -4183,165 +4291,94 @@ function ChatViewContent(props: ChatViewProps) {
     };
   }, [activeThread?.id, composerOverlayHeight, timelineRealContentOverflowsViewport]);
 
-  // A stale armed anchor keeps LegendList's maintainScrollAtEnd disabled for
-  // the rest of the thread session, so any layout resize (sidebar or right
-  // panel toggles) strands the viewport short of the live edge. Once the end
-  // space has collapsed, releasing the anchor is visually a no-op and hands
-  // ordinary end-follow back to LegendList.
-  const releaseCollapsedTimelineAnchor = useCallback(() => {
-    if (timelineScrollModeRef.current === "anchoring-new-turn") {
-      timelineScrollModeRef.current = "following-end";
+  const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
+    // Anchored-end space can be remeasured when the turn completes. Once the
+    // user has scrolled away (or returned to ordinary end-following), that
+    // remeasurement must not restart the send-time anchor positioning.
+    if (
+      timelineScrollModeRef.current !== "anchoring-new-turn" &&
+      timelineScrollModeRef.current !== "anchoring-reveal"
+    ) {
+      return;
     }
-    pendingTimelineAnchorRef.current = null;
-    positionedTimelineAnchorRef.current = null;
+    if (pendingTimelineAnchorRef.current === messageId) {
+      pendingTimelineAnchorRef.current = null;
+    }
+    activeTimelineAnchorIndexRef.current = anchorIndex;
+    if (positionedTimelineAnchorRef.current === messageId) {
+      return;
+    }
+    positionedTimelineAnchorRef.current = messageId;
     settledTimelineAnchorRef.current = null;
-    activeTimelineAnchorIndexRef.current = null;
-    timelineAnchorEndSpaceCollapsedRef.current = false;
-    setTimelineAnchor((current) =>
-      current.messageId === null ? current : { ...current, messageId: null },
-    );
+    const positionAnchor = (remainingAttempts: number) => {
+      requestAnimationFrame(() => {
+        if (positionedTimelineAnchorRef.current !== messageId) {
+          return;
+        }
+        const list = legendListRef.current;
+        if (!list) {
+          if (remainingAttempts > 0) {
+            positionAnchor(remainingAttempts - 1);
+          }
+          return;
+        }
+        void list
+          .scrollToIndex({
+            index: anchorIndex,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          })
+          .then(() => {
+            if (positionedTimelineAnchorRef.current !== messageId) {
+              return;
+            }
+            settledTimelineAnchorRef.current = messageId;
+            // A reveal has no streaming turn to keep tracking, so hand the list
+            // back to ordinary free scrolling once it has landed.
+            if (timelineScrollModeRef.current === "anchoring-reveal") {
+              timelineScrollModeRef.current = "free-scrolling";
+            }
+          });
+      });
+    };
+    requestAnimationFrame(() => positionAnchor(12));
   }, []);
 
-  // Release preconditions, re-checked at every quiescent point: the anchored
-  // reveal effect below owns end-following while the turn is still streaming
-  // (a size-0 report often arrives mid-stream, the moment the response
-  // outgrows the space), a reveal owns its own anchor until it lands, and an
-  // in-flight anchored positioning must finish before the anchor state is torn
-  // down. Returns true when it released.
-  const maybeReleaseCollapsedTimelineAnchor = useCallback(() => {
-    if (!timelineAnchorEndSpaceCollapsedRef.current) {
-      return false;
-    }
-    if (activeTurnInProgressRef.current) {
-      return false;
-    }
+  const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
+    // A reveal starts from the live edge, so LegendList can still report
+    // isAtEnd while the anchor scroll is in flight. Honoring that would flip
+    // the mode back to following-end and cancel the reveal.
     if (timelineScrollModeRef.current === "anchoring-reveal") {
-      return false;
+      return;
     }
-    const positioningInFlight =
-      pendingTimelineAnchorRef.current !== null ||
-      (positionedTimelineAnchorRef.current !== null &&
-        settledTimelineAnchorRef.current !== positionedTimelineAnchorRef.current);
-    if (positioningInFlight) {
-      return false;
+    if (
+      !isAtEnd &&
+      liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
+    ) {
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      return;
     }
-    releaseCollapsedTimelineAnchor();
-    return true;
-  }, [releaseCollapsedTimelineAnchor]);
-  const maybeReleaseCollapsedTimelineAnchorRef = useRef(maybeReleaseCollapsedTimelineAnchor);
-  useEffect(() => {
-    maybeReleaseCollapsedTimelineAnchorRef.current = maybeReleaseCollapsedTimelineAnchor;
-  }, [maybeReleaseCollapsedTimelineAnchor]);
-
-  useEffect(() => {
-    if (!activeTurnInProgress) {
-      maybeReleaseCollapsedTimelineAnchor();
+    if (isAtEndRef.current === isAtEnd) return;
+    isAtEndRef.current = isAtEnd;
+    if (isAtEnd) {
+      timelineScrollModeRef.current = "following-end";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      // Reachable only once manual navigation has already broken follow, so
+      // the anchored turn framing is over: the user scrolled back to the live
+      // edge and expects the stream to stick to it again, exactly like the
+      // scroll-to-bottom pill.
+      setTimelineAnchor(releaseChatTimelineAnchor);
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+    } else {
+      timelineScrollModeRef.current = "free-scrolling";
+      liveFollowUserScrollGenerationRef.current = null;
+      showScrollDebouncer.current.maybeExecute();
     }
-  }, [activeTurnInProgress, maybeReleaseCollapsedTimelineAnchor]);
-
-  const onTimelineAnchorReady = useCallback(
-    (messageId: MessageId, anchorIndex: number, endSpaceSize: number) => {
-      timelineAnchorEndSpaceCollapsedRef.current = endSpaceSize === 0;
-      if (maybeReleaseCollapsedTimelineAnchor()) {
-        return;
-      }
-      // Anchored-end space can be remeasured when the turn completes. Once the
-      // user has scrolled away (or returned to ordinary end-following), that
-      // remeasurement must not restart the send-time anchor positioning.
-      if (
-        timelineScrollModeRef.current !== "anchoring-new-turn" &&
-        timelineScrollModeRef.current !== "anchoring-reveal"
-      ) {
-        return;
-      }
-      if (pendingTimelineAnchorRef.current === messageId) {
-        pendingTimelineAnchorRef.current = null;
-      }
-      activeTimelineAnchorIndexRef.current = anchorIndex;
-      if (positionedTimelineAnchorRef.current === messageId) {
-        return;
-      }
-      positionedTimelineAnchorRef.current = messageId;
-      settledTimelineAnchorRef.current = null;
-      const positionAnchor = (remainingAttempts: number) => {
-        requestAnimationFrame(() => {
-          if (positionedTimelineAnchorRef.current !== messageId) {
-            return;
-          }
-          const list = legendListRef.current;
-          if (!list) {
-            if (remainingAttempts > 0) {
-              positionAnchor(remainingAttempts - 1);
-            }
-            return;
-          }
-          void list
-            .scrollToIndex({
-              index: anchorIndex,
-              animated: true,
-              viewPosition: 0,
-              viewOffset: CHAT_LIST_ANCHOR_OFFSET,
-            })
-            .then(() => {
-              if (positionedTimelineAnchorRef.current !== messageId) {
-                return;
-              }
-              settledTimelineAnchorRef.current = messageId;
-              // A reveal has no streaming turn to keep tracking, so hand the list
-              // back to ordinary free scrolling once it has landed.
-              if (timelineScrollModeRef.current === "anchoring-reveal") {
-                timelineScrollModeRef.current = "free-scrolling";
-              }
-              // The space may have collapsed while positioning was in flight.
-              maybeReleaseCollapsedTimelineAnchorRef.current();
-            });
-        });
-      };
-      requestAnimationFrame(() => positionAnchor(12));
-    },
-    [maybeReleaseCollapsedTimelineAnchor],
-  );
-
-  const onIsAtEndChange = useCallback(
-    (isAtEnd: boolean) => {
-      // A reveal starts from the live edge, so LegendList can still report
-      // isAtEnd while the anchor scroll is in flight. Honoring that would flip
-      // the mode back to following-end and cancel the reveal.
-      if (timelineScrollModeRef.current === "anchoring-reveal") {
-        return;
-      }
-      if (
-        !isAtEnd &&
-        liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
-      ) {
-        showScrollDebouncer.current.cancel();
-        setShowScrollToBottom(false);
-        return;
-      }
-      if (isAtEndRef.current === isAtEnd) return;
-      isAtEndRef.current = isAtEnd;
-      if (isAtEnd) {
-        timelineScrollModeRef.current = "following-end";
-        liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-        setTimelineLiveFollowEnabled(true);
-        // Reachable only once manual navigation has already broken follow, so
-        // the anchored turn framing is over: the user scrolled back to the live
-        // edge and expects the stream to stick to it again, exactly like the
-        // scroll-to-bottom pill.
-        setTimelineAnchor(releaseChatTimelineAnchor);
-        showScrollDebouncer.current.cancel();
-        setShowScrollToBottom(false);
-        // Covers anchors whose end space collapsed while the user was away from
-        // the end: no further onAnchorReady will fire, so release on return.
-        maybeReleaseCollapsedTimelineAnchor();
-      } else {
-        timelineScrollModeRef.current = "free-scrolling";
-        liveFollowUserScrollGenerationRef.current = null;
-        showScrollDebouncer.current.maybeExecute();
-      }
-    },
-    [maybeReleaseCollapsedTimelineAnchor],
-  );
+  }, []);
 
   // Anchored end space intentionally disables LegendList's normal end-follow so
   // the sent message can stay near the top. T3 only owns streaming adjustments
@@ -4405,7 +4442,6 @@ function ChatViewContent(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
-    timelineAnchorEndSpaceCollapsedRef.current = false;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     // activeThreadRef resets transitively with the active thread.
@@ -4436,9 +4472,6 @@ function ChatViewContent(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
-    // A collapsed flag left over from the previous turn would release this
-    // reveal anchor the moment it reports ready.
-    timelineAnchorEndSpaceCollapsedRef.current = false;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: revealRequest.messageId });
@@ -4535,8 +4568,10 @@ function ChatViewContent(props: ChatViewProps) {
       return [];
     });
     resetLocalDispatch();
+    cancelVideoPreviewRequest();
+    setOpeningVideoAttachmentId(null);
     setExpandedImage(null);
-  }, [draftId, resetLocalDispatch, threadId]);
+  }, [cancelVideoPreviewRequest, draftId, resetLocalDispatch, threadId]);
 
   const closeExpandedImage = useCallback(() => {
     setExpandedImage(null);
@@ -4596,6 +4631,35 @@ function ChatViewContent(props: ChatViewProps) {
     activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
       ? activePlan.steps
       : null;
+
+  useLayoutEffect(() => {
+    if (!composerOverlayElement) return;
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(composerOverlayElement.getBoundingClientRect().height);
+      if (nextHeight <= 0) return;
+      setComposerOverlayHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+      const nextClearance = Math.max(0, nextHeight - shoulderTabReserve(composerOverlayElement));
+      setScrollToEndClearance((currentClearance) =>
+        currentClearance === nextClearance ? currentClearance : nextClearance,
+      );
+    };
+
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(composerOverlayElement);
+    const tabObserver = new MutationObserver(updateHeight);
+    tabObserver.observe(composerOverlayElement, { childList: true, subtree: true });
+    return () => {
+      resizeObserver.disconnect();
+      tabObserver.disconnect();
+    };
+  }, [composerOverlayElement]);
+
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const autoSettleOnMerge = useClientSettings((settings) => settings.sidebarAutoSettleOnMerge);
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
@@ -4783,6 +4847,18 @@ function ChatViewContent(props: ChatViewProps) {
   // Dismissal lives in a module-level set (survives remounts); this tick just
   // forces a re-render so the banner leaves immediately.
   const [, setBranchMismatchDismissTick] = useState(0);
+  const composerHasDraftContent = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(composerDraftTarget);
+    return Boolean(
+      draft &&
+      (draft.prompt.trim().length > 0 ||
+        draft.images.length > 0 ||
+        draft.terminalContexts.length > 0 ||
+        draft.elementContexts.length > 0 ||
+        draft.previewAnnotations.length > 0 ||
+        draft.reviewComments.length > 0),
+    );
+  });
   const composerReplyToMessageId = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.replyToMessageId ?? null,
   );
@@ -5357,17 +5433,19 @@ function ChatViewContent(props: ChatViewProps) {
         event.stopPropagation();
         if (!isServerThread || !activeThreadRef || !supportsPinning) return;
         const pinned = activeThreadPinned;
-        void (pinned ? unpinThread(activeThreadRef) : pinThread(activeThreadRef)).then((result) => {
-          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: pinned ? "Failed to unpin thread" : "Failed to pin thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        });
+        void (pinned ? confirmAndUnpinThread(activeThreadRef) : pinThread(activeThreadRef)).then(
+          (result) => {
+            if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: pinned ? "Failed to unpin thread" : "Failed to pin thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          },
+        );
         return;
       }
 
@@ -5495,7 +5573,7 @@ function ChatViewContent(props: ChatViewProps) {
     settleThread,
     supportsPinning,
     supportsSettlement,
-    unpinThread,
+    confirmAndUnpinThread,
     toggleRightPanel,
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
@@ -5617,6 +5695,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     const {
       images: sendContextImages,
+      files: composerFiles,
       terminalContexts: composerTerminalContexts,
       elementContexts: composerElementContexts,
       previewAnnotations: sendContextPreviewAnnotations,
@@ -5627,9 +5706,17 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
+    const annotationImageAlreadyAttached =
+      directAnnotation?.image !== undefined &&
+      sendContextImages.some((image) => image.id === directAnnotation.image?.id);
+    // A full composer (e.g. 8 files) cannot take the annotation screenshot;
+    // over the cap the server rejects the whole turn.
+    const annotationImageAppended =
+      directAnnotation?.image !== undefined &&
+      !annotationImageAlreadyAttached &&
+      sendContextImages.length + composerFiles.length < PROVIDER_SEND_TURN_MAX_ATTACHMENTS;
     const composerImages =
-      directAnnotation?.image &&
-      !sendContextImages.some((image) => image.id === directAnnotation.image?.id)
+      directAnnotation?.image && annotationImageAppended
         ? [...sendContextImages, directAnnotation.image]
         : sendContextImages;
     const composerPreviewAnnotations =
@@ -5641,9 +5728,13 @@ function ChatViewContent(props: ChatViewProps) {
             ...sendContextPreviewAnnotations,
             {
               ...directAnnotation.annotation,
-              screenshot: directAnnotation.annotation.screenshot
-                ? { ...directAnnotation.annotation.screenshot, dataUrl: "" }
-                : null,
+              // Claim an attached crop only when the screenshot really rides
+              // along; a cap-dropped image must not produce a lying prompt.
+              screenshot:
+                directAnnotation.annotation.screenshot &&
+                (annotationImageAppended || annotationImageAlreadyAttached)
+                  ? { ...directAnnotation.annotation.screenshot, dataUrl: "" }
+                  : null,
             },
           ]
         : sendContextPreviewAnnotations;
@@ -5655,7 +5746,7 @@ function ChatViewContent(props: ChatViewProps) {
       hasSendableContent,
     } = deriveComposerSendState({
       prompt: promptForSend,
-      imageCount: composerImages.length,
+      imageCount: composerImages.length + composerFiles.length,
       terminalContexts: composerTerminalContexts,
       elementContextCount:
         composerElementContexts.length +
@@ -5665,6 +5756,7 @@ function ChatViewContent(props: ChatViewProps) {
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
       composerImages.length === 0 &&
+      composerFiles.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
@@ -5757,7 +5849,13 @@ function ChatViewContent(props: ChatViewProps) {
       );
       return;
     }
-    if (!directAnnotation && showPlanFollowUpPrompt && activeProposedPlan) {
+    if (
+      !directAnnotation &&
+      showPlanFollowUpPrompt &&
+      activeProposedPlan &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0
+    ) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,
         planMarkdown: activeProposedPlan.planMarkdown,
@@ -5786,6 +5884,7 @@ function ChatViewContent(props: ChatViewProps) {
     const standaloneSlashCommand =
       settings.planModeEnabled &&
       composerImages.length === 0 &&
+      composerFiles.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
@@ -5842,6 +5941,8 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     const composerImagesSnapshot = [...composerImages];
+    const composerFilesSnapshot = [...composerFiles];
+    const composerAttachmentsSnapshot = [...composerImagesSnapshot, ...composerFilesSnapshot];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
@@ -5865,21 +5966,57 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
     }
 
+    const readLiveAttachmentCapabilities = () => {
+      const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId) ?? null;
+      const liveSupportsAttachmentUploads =
+        config?.environment.capabilities.attachmentUploads === true;
+      return {
+        supportsAttachmentUploads: liveSupportsAttachmentUploads,
+        fileBlockReason: fileAttachmentCapabilityBlockReason({
+          files: composerFilesSnapshot,
+          attachmentUploadsCapabilityKnown: config !== null,
+          supportsAttachmentUploads: liveSupportsAttachmentUploads,
+          maxFileAttachmentBytes:
+            config?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null,
+        }),
+      };
+    };
+
     sendInFlightRef.current = true;
-    if (supportsAttachmentUploads && composerImagesSnapshot.length > 0) {
-      for (const image of composerImagesSnapshot) {
-        startAttachmentUpload({ environmentId, image });
+    const attachmentCapabilitiesBeforeUpload = readLiveAttachmentCapabilities();
+    if (attachmentCapabilitiesBeforeUpload.fileBlockReason !== null) {
+      sendInFlightRef.current = false;
+      setThreadError(threadIdForSend, attachmentCapabilitiesBeforeUpload.fileBlockReason);
+      return;
+    }
+    const turnUsesAttachmentUploads =
+      composerFilesSnapshot.length > 0
+        ? attachmentCapabilitiesBeforeUpload.supportsAttachmentUploads
+        : supportsAttachmentUploads;
+    if (turnUsesAttachmentUploads && composerAttachmentsSnapshot.length > 0) {
+      for (const attachment of composerAttachmentsSnapshot) {
+        startAttachmentUpload({
+          environmentId,
+          image: attachment,
+          draftTarget: composerDraftTarget,
+        });
       }
-      await awaitAttachmentUploads(composerImagesSnapshot.map((image) => image.id));
-      if (getUploadedAttachments({ environmentId, images: composerImagesSnapshot }) === null) {
+      await awaitAttachmentUploads(composerAttachmentsSnapshot.map((attachment) => attachment.id));
+      const attachmentCapabilitiesAfterUpload = readLiveAttachmentCapabilities();
+      if (attachmentCapabilitiesAfterUpload.fileBlockReason !== null) {
         sendInFlightRef.current = false;
-        setThreadError(threadIdForSend, "Retry or remove failed image uploads before sending.");
+        setThreadError(threadIdForSend, attachmentCapabilitiesAfterUpload.fileBlockReason);
+        return;
+      }
+      if (getUploadedAttachments({ environmentId, images: composerAttachmentsSnapshot }) === null) {
+        sendInFlightRef.current = false;
+        setThreadError(threadIdForSend, "Retry or remove failed uploads before sending.");
         return;
       }
     }
@@ -5908,6 +6045,16 @@ function ChatViewContent(props: ChatViewProps) {
       void dockTransition.catch(() => resolveDockStarted?.());
       await dockStarted;
     }
+
+    const attachmentCapabilitiesBeforeDispatch = readLiveAttachmentCapabilities();
+    if (attachmentCapabilitiesBeforeDispatch.fileBlockReason !== null) {
+      sendInFlightRef.current = false;
+      setThreadError(threadIdForSend, attachmentCapabilitiesBeforeDispatch.fileBlockReason);
+      setDockedDraftHeroThreadKey((currentThreadKey) =>
+        currentThreadKey === activeThreadKey ? null : currentThreadKey,
+      );
+      return;
+    }
     beginLocalDispatch({
       preparingWorktree: Boolean(baseBranchForWorktree),
       submissionIntent: resolvedSubmissionIntent,
@@ -5916,60 +6063,64 @@ function ChatViewContent(props: ChatViewProps) {
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const turnAttachmentsPromise = Promise.all(
-      composerImagesSnapshot.map(async (image) => {
-        if (supportsAttachmentUploads) {
-          const uploaded = getUploadedAttachments({ environmentId, images: [image] })?.[0];
+      composerAttachmentsSnapshot.map(async (attachment) => {
+        if (turnUsesAttachmentUploads) {
+          const uploaded = getUploadedAttachments({ environmentId, images: [attachment] })?.[0];
           if (!uploaded) {
-            throw new Error(`Image '${image.name}' did not finish uploading.`);
+            throw new Error(`Attachment '${attachment.name}' did not finish uploading.`);
           }
           return uploaded;
         }
+        if (attachment.type !== "image") {
+          throw new Error("This server does not support file attachments.");
+        }
         return {
           type: "image" as const,
-          name: image.name,
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          dataUrl: await readFileAsDataUrl(image.file),
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          dataUrl: await readFileAsDataUrl(attachment.file),
         };
       }),
     );
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
+    const optimisticAttachments = composerAttachmentsSnapshot.map((attachment) =>
+      attachment.type === "image"
+        ? {
+            type: "image" as const,
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            previewUrl: attachment.previewUrl,
+          }
+        : {
+            type: "file" as const,
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            downloadable: false,
+          },
+    );
     const sendScrollBehavior = resolveTimelineSendScrollBehavior({
       replyToMessageId: replyToMessageIdForSend,
       hasBlockReply: replyToForSend !== null,
     });
-    const shouldAnchorFirstMessage =
-      sendScrollBehavior.anchorNewTurn &&
-      activeThread.latestTurn === null &&
-      !timelineMessages.some((message) => message.role === "user");
-    if (shouldAnchorFirstMessage) {
-      // Only the very first message in a thread anchors to the top; later
-      // normal sends fall through to a plain scroll-to-end below so they
-      // don't keep pushing the follow-up message to the top.
+    if (sendScrollBehavior.anchorNewTurn) {
+      // Normal sends return to the live edge. The new row becomes the anchored
+      // end-space target so it lands near the top while the response streams.
       isAtEndRef.current = true;
       timelineScrollModeRef.current = sendScrollBehavior.mode;
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
       setTimelineLiveFollowEnabled(sendScrollBehavior.liveFollowEnabled);
       pendingTimelineAnchorRef.current = messageIdForSend;
       activeTimelineAnchorIndexRef.current = null;
-      timelineAnchorEndSpaceCollapsedRef.current = false;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       setTimelineAnchor({
         threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
         messageId: messageIdForSend,
       });
-    } else if (sendScrollBehavior.anchorNewTurn) {
-      // A normal (non-reply) send that isn't the thread's first message:
-      // just follow to the end instead of re-anchoring to the top.
-      scrollToEnd();
     } else {
       // Reply sends keep the source in place. Opt out of both LegendList's end
       // maintenance and T3's streaming adjustments until Scroll to end is used.
@@ -5981,7 +6132,6 @@ function ChatViewContent(props: ChatViewProps) {
       positionedTimelineAnchorRef.current = null;
       settledTimelineAnchorRef.current = null;
       activeTimelineAnchorIndexRef.current = null;
-      timelineAnchorEndSpaceCollapsedRef.current = false;
     }
     setOptimisticUserMessages((existing) => [
       ...existing,
@@ -6012,7 +6162,6 @@ function ChatViewContent(props: ChatViewProps) {
         }),
       );
     }
-    pushPromptHistoryEntry(trimmed);
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
@@ -6028,6 +6177,8 @@ function ChatViewContent(props: ChatViewProps) {
     if (!titleSeed) {
       if (firstComposerImageName) {
         titleSeed = `Image: ${firstComposerImageName}`;
+      } else if (composerFilesSnapshot[0]) {
+        titleSeed = `File: ${composerFilesSnapshot[0].name}`;
       } else if (composerTerminalContextsSnapshot.length > 0) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {
@@ -6074,7 +6225,14 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
 
-    const turnAttachmentsResult = await settlePromise(() => turnAttachmentsPromise);
+    const turnAttachmentsResult = await settlePromise(async () => {
+      const turnAttachments = await turnAttachmentsPromise;
+      const liveFileBlockReason = readLiveAttachmentCapabilities().fileBlockReason;
+      if (liveFileBlockReason !== null) {
+        throw new Error(liveFileBlockReason);
+      }
+      return turnAttachments;
+    });
     if (failure === null && turnAttachmentsResult._tag === "Failure") {
       failure = turnAttachmentsResult;
     }
@@ -6148,8 +6306,8 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        if (supportsAttachmentUploads) {
-          releaseAttachmentUploads(composerImagesSnapshot);
+        if (turnUsesAttachmentUploads) {
+          releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
         if (backgroundThreadRef) {
@@ -6206,6 +6364,7 @@ function ChatViewContent(props: ChatViewProps) {
       if (
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
+        composerFilesRef.current.length === 0 &&
         composerTerminalContextsRef.current.length === 0 &&
         composerElementContextsRef.current.length === 0 &&
         (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
@@ -6224,6 +6383,7 @@ function ChatViewContent(props: ChatViewProps) {
         promptRef.current = promptForSend;
         const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
         composerImagesRef.current = retryComposerImages;
+        composerFilesRef.current = composerFilesSnapshot;
         composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
         composerElementContextsRef.current = composerElementContextsSnapshot;
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
@@ -6233,6 +6393,7 @@ function ChatViewContent(props: ChatViewProps) {
           replyToForSend,
         );
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
+        addComposerDraftFiles(composerDraftTarget, composerFilesSnapshot);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
         setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
         setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
@@ -6501,9 +6662,6 @@ function ChatViewContent(props: ChatViewProps) {
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
 
-      // A plan follow-up is never the thread's first message, so it follows
-      // to the end rather than re-anchoring to the top (see the send-path fix
-      // above for why only the first message anchors).
       scrollToEnd();
 
       setOptimisticUserMessages((existing) => [
@@ -6847,6 +7005,7 @@ function ChatViewContent(props: ChatViewProps) {
       setComposerDraftModelSelection(
         scopeThreadRef(activeThread.environmentId, activeThread.id),
         nextModelSelection,
+        { explicit: true },
       );
       setStickyComposerModelSelection(nextModelSelection);
       scheduleComposerFocus();
@@ -6908,9 +7067,14 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
-  const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
-    setExpandedImage(preview);
-  }, []);
+  const onExpandTimelineImage = useCallback(
+    (preview: ExpandedImagePreview) => {
+      cancelVideoPreviewRequest();
+      setOpeningVideoAttachmentId(null);
+      setExpandedImage(preview);
+    },
+    [cancelVideoPreviewRequest],
+  );
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
@@ -7205,6 +7369,8 @@ function ChatViewContent(props: ChatViewProps) {
                 onReplyToAssistantMessage={onReplyToAssistantMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
+                onFileOpen={openFileAttachment}
+                openingVideoAttachmentId={openingVideoAttachmentId}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
@@ -7226,7 +7392,7 @@ function ChatViewContent(props: ChatViewProps) {
               {showScrollToBottom && (
                 <div
                   className="pointer-events-none absolute left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5"
-                  style={{ bottom: composerOverlayHeight + 4 }}
+                  style={{ bottom: scrollToEndClearance + 4 }}
                 >
                   <Button
                     aria-label="Scroll to end"
@@ -7256,11 +7422,11 @@ function ChatViewContent(props: ChatViewProps) {
                 ref={attachDraftHeroTransitionGroupRef}
                 className="w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]"
               >
-                <div className="pointer-events-auto relative z-10">
+                <div className="group/composer-stack pointer-events-auto relative z-10">
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
                       <div
-                        className="pb-8"
+                        className="pb-8 group-has-[.chat-composer-shoulder-tab]/composer-stack:pb-4"
                         style={
                           forceExpandedMobileComposer
                             ? {
@@ -7305,6 +7471,7 @@ function ChatViewContent(props: ChatViewProps) {
                             environmentId={environmentId}
                             attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
                             supportsAttachmentUploads={supportsAttachmentUploads}
+                            maxFileAttachmentBytes={maxFileAttachmentBytes}
                             routeKind={routeKind}
                             routeThreadRef={routeThreadRef}
                             draftId={draftId}
@@ -7359,6 +7526,7 @@ function ChatViewContent(props: ChatViewProps) {
                             gitCwd={gitCwd}
                             promptRef={promptRef}
                             composerImagesRef={composerImagesRef}
+                            composerFilesRef={composerFilesRef}
                             composerTerminalContextsRef={composerTerminalContextsRef}
                             composerElementContextsRef={composerElementContextsRef}
                             onSend={onSend}
@@ -7384,6 +7552,8 @@ function ChatViewContent(props: ChatViewProps) {
                             scheduleComposerFocus={scheduleComposerFocus}
                             setThreadError={setThreadError}
                             onExpandImage={onExpandTimelineImage}
+                            onFileOpen={openFileAttachment}
+                            openingVideoAttachmentId={openingVideoAttachmentId}
                           />
                         </div>
                       </div>
