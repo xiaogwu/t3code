@@ -17,6 +17,7 @@ export const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 export const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 export const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
 export const GET_SYSTEM_LOCALE_CHANNEL = "desktop:get-system-locale";
+export const GET_FIRST_DAY_OF_WEEK_CHANNEL = "desktop:get-first-day-of-week";
 export const GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL = "desktop:get-local-environment-bootstraps";
 export const GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL =
   "desktop:get-local-environment-bearer-token";

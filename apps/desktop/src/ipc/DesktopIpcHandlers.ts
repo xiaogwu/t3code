@@ -32,6 +32,7 @@ import {
 } from "./methods/updates.ts";
 import {
   getAppBranding,
+  getFirstDayOfWeek,
   getLocalEnvironmentBootstraps,
   getLocalEnvironmentBearerToken,
   getSystemLocale,
@@ -52,6 +53,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* PreviewIpc.installPreviewEventForwarding();
 
   yield* ipc.handleSync(getAppBranding);
+  yield* ipc.handleSync(getFirstDayOfWeek);
   yield* ipc.handleSync(getSystemLocale);
   yield* ipc.handleSync(getWindowFullscreenState);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);

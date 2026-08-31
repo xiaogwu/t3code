@@ -115,6 +115,40 @@ it.effect("launches the default browser through the platform command", () => {
   );
 });
 
+it.effect("launches a selected native terminal with a safe cwd argument", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const worktree = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-terminal-worktree-" });
+    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-terminals-" });
+    const terminalCommand = path.join(binDir, "gnome-terminal");
+    yield* fileSystem.writeFileString(terminalCommand, "#!/bin/sh\n");
+    yield* fileSystem.chmod(terminalCommand, 0o755);
+
+    let spawned: ChildProcess.StandardCommand | undefined;
+    yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      yield* launcher.launchTerminal({ cwd: worktree, terminal: "gnome-terminal" });
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "linux",
+          env: { PATH: binDir, DISPLAY: ":0" },
+          onSpawn: (command) => {
+            spawned = command;
+          },
+        }),
+      ),
+    );
+
+    assert.ok(spawned);
+    assert.equal(spawned.command, "gnome-terminal");
+    assert.deepEqual(spawned.args, ["--working-directory", worktree]);
+    assert.equal(spawned.options.cwd, worktree);
+    assert.equal(spawned.options.shell, undefined);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
 it.effect("launches an installed editor with platform-safe arguments", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

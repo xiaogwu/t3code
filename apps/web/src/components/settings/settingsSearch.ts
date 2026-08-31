@@ -122,6 +122,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "external-terminal",
+    title: "External terminal",
+    to: "/settings/general",
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",
@@ -160,6 +165,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
+    to: "/settings/general",
+  },
+  {
+    id: "unpin-confirmation",
+    title: "Unpin confirmation",
     to: "/settings/general",
   },
   {

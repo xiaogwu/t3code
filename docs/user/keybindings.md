@@ -66,6 +66,18 @@ shortcut is `mod+shift+s`, and it does not run while the terminal has focus.
 already pinned. Its default shortcut is `mod+shift+p`, and it does not run while the terminal has
 focus. See [Organizing threads](./thread-sidebar.md) for how pinned threads are ordered.
 
+`shell.openInTerminal` opens the active worktree (or project workspace when no worktree is
+attached) in a native terminal on the machine running the T3 server. It defaults to
+`mod+shift+t` and is disabled while the embedded terminal has focus. This command is separate
+from `terminal.toggle`, which controls T3's embedded terminal panel.
+
+Choose the native terminal in **Settings** → **General** → **External terminal**. **Automatic**
+uses the host platform's best available option: Terminal.app on macOS, Windows Terminal or
+PowerShell on Windows, and the configured `$TERMINAL`/available terminal emulator on Linux. There
+is no dependable cross-platform system API for reading a user's default terminal, so explicit
+selection is available when automatic detection is not suitable. Remote connections launch on
+the environment host, not on the device viewing T3.
+
 The command palette searches active thread titles, projects, branches, user messages, and final
 agent responses across connected environments. Message matches show one labeled excerpt while
 keeping the thread's project, branch, and machine context visible. Message search begins after two
@@ -86,6 +98,10 @@ pressing Up to walk backward through up to 50 saved prompts; Down Arrow walks fo
 returns to an empty composer after the newest prompt. Editing a recalled prompt ends that walk, so
 the arrow keys go back to normal text navigation. Prompt history is shared across threads and
 projects, survives reloads, and stores prompt text only.
+
+Press Ctrl+R while the composer is focused to search that history. Type to filter, use Up and Down
+or press Ctrl+R again to move through matches, press Enter to restore the highlighted prompt, and
+press Escape to close the search without changing the current draft.
 
 Note that `chat.new` and `chat.newLocal` both create a thread through the same path. A new thread
 inherits the project you were in, along with model and mode selections. Branch, worktree, and

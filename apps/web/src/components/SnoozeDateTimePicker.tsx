@@ -106,15 +106,36 @@ function PeriodToggle(props: {
   );
 }
 
-function monthDays(month: Date): readonly Date[] {
+export function monthDays(month: Date, firstDayOfWeek: number): readonly Date[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const start = new Date(first);
-  start.setDate(1 - first.getDay());
+  const leadingDays = (first.getDay() - firstDayOfWeek + 7) % 7;
+  start.setDate(1 - leadingDays);
   return Array.from({ length: 42 }, (_, index) => {
     const day = new Date(start);
     day.setDate(start.getDate() + index);
     return day;
   });
+}
+
+export function resolveFirstDayOfWeek(
+  desktopFirstDay: number | null | undefined,
+  locale = new Intl.DateTimeFormat().resolvedOptions().locale,
+): number {
+  if (desktopFirstDay !== null && desktopFirstDay !== undefined) return desktopFirstDay;
+  try {
+    const localeInfo = new Intl.Locale(locale) as Intl.Locale & {
+      readonly weekInfo?: { readonly firstDay: number };
+      readonly getWeekInfo?: () => { readonly firstDay: number };
+    };
+    const weekInfo = localeInfo.weekInfo ?? localeInfo.getWeekInfo?.();
+    if (weekInfo && weekInfo.firstDay >= 1 && weekInfo.firstDay <= 7) {
+      return weekInfo.firstDay % 7;
+    }
+  } catch {
+    // Invalid or unsupported locales use the conventional Sunday fallback.
+  }
+  return 0;
 }
 
 function sameDay(left: Date, right: Date): boolean {
@@ -132,6 +153,7 @@ function selectedDate(value: string): Date {
 
 export function SnoozeDateTimePicker(props: {
   readonly id: string;
+  readonly form: string;
   readonly value: string;
   readonly invalid: boolean;
   readonly describedBy?: string;
@@ -143,7 +165,11 @@ export function SnoozeDateTimePicker(props: {
     () => new Date(selected.getFullYear(), selected.getMonth(), 1),
   );
   const [choosingMonth, setChoosingMonth] = useState(false);
-  const days = useMemo(() => monthDays(month), [month]);
+  const firstDayOfWeek = useMemo(
+    () => resolveFirstDayOfWeek(window.desktopBridge?.getFirstDayOfWeek?.()),
+    [],
+  );
+  const days = useMemo(() => monthDays(month, firstDayOfWeek), [firstDayOfWeek, month]);
   const usesTwelveHourTime = useMemo(
     () => new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12 === true,
     [],
@@ -269,9 +295,12 @@ export function SnoozeDateTimePicker(props: {
             <div className="grid grid-cols-7 text-center text-[11px] font-medium text-muted-foreground">
               {Array.from({ length: 7 }, (_, index) => (
                 <div key={index} className="py-1">
-                  {new Date(2026, 7, 2 + index).toLocaleDateString(undefined, {
-                    weekday: "narrow",
-                  })}
+                  {new Date(2026, 7, 2 + ((firstDayOfWeek + index) % 7)).toLocaleDateString(
+                    undefined,
+                    {
+                      weekday: "narrow",
+                    },
+                  )}
                 </div>
               ))}
             </div>
@@ -296,7 +325,7 @@ export function SnoozeDateTimePicker(props: {
                 </button>
               ))}
             </div>
-            <div className="mt-2 flex justify-end border-border/70 border-t pt-2">
+            <div className="mt-2 flex justify-between border-border/70 border-t pt-2">
               <Button
                 type="button"
                 size="sm"
@@ -311,6 +340,9 @@ export function SnoozeDateTimePicker(props: {
                 }}
               >
                 Today
+              </Button>
+              <Button form={props.form} type="submit" size="sm">
+                Snooze
               </Button>
             </div>
           </div>

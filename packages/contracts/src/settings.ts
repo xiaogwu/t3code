@@ -23,6 +23,7 @@ import {
   ProviderInstanceId,
   type ProviderDriverKind,
 } from "./providerInstance.ts";
+import { ExternalTerminalId } from "./externalTerminal.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -146,6 +147,19 @@ export const FontFamilyPreference = Schema.String.check(Schema.isMaxLength(200))
 export type FontFamilyPreference = typeof FontFamilyPreference.Type;
 
 /**
+ * The environment's theme, set with `t3 theme set <id>`. Each client applies
+ * it once per value — live when connected, on its next connect otherwise — so
+ * setting it switches every client, while a theme a user picks in Settings
+ * afterwards sticks until the next set. Empty means "no environment theme",
+ * which is also how it is cleared.
+ */
+export const DefaultThemePreference = Schema.String.check(Schema.isMaxLength(64));
+// Deliberately absent from ServerSettingsPatch: `t3 theme set` checks that an
+// id is syntactically valid and actually resolvable, and a generic RPC patch
+// would let a client write a theme no client can resolve, bypassing both.
+export type DefaultThemePreference = typeof DefaultThemePreference.Type;
+
+/**
  * Defaults for the in-app preview browser, applied whenever a tab is opened
  * without an explicit viewport/zoom/appearance — by the user opening a browser
  * tab, or by an agent calling `preview_open` with no size. Client-local
@@ -181,6 +195,7 @@ export const ClientSettingsSchema = Schema.Struct({
   confirmQuit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  confirmThreadUnpin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -681,6 +696,9 @@ export const BackgroundActivitySettings = Schema.Struct({
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  externalTerminal: ExternalTerminalId.pipe(
+    Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
+  ),
   // Legacy token-by-token assistant output. Deliberately a fresh key (was
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
   // including prior opt-ins, resets to the buffered default.
@@ -715,6 +733,17 @@ export const ServerSettings = Schema.Struct({
   ),
   backgroundActivityProfile: BackgroundActivityProfile.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BACKGROUND_ACTIVITY_PROFILE)),
+  ),
+  defaultTheme: DefaultThemePreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * When the environment's theme was last set, so clients can tell a re-set
+   * of the same value from one they already applied: `t3 theme set` must act
+   * even when it names the theme it named before. Empty on environments
+   * provisioned by builds that predate it, where clients fall back to
+   * applying once per value.
+   */
+  defaultThemeSetAt: Schema.String.check(Schema.isMaxLength(64)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
   ),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
@@ -920,6 +949,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
+  externalTerminal: Schema.optionalKey(ExternalTerminalId),
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
@@ -979,6 +1009,7 @@ export const ClientSettingsPatch = Schema.Struct({
   confirmQuit: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
+  confirmThreadUnpin: Schema.optionalKey(Schema.Boolean),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),

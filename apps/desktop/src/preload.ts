@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     const result = ipcRenderer.sendSync(IpcChannels.GET_SYSTEM_LOCALE_CHANNEL);
     return typeof result === "string" ? result : null;
   },
+  getFirstDayOfWeek: () => {
+    const result = ipcRenderer.sendSync(IpcChannels.GET_FIRST_DAY_OF_WEEK_CHANNEL);
+    return typeof result === "number" && result >= 0 && result <= 6 ? result : null;
+  },
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     if (!Array.isArray(result)) {

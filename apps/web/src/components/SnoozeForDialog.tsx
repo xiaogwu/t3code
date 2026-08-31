@@ -58,6 +58,7 @@ function SnoozeForForm(props: {
           <Label htmlFor="snooze-for-time">Date and time</Label>
           <SnoozeDateTimePicker
             id="snooze-for-time"
+            form={FORM_ID}
             value={input}
             invalid={error !== null}
             {...(error ? { describedBy: "snooze-for-error" } : {})}

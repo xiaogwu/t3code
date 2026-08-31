@@ -99,6 +99,7 @@ describe("OpenCode prelaunch command", () => {
         Effect.scoped(
           runtime.startOpenCodeServerProcess({
             binaryPath: "opencode",
+            directory: "/tmp",
             port: 4096,
             prelaunch: { command: "boot-model-server --port 8000" },
           }),
@@ -123,6 +124,7 @@ describe("OpenCode prelaunch command", () => {
           Effect.scoped(
             runtime.startOpenCodeServerProcess({
               binaryPath: "opencode",
+              directory: "/tmp",
               port: 4096,
               prelaunch: { command: "boot-model-server" },
             }),
@@ -143,6 +145,7 @@ describe("OpenCode prelaunch command", () => {
         Effect.scoped(
           runtime.startOpenCodeServerProcess({
             binaryPath: "opencode",
+            directory: "/tmp",
             port: 4096,
             prelaunch: { command: "   " },
           }),
@@ -160,6 +163,7 @@ describe("OpenCode prelaunch command", () => {
         Effect.scoped(
           runtime.startOpenCodeServerProcess({
             binaryPath: "opencode",
+            directory: "/tmp",
             port: 4096,
             prelaunch: { command: "boot-model-server", model: "mtplx/qwen38-27b" },
           }),
@@ -180,6 +184,7 @@ describe("OpenCode prelaunch command", () => {
         Effect.scoped(
           runtime.startOpenCodeServerProcess({
             binaryPath: "opencode",
+            directory: "/tmp",
             port: 4096,
             prelaunch: { command: "boot-model-server" },
           }),
@@ -195,17 +200,18 @@ describe("OpenCode prelaunch command", () => {
   it.effect("skips the prelaunch command for an externally managed server", () =>
     Effect.gen(function* () {
       const spawns: Array<SpawnRecord> = [];
-      const connection = yield* withRuntime({ spawns }, (runtime) =>
+      const error = yield* withRuntime({ spawns }, (runtime) =>
         Effect.scoped(
           runtime.connectToOpenCodeServer({
             binaryPath: "opencode",
+            directory: "/tmp",
             serverUrl: "http://127.0.0.1:4096",
             prelaunch: { command: "boot-model-server" },
           }),
-        ),
+        ).pipe(Effect.flip),
       );
 
-      expect(connection.external).toBe(true);
+      expect(error.operation).toBe("global.health");
       expect(spawns).toEqual([]);
     }),
   );

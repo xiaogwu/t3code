@@ -3,6 +3,7 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
+import { ExternalTerminalError, LaunchExternalTerminalInput } from "./externalTerminal.ts";
 import {
   AuthAccessStreamError,
   AuthAccessStreamEvent,
@@ -219,6 +220,7 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+  shellOpenInTerminal: "shell.openInTerminal",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -671,6 +673,11 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
 });
 
+export const WsShellOpenInTerminalRpc = Rpc.make(WS_METHODS.shellOpenInTerminal, {
+  payload: LaunchExternalTerminalInput,
+  error: Schema.Union([ExternalTerminalError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
@@ -983,7 +990,16 @@ export const WsSubscribeTerminalMetadataRpc = Rpc.make(WS_METHODS.subscribeTermi
 });
 
 export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
-  payload: Schema.Struct({}),
+  payload: Schema.Struct({
+    /**
+     * Whether this client understands `environmentThemesUpdated` events.
+     * Already-shipped clients decode the stream against the old event union
+     * and would die on an unknown member, so the server emits the theme
+     * stream only to subscribers that ask for it. Absent on old clients;
+     * dropped by old servers.
+     */
+    environmentThemes: Schema.optional(Schema.Boolean),
+  }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
   stream: true,
@@ -1067,6 +1083,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
+  WsShellOpenInTerminalRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
