@@ -256,7 +256,7 @@ describe("TitlePolicyReactor", () => {
     expect(harness.evaluateTitlePolicy).toHaveBeenCalledWith(
       expect.objectContaining({
         guidance: expect.arrayContaining([
-          "Describe the feature or concern being reviewed, not the review process.",
+          "Use PR metadata retrieved by /pr-review, especially the PR title and description, as authoritative context. Describe what the PR changes or fixes, not the review process.",
         ]),
       }),
     );
