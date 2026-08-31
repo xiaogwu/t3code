@@ -63,6 +63,41 @@ export function sanitizeThreadTitle(raw: string): string {
   return `${normalized.slice(0, 47).trimEnd()}...`;
 }
 
+/**
+ * Normalize a raw title policy evaluation from a provider.
+ *
+ * Deliberately not `sanitizeThreadTitle`: this is the descriptive remainder, not a
+ * whole title. That helper substitutes the "New thread" placeholder for empty input,
+ * which would land as real content, and caps at 50 chars, which double-truncates
+ * against `composeTitle`'s own budget. An unusable description forces `shouldRename`
+ * false so a thread is never renamed to a placeholder.
+ */
+export function normalizeTitlePolicyEvaluation(generated: {
+  readonly gist: string;
+  readonly identifiers: ReadonlyArray<string>;
+  readonly shouldRename: boolean;
+  readonly suggestedTitle: string;
+  readonly reason: string;
+  readonly confidence: number;
+}) {
+  const suggestedTitle = (generated.suggestedTitle.split(/\r?\n/g)[0] ?? "")
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  return {
+    gist: generated.gist,
+    identifiers: generated.identifiers,
+    shouldRename: generated.shouldRename && suggestedTitle.length > 0,
+    suggestedTitle,
+    reason: generated.reason,
+    // The prompt asks for 0-1 but nothing enforces it; a threshold check downstream
+    // must not see 5.
+    confidence: Math.min(1, Math.max(0, generated.confidence)),
+  };
+}
+
 /** CLI name to human-readable label, e.g. "codex" → "Codex CLI (`codex`)" */
 function cliLabel(cliName: string): string {
   const capitalized = cliName.charAt(0).toUpperCase() + cliName.slice(1);

@@ -1,8 +1,10 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  defaultTitlePolicy,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  type TitlePolicy,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import { describe, expect, it } from "vite-plus/test";
@@ -296,6 +298,33 @@ describe("serverSettings helpers", () => {
       enabled: true,
       config: { homePath: "~/.codex" },
     });
+  });
+
+  it("replaces titlePolicy as a whole struct instead of deep-merging its nested fields", () => {
+    // A stale current value carrying a nested key the patch doesn't
+    // mention (simulating forward-incompatible persisted data) plus a
+    // different rules/suggestions set. A field-by-field deep merge would
+    // preserve `legacyField` (patch.defaults never touches it) and would
+    // still coincidentally reproduce every other field, since the patch is
+    // itself a complete TitlePolicy; only the stray key can distinguish a
+    // deep merge from a true whole-struct replace here.
+    const staleTitlePolicy = {
+      ...defaultTitlePolicy,
+      defaults: {
+        ...defaultTitlePolicy.defaults,
+        maxCharacters: 10,
+        legacyField: "stale-value-that-must-not-survive",
+      },
+      rules: [
+        { name: "Stale rule", when: {}, prefix: "STALE", placement: "start" as const, priority: 1 },
+      ],
+      suggestions: ["stale suggestion"],
+    } as unknown as TitlePolicy;
+    const base = { ...DEFAULT_SERVER_SETTINGS, titlePolicy: staleTitlePolicy };
+
+    const patched = applyServerSettingsPatch(base, { titlePolicy: defaultTitlePolicy });
+
+    expect(patched.titlePolicy).toEqual(defaultTitlePolicy);
   });
 
   it("stores background activity profiles as a versioned object and syncs legacy aliases", () => {

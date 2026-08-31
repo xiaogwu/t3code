@@ -486,6 +486,22 @@ export const OrchestrationThread = Schema.Struct({
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
+  // Which code path last set `title`: a direct client rename ("manual") vs
+  // the auto-title policy or the pre-existing regenerate-title flow
+  // ("automatic"). Optional so payloads from pre-policy servers still decode.
+  titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])).pipe(
+    Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
+  ),
+  // The protected identifier prefix (e.g. "PR #4821") the policy last
+  // resolved for this thread, or null if none. Used to detect when a new
+  // identifier appears so the reactor can rename immediately.
+  titleProtectedPrefix: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Completed turns since the policy last renamed the thread. Reset to 0 on
+  // every policy-driven rename; incremented on every evaluation that does not
+  // rename. Compared against `TitlePolicy.defaults.refreshEveryTurns`.
+  titleTurnsSincePolicyEval: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.succeed(0)),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
@@ -547,6 +563,13 @@ export const OrchestrationThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
+  titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])).pipe(
+    Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
+  ),
+  titleProtectedPrefix: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  titleTurnsSincePolicyEval: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.succeed(0)),
+  ),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
@@ -1120,6 +1143,19 @@ const ThreadTitleRegenerationCompleteCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
 });
 
+// Constructed and dispatched by the auto-title policy reactor (Task 11), never
+// by a client. `rename` is present when the policy resolved a new title;
+// absent means the evaluation ran but kept the existing title.
+export const TitlePolicyEvaluatedCommand = Schema.Struct({
+  type: Schema.Literal("thread.title.policy.evaluated"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  protectedPrefix: Schema.NullOr(TrimmedNonEmptyString),
+  rename: Schema.optional(Schema.Struct({ title: TrimmedNonEmptyString })),
+});
+export type TitlePolicyEvaluatedCommand = typeof TitlePolicyEvaluatedCommand.Type;
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1129,6 +1165,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
+  TitlePolicyEvaluatedCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1295,6 +1332,9 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   previousTitle: Schema.optional(TrimmedNonEmptyString),
   /** Pending state shared with clients. Null clears a matching request. */
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
+  titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])),
+  titleProtectedPrefix: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  titleTurnsSincePolicyEval: Schema.optional(NonNegativeInt),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

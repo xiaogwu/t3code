@@ -21,6 +21,7 @@ const makeStubTextGeneration = (
     generatePrContent: () => Effect.die("generatePrContent stub not configured for this test"),
     generateBranchName: () => Effect.die("generateBranchName stub not configured for this test"),
     generateThreadTitle: () => Effect.die("generateThreadTitle stub not configured for this test"),
+    evaluateTitlePolicy: () => Effect.die("evaluateTitlePolicy stub not configured for this test"),
     ...overrides,
   });
 
@@ -116,6 +117,41 @@ describe("makeTextGenerationFromRegistry", () => {
         expect(result.failure.operation).toBe("generateBranchName");
         expect(result.failure.detail).toContain("missing_instance");
       }
+    }),
+  );
+
+  it.effect("delegates evaluateTitlePolicy to the matching instance's textGeneration closure", () =>
+    Effect.gen(function* () {
+      const personalId = ProviderInstanceId.make("codex_personal");
+      const personal = makeStubInstance(
+        personalId,
+        makeStubTextGeneration({
+          evaluateTitlePolicy: () =>
+            Effect.succeed({
+              gist: "Review sidebar cleanup PR",
+              identifiers: ["PR #4821"],
+              shouldRename: true,
+              suggestedTitle: "Review sidebar cleanup",
+              reason: "A PR URL established a durable identifier",
+              confidence: 0.96,
+            }),
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(makeStubRegistry([personal]));
+
+      const result = yield* tg.evaluateTitlePolicy({
+        cwd: process.cwd(),
+        threadContext: "User: please review PR #4821",
+        previousTitle: "New thread",
+        protectedPrefix: "PR #4821",
+        availableDescriptionCharacters: 40,
+        guidance: [],
+        modelSelection: createModelSelection(personalId, "gpt-5"),
+      });
+
+      expect(result.shouldRename).toBe(true);
+      expect(result.suggestedTitle).toBe("Review sidebar cleanup");
     }),
   );
 });

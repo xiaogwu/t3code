@@ -321,6 +321,41 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     ),
   );
 
+  it.effect("evaluates the title policy through the Claude provider", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({
+          structured_output: {
+            gist: "Review sidebar cleanup PR",
+            identifiers: ["PR #4821"],
+            shouldRename: true,
+            suggestedTitle: "Review sidebar cleanup",
+            reason: "A PR URL established a durable identifier",
+            confidence: 0.96,
+          },
+        }),
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.evaluateTitlePolicy({
+            cwd: process.cwd(),
+            threadContext: "User: please review PR #4821",
+            previousTitle: "New thread",
+            protectedPrefix: "PR #4821",
+            availableDescriptionCharacters: 40,
+            guidance: [],
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: "claude-sonnet-4-6",
+            },
+          });
+
+          expect(generated.shouldRename).toBe(true);
+          expect(generated.suggestedTitle).toBe("Review sidebar cleanup");
+        }),
+    ),
+  );
+
   it.effect("runs Claude text generation with the configured CLAUDE_CONFIG_DIR", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;

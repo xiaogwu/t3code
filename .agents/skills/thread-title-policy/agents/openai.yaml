@@ -1,0 +1,4 @@
+interface:
+  display_name: "Thread Title Policy"
+  short_description: "Create and validate automatic thread title policies"
+  default_prompt: "Help me create a validated thread title policy for T3 Code."

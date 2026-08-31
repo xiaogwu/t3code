@@ -145,6 +145,35 @@ it.layer(GrokTextGenerationTestLayer)("GrokTextGeneration", (it) => {
     ),
   );
 
+  it.effect("evaluates the title policy through the Grok provider", () =>
+    withFakeAcpGrok(
+      {
+        T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
+          gist: "Review sidebar cleanup PR",
+          identifiers: ["PR #4821"],
+          shouldRename: true,
+          suggestedTitle: "Review sidebar cleanup",
+          reason: "A PR URL established a durable identifier",
+          confidence: 0.96,
+        }),
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.evaluateTitlePolicy({
+            cwd: process.cwd(),
+            threadContext: "User: please review PR #4821",
+            previousTitle: "New thread",
+            protectedPrefix: "PR #4821",
+            availableDescriptionCharacters: 40,
+            guidance: [],
+            modelSelection: createModelSelection(ProviderInstanceId.make("grok"), "grok-mock-alt"),
+          });
+          expect(generated.shouldRename).toBe(true);
+          expect(generated.suggestedTitle).toBe("Review sidebar cleanup");
+        }),
+    ),
+  );
+
   it.effect("surfaces ACP request failures as text generation errors", () =>
     withFakeAcpGrok(
       {

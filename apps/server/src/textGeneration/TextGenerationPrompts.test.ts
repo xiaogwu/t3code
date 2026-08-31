@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import * as Schema from "effect/Schema";
+
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import { normalizeCliError, sanitizeThreadTitle } from "./TextGenerationUtils.ts";
 import { TextGenerationError } from "@t3tools/contracts";
@@ -163,9 +166,11 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain(
       "Name the product change, not the mock, plan, report, branch, or PR used to produce it.",
     );
+    expect(result.prompt).toContain("Identifier prefixes are applied by the runtime title policy.");
     expect(result.prompt).toContain(
-      "Omit PR numbers unless the request is work on a pull request and includes its URL;",
+      "PR titles and descriptions retrieved directly by /pr-review as authoritative context",
     );
+    expect(result.prompt).not.toContain("runs /oliver");
     expect(result.prompt).not.toContain(
       "Title should summarize the user's request, not restate it verbatim.",
     );
@@ -207,9 +212,11 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain(
       "Do not promote one assistant finding into the thread subject unless the user adopts it as a new goal.",
     );
+    expect(result.prompt).toContain("Identifier prefixes are applied by the runtime title policy.");
     expect(result.prompt).toContain(
-      "Omit PR numbers unless the thread is doing work on a pull request and contains its URL;",
+      "PR titles and descriptions retrieved directly by /pr-review as authoritative context",
     );
+    expect(result.prompt).not.toContain("began with the user running /oliver");
     expect(result.prompt).toContain(
       'A subagent-monitoring review that finds a Codex roster bug remains "Review Subagent Monitoring Risks,"',
     );
@@ -239,6 +246,59 @@ describe("buildThreadTitlePrompt", () => {
       `Thread contents:\n[Earlier content truncated]\n\n${retainedContext}`,
     );
     expect(result.prompt.match(/\[Earlier content truncated\]/g)).toHaveLength(1);
+  });
+});
+
+describe("buildTitlePolicyEvaluationPrompt", () => {
+  it("builds a title policy evaluation prompt that surfaces the protected prefix and available character budget", () => {
+    const { prompt, outputSchema } = buildTitlePolicyEvaluationPrompt({
+      threadContext: "User: please review PR #4821 for sidebar regressions",
+      previousTitle: "New thread",
+      protectedPrefix: "PR #4821",
+      availableDescriptionCharacters: 40,
+      guidance: ["Prefer the durable product goal over the current implementation step."],
+    });
+
+    expect(prompt).toContain("PR #4821");
+    expect(prompt).toContain("40");
+    expect(prompt).toContain("Prefer the durable product goal");
+    expect(prompt).toContain("PR titles and descriptions retrieved directly by /pr-review");
+
+    const decoded = Schema.decodeUnknownSync(outputSchema)({
+      gist: "Review sidebar cleanup PR",
+      identifiers: ["PR #4821"],
+      shouldRename: true,
+      suggestedTitle: "Review sidebar cleanup",
+      reason: "A PR URL established a durable identifier",
+      confidence: 0.96,
+    });
+
+    expect(decoded.shouldRename).toBe(true);
+  });
+
+  it("omits the protected prefix section when no prefix is active", () => {
+    const { prompt } = buildTitlePolicyEvaluationPrompt({
+      threadContext: "User: please clean up the sidebar",
+      previousTitle: "Sidebar cleanup",
+      protectedPrefix: null,
+      availableDescriptionCharacters: 40,
+      guidance: [],
+    });
+
+    expect(prompt).toContain("No protected prefix is active for this thread.");
+    expect(prompt).not.toContain("Protected prefix");
+  });
+
+  it("omits the policy guidance section when no guidance is supplied", () => {
+    const { prompt } = buildTitlePolicyEvaluationPrompt({
+      threadContext: "User: please clean up the sidebar",
+      previousTitle: "Sidebar cleanup",
+      protectedPrefix: null,
+      availableDescriptionCharacters: 40,
+      guidance: [],
+    });
+
+    expect(prompt).not.toContain("Policy guidance:");
   });
 });
 

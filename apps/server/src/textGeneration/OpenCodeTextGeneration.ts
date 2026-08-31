@@ -19,6 +19,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
@@ -34,6 +35,7 @@ const OpenCodeTextGenerationOperation = Schema.Literals([
   "generatePrContent",
   "generateBranchName",
   "generateThreadTitle",
+  "evaluateTitlePolicy",
 ]);
 
 type OpenCodeTextGenerationOperation = typeof OpenCodeTextGenerationOperation.Type;
@@ -451,10 +453,38 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       };
     });
 
+  const evaluateTitlePolicy: TextGeneration.TextGeneration["Service"]["evaluateTitlePolicy"] =
+    Effect.fn("OpenCodeTextGeneration.evaluateTitlePolicy")(function* (input) {
+      const { prompt, outputSchema } = buildTitlePolicyEvaluationPrompt({
+        threadContext: input.threadContext,
+        previousTitle: input.previousTitle,
+        protectedPrefix: input.protectedPrefix,
+        availableDescriptionCharacters: input.availableDescriptionCharacters,
+        guidance: input.guidance,
+      });
+      const generated = yield* runOpenCodeJson({
+        operation: "evaluateTitlePolicy",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        gist: generated.gist,
+        identifiers: generated.identifiers,
+        shouldRename: generated.shouldRename,
+        suggestedTitle: sanitizeThreadTitle(generated.suggestedTitle),
+        reason: generated.reason,
+        confidence: generated.confidence,
+      } satisfies TextGeneration.TitlePolicyEvaluationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    evaluateTitlePolicy,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

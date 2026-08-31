@@ -24,6 +24,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import {
   normalizeCliError,
@@ -85,7 +86,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy",
     value: unknown,
     detail: string,
   ): Effect.Effect<string, TextGenerationError> =>
@@ -115,7 +117,8 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -359,10 +362,39 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       };
     });
 
+  const evaluateTitlePolicy: TextGeneration.TextGeneration["Service"]["evaluateTitlePolicy"] =
+    Effect.fn("ClaudeTextGeneration.evaluateTitlePolicy")(function* (input) {
+      const { prompt, outputSchema } = buildTitlePolicyEvaluationPrompt({
+        threadContext: input.threadContext,
+        previousTitle: input.previousTitle,
+        protectedPrefix: input.protectedPrefix,
+        availableDescriptionCharacters: input.availableDescriptionCharacters,
+        guidance: input.guidance,
+      });
+
+      const generated = yield* runClaudeJson({
+        operation: "evaluateTitlePolicy",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        gist: generated.gist,
+        identifiers: generated.identifiers,
+        shouldRename: generated.shouldRename,
+        suggestedTitle: sanitizeThreadTitle(generated.suggestedTitle),
+        reason: generated.reason,
+        confidence: generated.confidence,
+      } satisfies TextGeneration.TitlePolicyEvaluationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    evaluateTitlePolicy,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

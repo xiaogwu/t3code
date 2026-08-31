@@ -100,8 +100,72 @@ describe("orchestration projector", () => {
         activities: [],
         checkpoints: [],
         session: null,
+        titleProvenance: "automatic",
+        titleTurnsSincePolicyEval: 0,
       },
     ]);
+  });
+
+  it("merges title provenance, protected prefix, and turn counter from thread.meta-updated", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const later = "2026-01-01T00:05:00.000Z";
+    const model = createEmptyReadModel(now);
+
+    const withThread = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: ProviderDriverKind.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        withThread,
+        makeEvent({
+          sequence: 2,
+          type: "thread.meta-updated",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: later,
+          commandId: "cmd-policy-eval",
+          payload: {
+            threadId: "thread-1",
+            title: "PR #4821 Fix sidebar regression",
+            titleProvenance: "automatic",
+            titleProtectedPrefix: "PR #4821",
+            titleTurnsSincePolicyEval: 0,
+            updatedAt: later,
+          },
+        }),
+      ),
+    );
+
+    const thread = next.threads.find((candidate) => candidate.id === "thread-1");
+    expect(thread?.title).toBe("PR #4821 Fix sidebar regression");
+    expect(thread?.titleProvenance).toBe("automatic");
+    expect(thread?.titleProtectedPrefix).toBe("PR #4821");
+    expect(thread?.titleTurnsSincePolicyEval).toBe(0);
   });
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {

@@ -131,6 +131,7 @@ import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewManager from "./preview/Manager.ts";
+import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -414,6 +415,7 @@ const buildAppUnderTest = (options?: {
       ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]
     >;
     terminalManager?: Partial<TerminalManager.TerminalManager["Service"]>;
+    textGeneration?: Partial<TextGeneration.TextGeneration["Service"]>;
     orchestrationEngine?: Partial<OrchestrationEngine.OrchestrationEngineService["Service"]>;
     threadDeletionReactor?: Partial<ThreadDeletionReactor["Service"]>;
     analyticsService?: Partial<AnalyticsService.AnalyticsService["Service"]>;
@@ -875,6 +877,12 @@ const buildAppUnderTest = (options?: {
           record: () => Effect.void,
           flush: Effect.void,
           ...options?.layers?.analyticsService,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TextGeneration.TextGeneration)({
+          evaluateTitlePolicy: () => Effect.die(new Error("Unexpected title policy evaluation.")),
+          ...options?.layers?.textGeneration,
         }),
       ),
       Layer.provide(

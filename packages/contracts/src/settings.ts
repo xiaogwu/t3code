@@ -24,6 +24,7 @@ import {
   type ProviderDriverKind,
 } from "./providerInstance.ts";
 import { ExternalTerminalId } from "./externalTerminal.ts";
+import { defaultTitlePolicy, TitlePolicy } from "./titlePolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -780,6 +781,7 @@ export const ServerSettings = Schema.Struct({
   sourceControlWriterModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  titlePolicy: TitlePolicy.pipe(Schema.withDecodingDefault(Effect.succeed(defaultTitlePolicy))),
 
   // Legacy single-instance-per-driver settings. Continues to be the source
   // of truth until `providerInstances` (below) lands per-driver migration
@@ -984,6 +986,7 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  titlePolicy: Schema.optionalKey(TitlePolicy),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

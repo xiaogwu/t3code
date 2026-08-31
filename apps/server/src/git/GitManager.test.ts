@@ -295,6 +295,15 @@ function createTextGeneration(
       Effect.succeed({
         title: "Update workflow",
       }),
+    evaluateTitlePolicy: () =>
+      Effect.succeed({
+        gist: "Update workflow",
+        identifiers: [],
+        shouldRename: false,
+        suggestedTitle: "Update workflow",
+        reason: "fake text generation default",
+        confidence: 0,
+      }),
     ...overrides,
   };
 
@@ -338,6 +347,17 @@ function createTextGeneration(
           (cause) =>
             new TextGenerationError({
               operation: "generateThreadTitle",
+              detail: "fake text generation failed",
+              ...(cause !== undefined ? { cause } : {}),
+            }),
+        ),
+      ),
+    evaluateTitlePolicy: (input) =>
+      implementation.evaluateTitlePolicy(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "evaluateTitlePolicy",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
             }),

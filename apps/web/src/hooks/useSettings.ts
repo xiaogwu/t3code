@@ -16,6 +16,7 @@ import {
   type EnvironmentId,
   ServerSettings,
   type ServerSettingsPatch,
+  type TitlePolicy,
 } from "@t3tools/contracts";
 import {
   type ClientSettingsPatch,
@@ -352,6 +353,22 @@ export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
 
 export function useUpdatePrimarySettings() {
   return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+}
+
+export function usePreviewPrimaryTitlePolicy() {
+  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const preview = useAtomCommand(serverEnvironment.previewTitlePolicy, {
+    label: "thread title policy preview",
+    reportFailure: false,
+  });
+
+  return useCallback(
+    (policy: TitlePolicy) =>
+      environmentId === null
+        ? Promise.resolve(null)
+        : preview({ environmentId, input: { policy } }),
+    [environmentId, preview],
+  );
 }
 
 export function useUpdateClientSettings() {

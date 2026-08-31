@@ -26,6 +26,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import {
   normalizeCliError,
@@ -101,7 +102,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy",
     value: unknown,
   ): Effect.Effect<string, TextGenerationError> =>
     encodeJsonString(value).pipe(
@@ -120,7 +122,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle",
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy",
     attachments: TextGeneration.BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
     if (!attachments || attachments.length === 0) {
@@ -162,7 +165,8 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -405,10 +409,39 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
+  const evaluateTitlePolicy: TextGeneration.TextGeneration["Service"]["evaluateTitlePolicy"] =
+    Effect.fn("CodexTextGeneration.evaluateTitlePolicy")(function* (input) {
+      const { prompt, outputSchema } = buildTitlePolicyEvaluationPrompt({
+        threadContext: input.threadContext,
+        previousTitle: input.previousTitle,
+        protectedPrefix: input.protectedPrefix,
+        availableDescriptionCharacters: input.availableDescriptionCharacters,
+        guidance: input.guidance,
+      });
+
+      const generated = yield* runCodexJson({
+        operation: "evaluateTitlePolicy",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        gist: generated.gist,
+        identifiers: generated.identifiers,
+        shouldRename: generated.shouldRename,
+        suggestedTitle: sanitizeThreadTitle(generated.suggestedTitle),
+        reason: generated.reason,
+        confidence: generated.confidence,
+      } satisfies TextGeneration.TitlePolicyEvaluationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    evaluateTitlePolicy,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

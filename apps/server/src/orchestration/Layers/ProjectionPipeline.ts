@@ -825,6 +825,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                   titleRegenerationStartedAt: event.payload.titleRegeneration?.startedAt ?? null,
                 }
               : {}),
+            ...(event.payload.titleProvenance !== undefined
+              ? { titleProvenance: event.payload.titleProvenance }
+              : {}),
+            ...(event.payload.titleProtectedPrefix !== undefined
+              ? { titleProtectedPrefix: event.payload.titleProtectedPrefix }
+              : {}),
+            ...(event.payload.titleTurnsSincePolicyEval !== undefined
+              ? { titleTurnsSincePolicyEval: event.payload.titleTurnsSincePolicyEval }
+              : {}),
             ...(event.payload.modelSelection !== undefined
               ? { modelSelection: event.payload.modelSelection }
               : {}),

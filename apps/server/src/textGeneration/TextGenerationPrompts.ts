@@ -214,6 +214,45 @@ export interface ThreadTitlePromptInput {
   policy?: TextGenerationPolicy | undefined;
 }
 
+export interface TitlePolicyEvaluationPromptInput {
+  threadContext: string;
+  previousTitle: string;
+  protectedPrefix: string | null;
+  availableDescriptionCharacters: number;
+  guidance: ReadonlyArray<string>;
+}
+
+export function buildTitlePolicyEvaluationPrompt(input: TitlePolicyEvaluationPromptInput) {
+  const guidanceLines = input.guidance.length > 0 ? input.guidance.map((line) => `- ${line}`) : [];
+  const prompt = [
+    "You evaluate whether a T3 Code thread's title should be refreshed, and if so, propose the descriptive remainder.",
+    "Return JSON with keys: gist, identifiers, shouldRename, suggestedTitle, reason, confidence.",
+    "",
+    `Previous title: ${JSON.stringify(input.previousTitle)}`,
+    input.protectedPrefix !== null
+      ? `Protected prefix (already fixed, do not repeat it in suggestedTitle): ${JSON.stringify(input.protectedPrefix)}`
+      : "No protected prefix is active for this thread.",
+    `suggestedTitle must fit within ${input.availableDescriptionCharacters} characters.`,
+    "identifiers should list any durable references you notice in the thread (PR/issue/Radar numbers, product nouns), independent of the protected prefix.",
+    "For pull-request work, treat PR titles and descriptions retrieved directly by /pr-review as authoritative context for the change's subject. Describe what the PR changes or fixes, never the act of reviewing it.",
+    "shouldRename should be false when the previous title still accurately describes the thread's durable goal.",
+    "confidence is your 0-1 confidence that suggestedTitle is a meaningful improvement, not a cosmetic paraphrase.",
+    ...(guidanceLines.length > 0 ? ["", "Policy guidance:", ...guidanceLines] : []),
+    "",
+    "Thread contents:",
+    limitSection(input.threadContext, 8_000),
+  ].join("\n");
+  const outputSchema = Schema.Struct({
+    gist: Schema.String,
+    identifiers: Schema.Array(Schema.String),
+    shouldRename: Schema.Boolean,
+    suggestedTitle: Schema.String,
+    reason: Schema.String,
+    confidence: Schema.Number,
+  });
+  return { prompt, outputSchema };
+}
+
 // Keep shared editorial rules in these two prompts in sync. Regeneration
 // intentionally adds guidance for thread history and the previous title.
 const INITIAL_THREAD_TITLE_PROMPT = `Generate a title that will help the user recognize this T3 Code thread weeks later.
@@ -236,7 +275,8 @@ Editorial rules:
 - For research, name the question domain rather than the requested research process.
 - Do not claim the work is complete.
 - Do not copy and truncate the user's message.
-- Avoid project names already visible in the UI, quotes, labels, filler, and trailing punctuation. Omit PR numbers unless the request is work on a pull request and includes its URL; in that case, begin the otherwise normal generated title with PR#<number>: using the number from that URL.
+- Avoid project names already visible in the UI, quotes, labels, filler, trailing punctuation, and PR numbers. Identifier prefixes are applied by the runtime title policy.
+- For pull-request work, use PR titles and descriptions retrieved directly by /pr-review as authoritative context. Describe what the PR changes or fixes, not the act of reviewing it.
 - Use attached images as primary context for UI issues.
 - When a URL or attachment is the only source of the subject, use available tools to inspect it. If it cannot be resolved, remain accurate rather than guessing.`;
 
@@ -263,7 +303,8 @@ Editorial rules:
 - For research, name the question domain rather than the research process.
 - Do not claim the work is complete.
 - Do not copy and truncate a thread message.
-- Avoid project names already visible in the UI, quotes, labels, filler, and trailing punctuation. Omit PR numbers unless the thread is doing work on a pull request and contains its URL; in that case, begin the otherwise normal generated title with PR#<number>: using the number from that URL.
+- Avoid project names already visible in the UI, quotes, labels, filler, trailing punctuation, and PR numbers. Identifier prefixes are applied by the runtime title policy.
+- For pull-request work, use PR titles and descriptions retrieved directly by /pr-review as authoritative context. Describe what the PR changes or fixes, not the act of reviewing it.
 - Use attached images as primary context for UI issues.
 - When a URL or attachment is the only source of the subject, use available tools to inspect it. If it cannot be resolved, remain accurate rather than guessing.
 - Return a meaningfully improved title, not a cosmetic paraphrase of the previous title.

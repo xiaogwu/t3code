@@ -32,6 +32,8 @@ import { increment, orchestrationEventsProcessedTotal } from "../../observabilit
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { resolveTitlePolicyRule } from "../../textGeneration/TitleIdentifierMatchers.ts";
+import { composeTitle, expandTitleTemplate } from "../../textGeneration/TitlePolicyResolver.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -183,7 +185,7 @@ function collectRecentThreadTitleContext(
   return { context, attachments: retainedAttachments, truncated };
 }
 
-function formatThreadTitleContext(messages: ReadonlyArray<ThreadTitleMessage>): {
+export function formatThreadTitleContext(messages: ReadonlyArray<ThreadTitleMessage>): {
   readonly message: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
 } {
@@ -920,22 +922,40 @@ const make = Effect.gen(function* () {
     }) {
       const attachments = input.attachments ?? [];
       yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
-          yield* serverSettingsService.getSettings;
-
-        const generated = yield* textGeneration
-          .generateThreadTitle({
-            cwd: input.cwd,
-            message: input.messageText,
-            ...(attachments.length > 0 ? { attachments } : {}),
-            modelSelection,
-          })
-          .pipe(
-            Effect.retry({
-              times: 2,
-              schedule: Schedule.exponential("2 seconds"),
-            }),
-          );
+        const settings = yield* serverSettingsService.getSettings;
+        const policy = settings.titlePolicy;
+        const matched = policy.enabled
+          ? resolveTitlePolicyRule(`USER:\n${input.messageText}`, policy.rules)
+          : null;
+        const generated =
+          matched?.rule.titleTemplate !== undefined
+            ? { title: expandTitleTemplate(matched.rule.titleTemplate) }
+            : yield* textGeneration
+                .generateThreadTitle({
+                  cwd: input.cwd,
+                  message: input.messageText,
+                  ...(attachments.length > 0 ? { attachments } : {}),
+                  modelSelection: settings.textGenerationModelSelection,
+                })
+                .pipe(
+                  Effect.retry({
+                    times: 2,
+                    schedule: Schedule.exponential("2 seconds"),
+                  }),
+                  Effect.map((result) =>
+                    matched === null
+                      ? result
+                      : {
+                          title: composeTitle({
+                            protectedPrefix: matched.prefix,
+                            description: result.title.startsWith(matched.prefix)
+                              ? result.title.slice(matched.prefix.length).trim()
+                              : result.title,
+                            maxCharacters: policy.defaults.maxCharacters,
+                          }),
+                        },
+                  ),
+                );
         if (!generated) return;
 
         const thread = yield* resolveThread(input.threadId);
@@ -990,15 +1010,35 @@ const make = Effect.gen(function* () {
         thread,
         projects: project ? [project] : [],
       }) ?? process.cwd();
-    const { textGenerationModelSelection: modelSelection } =
-      yield* serverSettingsService.getSettings;
-    const generated = yield* textGeneration.generateThreadTitle({
-      cwd,
-      message,
-      previousTitle,
-      ...(attachments.length > 0 ? { attachments } : {}),
-      modelSelection,
-    });
+    const settings = yield* serverSettingsService.getSettings;
+    const policy = settings.titlePolicy;
+    const matched = policy.enabled ? resolveTitlePolicyRule(message, policy.rules) : null;
+    const generated =
+      matched?.rule.titleTemplate !== undefined
+        ? { title: expandTitleTemplate(matched.rule.titleTemplate) }
+        : yield* textGeneration
+            .generateThreadTitle({
+              cwd,
+              message,
+              previousTitle,
+              ...(attachments.length > 0 ? { attachments } : {}),
+              modelSelection: settings.textGenerationModelSelection,
+            })
+            .pipe(
+              Effect.map((result) =>
+                matched === null
+                  ? result
+                  : {
+                      title: composeTitle({
+                        protectedPrefix: matched.prefix,
+                        description: result.title.startsWith(matched.prefix)
+                          ? result.title.slice(matched.prefix.length).trim()
+                          : result.title,
+                        maxCharacters: policy.defaults.maxCharacters,
+                      }),
+                    },
+              ),
+            );
     if (generated.title === DEFAULT_THREAD_TITLE || generated.title === previousTitle) {
       return { _tag: "Completed", title: undefined } as const;
     }

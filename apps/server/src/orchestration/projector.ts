@@ -463,6 +463,15 @@ export function projectEvent(
             ...(payload.titleRegeneration !== undefined
               ? { titleRegeneration: payload.titleRegeneration }
               : {}),
+            ...(payload.titleProvenance !== undefined
+              ? { titleProvenance: payload.titleProvenance }
+              : {}),
+            ...(payload.titleProtectedPrefix !== undefined
+              ? { titleProtectedPrefix: payload.titleProtectedPrefix }
+              : {}),
+            ...(payload.titleTurnsSincePolicyEval !== undefined
+              ? { titleTurnsSincePolicyEval: payload.titleTurnsSincePolicyEval }
+              : {}),
             ...(payload.modelSelection !== undefined
               ? { modelSelection: payload.modelSelection }
               : {}),

@@ -92,9 +92,7 @@ const ProjectionThreadMessageDbRowSchema = Schema.Struct({
   role: Schema.Literals(["user", "assistant", "system"]),
   text: Schema.String,
   attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-  replyToContext: Schema.NullOr(
-    Schema.fromJsonString(ProjectionReplyContextValue),
-  ),
+  replyToContext: Schema.NullOr(Schema.fromJsonString(ProjectionReplyContextValue)),
   isStreaming: Schema.Number,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -340,6 +338,16 @@ function mapTitleRegeneration(row: Schema.Schema.Type<typeof ProjectionThreadDbR
     : null;
 }
 
+// Coalesces the nullable title-policy columns to the contract's resolved
+// defaults: pre-policy rows have these columns present but NULL.
+function mapTitlePolicyFields(row: Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>) {
+  return {
+    titleProvenance: row.titleProvenance ?? ("automatic" as const),
+    titleProtectedPrefix: row.titleProtectedPrefix ?? null,
+    titleTurnsSincePolicyEval: row.titleTurnsSincePolicyEval ?? 0,
+  };
+}
+
 function mapSessionRow(
   row: Schema.Schema.Type<typeof ProjectionThreadSessionDbRowSchema>,
 ): OrchestrationSession {
@@ -481,6 +489,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
+          title_provenance AS "titleProvenance",
+          title_protected_prefix AS "titleProtectedPrefix",
+          title_turns_since_policy_eval AS "titleTurnsSincePolicyEval",
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
@@ -519,6 +530,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
+          title_provenance AS "titleProvenance",
+          title_protected_prefix AS "titleProtectedPrefix",
+          title_turns_since_policy_eval AS "titleTurnsSincePolicyEval",
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
@@ -559,6 +573,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
+          title_provenance AS "titleProvenance",
+          title_protected_prefix AS "titleProtectedPrefix",
+          title_turns_since_policy_eval AS "titleTurnsSincePolicyEval",
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
@@ -1009,6 +1026,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pin_order_key AS "pinOrderKey",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
+          title_provenance AS "titleProvenance",
+          title_protected_prefix AS "titleProtectedPrefix",
+          title_turns_since_policy_eval AS "titleTurnsSincePolicyEval",
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
@@ -1761,6 +1781,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 pinnedAt: row.pinnedAt,
                 pinOrderKey: row.pinOrderKey ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
+                ...mapTitlePolicyFields(row),
                 deletedAt: row.deletedAt,
                 messages: messagesByThread.get(row.threadId) ?? [],
                 proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
@@ -1972,6 +1993,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
+                  ...mapTitlePolicyFields(row),
                   deletedAt: row.deletedAt,
                   messages: [],
                   proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
@@ -2112,6 +2134,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       pinnedAt: row.pinnedAt,
                       pinOrderKey: row.pinOrderKey ?? null,
                       titleRegeneration: mapTitleRegeneration(row),
+                      ...mapTitlePolicyFields(row),
                       session: sessionByThread.get(row.threadId) ?? null,
                       latestUserMessageAt: row.latestUserMessageAt,
                       hasPendingApprovals: row.pendingApprovalCount > 0,
@@ -2261,6 +2284,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
+                  ...mapTitlePolicyFields(row),
                   session: sessionByThread.get(row.threadId) ?? null,
                   latestUserMessageAt: row.latestUserMessageAt,
                   hasPendingApprovals: row.pendingApprovalCount > 0,
@@ -2546,6 +2570,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
+        ...mapTitlePolicyFields(threadRow.value),
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
@@ -2691,6 +2716,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
+        ...mapTitlePolicyFields(threadRow.value),
         deletedAt: null,
         messages: messageRows.map(mapProjectedMessage),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),

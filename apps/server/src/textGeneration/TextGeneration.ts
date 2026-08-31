@@ -73,6 +73,26 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
+export interface TitlePolicyEvaluationInput {
+  cwd: string;
+  threadContext: string;
+  previousTitle: string;
+  protectedPrefix: string | null;
+  availableDescriptionCharacters: number;
+  guidance: ReadonlyArray<string>;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
+}
+
+export interface TitlePolicyEvaluationResult {
+  gist: string;
+  identifiers: ReadonlyArray<string>;
+  shouldRename: boolean;
+  suggestedTitle: string;
+  reason: string;
+  confidence: number;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -80,6 +100,7 @@ export interface TextGenerationService {
   generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
   generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
   generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
+  evaluateTitlePolicy(input: TitlePolicyEvaluationInput): Promise<TitlePolicyEvaluationResult>;
 }
 
 /**
@@ -113,6 +134,11 @@ export class TextGeneration extends Context.Service<
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+    /** Decide whether an auto-title policy should refresh a thread's title, and propose the replacement. */
+    readonly evaluateTitlePolicy: (
+      input: TitlePolicyEvaluationInput,
+    ) => Effect.Effect<TitlePolicyEvaluationResult, TextGenerationError>;
   }
 >()("t3/textGeneration/TextGeneration") {}
 
@@ -123,7 +149,8 @@ type TextGenerationOp =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
-  | "generateThreadTitle";
+  | "generateThreadTitle"
+  | "evaluateTitlePolicy";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -162,6 +189,10 @@ export const makeTextGenerationFromRegistry = (
     generateThreadTitle: (input) =>
       resolveInstance(registry, "generateThreadTitle", input.modelSelection.instanceId).pipe(
         Effect.flatMap((textGeneration) => textGeneration.generateThreadTitle(input)),
+      ),
+    evaluateTitlePolicy: (input) =>
+      resolveInstance(registry, "evaluateTitlePolicy", input.modelSelection.instanceId).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.evaluateTitlePolicy(input)),
       ),
   });
 

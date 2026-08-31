@@ -17,6 +17,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
@@ -52,7 +53,8 @@ export const makeGeminiTextGeneration = Effect.fn("makeGeminiTextGeneration")(fu
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
+      | "generateThreadTitle"
+      | "evaluateTitlePolicy";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -251,10 +253,39 @@ export const makeGeminiTextGeneration = Effect.fn("makeGeminiTextGeneration")(fu
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
 
+  const evaluateTitlePolicy: TextGeneration.TextGeneration["Service"]["evaluateTitlePolicy"] =
+    Effect.fn("GeminiTextGeneration.evaluateTitlePolicy")(function* (input) {
+      const { prompt, outputSchema } = buildTitlePolicyEvaluationPrompt({
+        threadContext: input.threadContext,
+        previousTitle: input.previousTitle,
+        protectedPrefix: input.protectedPrefix,
+        availableDescriptionCharacters: input.availableDescriptionCharacters,
+        guidance: input.guidance,
+      });
+
+      const generated = yield* runGeminiJson({
+        operation: "evaluateTitlePolicy",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        gist: generated.gist,
+        identifiers: generated.identifiers,
+        shouldRename: generated.shouldRename,
+        suggestedTitle: sanitizeThreadTitle(generated.suggestedTitle),
+        reason: generated.reason,
+        confidence: generated.confidence,
+      } satisfies TextGeneration.TitlePolicyEvaluationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    evaluateTitlePolicy,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

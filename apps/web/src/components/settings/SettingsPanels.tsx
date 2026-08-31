@@ -11,6 +11,8 @@ import {
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
   type ThreadActivitySoundMode,
+  TitlePolicy,
+  type TitlePolicyPreviewResult,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -66,7 +68,11 @@ import {
   useTheme,
 } from "../../hooks/useTheme";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import {
+  usePreviewPrimaryTitlePolicy,
+  usePrimarySettings,
+  useUpdatePrimarySettings,
+} from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -1872,6 +1878,35 @@ function LegacyFeaturesSection() {
 export function GeneralSettingsPanel() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
+  const previewTitlePolicy = usePreviewPrimaryTitlePolicy();
+  const [titlePolicyJson, setTitlePolicyJson] = useState(() =>
+    JSON.stringify(settings.titlePolicy, null, 2),
+  );
+  const [titlePolicyError, setTitlePolicyError] = useState<string | null>(null);
+  const [titlePolicyPreview, setTitlePolicyPreview] =
+    useState<ReadonlyArray<TitlePolicyPreviewResult> | null>(null);
+  const savedTitlePolicyJson = JSON.stringify(settings.titlePolicy, null, 2);
+  const titlePolicyDirty = titlePolicyJson !== savedTitlePolicyJson;
+  const previousTitlePolicyJson = useRef(savedTitlePolicyJson);
+  useEffect(() => {
+    const previous = previousTitlePolicyJson.current;
+    if (titlePolicyJson === previous || titlePolicyJson === savedTitlePolicyJson) {
+      setTitlePolicyJson(savedTitlePolicyJson);
+      setTitlePolicyError(null);
+      setTitlePolicyPreview(null);
+    }
+    previousTitlePolicyJson.current = savedTitlePolicyJson;
+  }, [savedTitlePolicyJson, titlePolicyJson]);
+  const parseTitlePolicy = useCallback(() => {
+    try {
+      const policy = Schema.decodeUnknownSync(TitlePolicy)(JSON.parse(titlePolicyJson));
+      setTitlePolicyError(null);
+      return policy;
+    } catch (error) {
+      setTitlePolicyError(error instanceof Error ? error.message : "Invalid title policy JSON");
+      return null;
+    }
+  }, [titlePolicyJson]);
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
@@ -2592,6 +2627,75 @@ export function GeneralSettingsPanel() {
             </div>
           }
         />
+        <SettingsRow
+          {...searchableSetting("thread-title-policy")}
+          description="Edit automatic thread-title rules. Changes take effect immediately without rebuilding T3."
+          resetAction={
+            titlePolicyDirty ? (
+              <SettingResetButton
+                label="thread title policy"
+                onClick={() => {
+                  setTitlePolicyJson(savedTitlePolicyJson);
+                  setTitlePolicyError(null);
+                  setTitlePolicyPreview(null);
+                }}
+              />
+            ) : null
+          }
+          control={
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={!titlePolicyDirty}
+              onClick={() => {
+                const policy = parseTitlePolicy();
+                if (policy !== null) updateSettings({ titlePolicy: policy });
+              }}
+            >
+              Apply
+            </Button>
+          }
+        />
+        <div className="px-4 pb-4">
+          <textarea
+            className="w-full rounded-md border border-input bg-background p-2 font-mono text-xs"
+            rows={14}
+            value={titlePolicyJson}
+            onChange={(event) => {
+              setTitlePolicyJson(event.target.value);
+              setTitlePolicyError(null);
+              setTitlePolicyPreview(null);
+            }}
+            spellCheck={false}
+            aria-label="Thread title policy JSON"
+          />
+          {titlePolicyError !== null ? (
+            <p className="mt-1 text-xs text-destructive">{titlePolicyError}</p>
+          ) : null}
+          <Button
+            className="mt-2"
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              const policy = parseTitlePolicy();
+              if (policy === null) return;
+              void previewTitlePolicy(policy).then((result) => {
+                if (result?._tag === "Success") setTitlePolicyPreview(result.value);
+              });
+            }}
+          >
+            Test policy against examples
+          </Button>
+          {titlePolicyPreview !== null ? (
+            <ul className="mt-2 space-y-1 text-xs">
+              {titlePolicyPreview.map((result, index) => (
+                <li key={`${result.example.thread}-${index}`}>
+                  {result.pass ? "✓" : "✗"} {result.actual}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </SettingsSection>
 
       <SettingsSection title="About">

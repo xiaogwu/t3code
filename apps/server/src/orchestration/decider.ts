@@ -828,7 +828,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.meta-updated",
         payload: {
           threadId: command.threadId,
-          ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.title !== undefined
+            ? { title: command.title, titleProvenance: "manual" as const }
+            : {}),
           ...(command.regenerateTitle === true
             ? {
                 regenerateTitle: true as const,
@@ -876,6 +878,35 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(requestIsCurrent && command.title !== undefined ? { title: command.title } : {}),
           ...(requestIsCurrent ? { titleRegeneration: null } : {}),
           updatedAt: requestIsCurrent ? occurredAt : thread.updatedAt,
+        },
+      };
+    }
+
+    case "thread.title.policy.evaluated": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const rename = command.rename;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          ...(rename !== undefined
+            ? { title: rename.title, titleProvenance: "automatic" as const }
+            : {}),
+          titleProtectedPrefix: command.protectedPrefix,
+          titleTurnsSincePolicyEval:
+            rename !== undefined ? 0 : (thread.titleTurnsSincePolicyEval ?? 0) + 1,
+          updatedAt: occurredAt,
         },
       };
     }
