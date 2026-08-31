@@ -69,7 +69,7 @@ export const ComposerPromptHistorySearch = memo(function ComposerPromptHistorySe
     <Command autoHighlight={false} mode="none">
       <div
         ref={drawerRef}
-        className="chat-composer-drawer-surface chat-composer-drawer-attached relative w-full overflow-hidden"
+        className="chat-composer-drawer-surface chat-composer-drawer-attached relative w-full overflow-hidden [--glass-opacity:100%]"
         data-composer-prompt-history-search="true"
       >
         <div className="flex items-center gap-2 border-b border-border/60 p-2">
