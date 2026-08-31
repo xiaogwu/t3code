@@ -1,3 +1,6 @@
+// Match the titlebar fade inset so draft promotion preserves the first row's position.
+export const CHAT_TIMELINE_ANCHOR_OFFSET = 24;
+
 // "anchoring-reveal" is a command-palette search hit being pinned near the top.
 // Distinct from "anchoring-new-turn" so the streaming turn-metrics adjustments,
 // which assume an incoming response below the anchor, stay out of it.
