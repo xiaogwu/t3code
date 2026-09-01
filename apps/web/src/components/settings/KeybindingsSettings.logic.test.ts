@@ -49,6 +49,36 @@ describe("KeybindingsSettings.logic", () => {
     ]);
   });
 
+  it("searches the displayed command label", () => {
+    const rows = buildKeybindingRows(
+      [
+        {
+          command: "shell.openInTerminal",
+          shortcut: {
+            key: "t",
+            modKey: true,
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: true,
+          },
+          whenAst: {
+            type: "not",
+            node: { type: "identifier", name: "terminalFocus" },
+          },
+        },
+      ] satisfies ResolvedKeybindingsConfig,
+      "external terminal",
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        command: "shell.openInTerminal",
+        key: "mod+shift+t",
+      }),
+    ]);
+  });
+
   it("captures platform-specific mod shortcuts", () => {
     expect(
       keybindingFromKeyboardEvent(
