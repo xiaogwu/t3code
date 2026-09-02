@@ -550,6 +550,27 @@ function extractPreCodeMeta(node: unknown): string | undefined {
   return typeof meta === "string" && meta.trim().length > 0 ? meta.trim() : undefined;
 }
 
+/**
+ * mdast hangs a code node's hProperties on the inner `<code>`, not the `<pre>`
+ * wrapper it synthesizes, so the replyable flag has to be read one level down.
+ */
+function isReplyablePreNode(node: unknown): boolean {
+  const children = (
+    node as
+      | {
+          children?: Array<{
+            type?: string;
+            tagName?: string;
+            properties?: { dataReplyableBlock?: unknown };
+          }>;
+        }
+      | undefined
+  )?.children;
+  const codeNode = children?.find((child) => child?.type === "element" && child.tagName === "code");
+  const flag = codeNode?.properties?.dataReplyableBlock;
+  return flag === "true" || flag === true;
+}
+
 type MarkdownAstNode = {
   type?: string;
   meta?: unknown;
@@ -2876,11 +2897,7 @@ function ChatMarkdown({
             fenceTitle={fenceTitle}
             theme={resolvedTheme}
             reply={
-              messageId &&
-              onReplyToBlock &&
-              quote &&
-              (node?.properties?.dataReplyableBlock === "true" ||
-                node?.properties?.dataReplyableBlock === true)
+              messageId && onReplyToBlock && quote && isReplyablePreNode(node)
                 ? {
                     target: { messageId, blockId: `${start}-${end}`, quote },
                     onReply: onReplyToBlock,
