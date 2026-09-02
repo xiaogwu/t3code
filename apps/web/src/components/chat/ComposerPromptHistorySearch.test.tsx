@@ -24,6 +24,9 @@ describe("ComposerPromptHistorySearch", () => {
     expect(markup).toContain('data-composer-prompt-history-search="true"');
     expect(markup).toContain('data-composer-banner-surface="attached"');
     expect(markup).toContain("bg-(--chat-composer-attached-surface)!");
+    // The forced background needs the same top radius as the shared pseudo-layer,
+    // otherwise it paints square corners over it.
+    expect(markup).toContain("rounded-t-[16px]");
     expect(markup).toContain('aria-label="Search prompt history"');
     expect(markup).toContain("Run the focused tests");
     expect(markup).toContain("Ctrl+R");

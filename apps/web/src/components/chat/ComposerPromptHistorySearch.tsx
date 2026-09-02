@@ -70,7 +70,9 @@ export const ComposerPromptHistorySearch = memo(function ComposerPromptHistorySe
     <Command autoHighlight={false} mode="none">
       <ComposerBanner.Surface
         ref={drawerRef}
-        className="w-full overflow-hidden bg-(--chat-composer-attached-surface)! pb-(--chat-composer-attachment-overlap)"
+        // The forced background paints on this element rather than the shared
+        // rounded pseudo-layer, so it has to carry the same top radius.
+        className="w-full overflow-hidden rounded-t-[16px] bg-(--chat-composer-attached-surface)! pb-(--chat-composer-attachment-overlap)"
         data-composer-prompt-history-search="true"
       >
         <div className="flex items-center gap-2 border-b border-border/60 p-2">
