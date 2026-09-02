@@ -59,6 +59,10 @@ to `mod+shift+b`.
 `rightPanel.toggleMaximized` maximizes or restores the open right panel. It has no default shortcut,
 so add one in **Settings** → **Keybindings** if you want to use it.
 
+`thread.copyReference` copies the active thread's pull request link, or its thread ID when no pull
+request is available. Its default shortcut is `mod+shift+c`, and it does not replace terminal copy
+while the terminal has focus.
+
 `thread.settle` settles the active thread or restores it when it is already settled. Its default
 shortcut is `mod+shift+s`, and it does not run while the terminal has focus.
 
@@ -78,10 +82,11 @@ is no dependable cross-platform system API for reading a user's default terminal
 selection is available when automatic detection is not suitable. Remote connections launch on
 the environment host, not on the device viewing T3.
 
-The command palette searches active thread titles, projects, branches, user messages, and final
-agent responses across connected environments. Message matches show one labeled excerpt while
-keeping the thread's project, branch, and machine context visible. Message search begins after two
-characters and uses SQLite's ASCII case-insensitive matching.
+The command palette searches settings, active thread titles, projects, branches, user messages, and
+final agent responses across connected environments. A setting result opens its exact control or
+section. Message matches show one labeled excerpt while keeping the thread's project, branch, and
+machine context visible. Message search begins after two characters and uses SQLite's ASCII
+case-insensitive matching.
 
 Use the **Archived** toggle in the command palette, or type `is:archived`, to search only archived
 threads. With no other search text, the palette shows recently archived threads. Selecting an

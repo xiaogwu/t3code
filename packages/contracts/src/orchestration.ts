@@ -805,6 +805,13 @@ const ThreadSettleCommand = Schema.Struct({
   threadId: ThreadId,
 });
 
+const ThreadAutoSettleCommand = Schema.Struct({
+  type: Schema.Literal("thread.auto-settle"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  snapshotSequence: NonNegativeInt,
+});
+
 const ThreadUnsettleCommand = Schema.Struct({
   type: Schema.Literal("thread.unsettle"),
   commandId: CommandId,
@@ -1157,6 +1164,7 @@ export const TitlePolicyEvaluatedCommand = Schema.Struct({
 export type TitlePolicyEvaluatedCommand = typeof TitlePolicyEvaluatedCommand.Type;
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadAutoSettleCommand,
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
