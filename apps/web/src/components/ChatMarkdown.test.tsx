@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -309,6 +309,33 @@ describe("ChatMarkdown artifact-template cards", () => {
 
     expect(html.match(/::artifact-template/g)).toHaveLength(2);
     expect(html).not.toContain("chat-markdown-artifact-template");
+  });
+});
+
+describe("ChatMarkdown code block reply action", () => {
+  const messageId = MessageId.make("message-1");
+
+  it("offers a reply action on a top-level fenced code block", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={"```ts\nconst answer = 42;\n```"}
+        messageId={messageId}
+        onReplyToBlock={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("chat-markdown-codeblock");
+    expect(html).toContain("Reply to this code block");
+  });
+
+  it("omits the reply action when the timeline cannot receive a reply", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={"```ts\nconst answer = 42;\n```"} />,
+    );
+
+    expect(html).toContain("chat-markdown-codeblock");
+    expect(html).not.toContain("Reply to this code block");
   });
 });
 
