@@ -22,8 +22,8 @@ describe("ComposerPromptHistorySearch", () => {
     );
 
     expect(markup).toContain('data-composer-prompt-history-search="true"');
-    expect(markup).toContain("chat-composer-drawer-attached");
-    expect(markup).toContain("[--glass-opacity:100%]");
+    expect(markup).toContain('data-composer-banner-surface="attached"');
+    expect(markup).toContain("bg-(--chat-composer-attached-surface)!");
     expect(markup).toContain('aria-label="Search prompt history"');
     expect(markup).toContain("Run the focused tests");
     expect(markup).toContain("Ctrl+R");

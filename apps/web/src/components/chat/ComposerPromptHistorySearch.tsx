@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { Input } from "../ui/input";
 import { cn } from "~/lib/utils";
+import { ComposerBanner } from "./ComposerBanner";
 import { searchPromptHistoryEntries } from "./promptHistorySearch";
 
 const SNIPPET_MAX_CHARS = 180;
@@ -67,9 +68,9 @@ export const ComposerPromptHistorySearch = memo(function ComposerPromptHistorySe
 
   return (
     <Command autoHighlight={false} mode="none">
-      <div
+      <ComposerBanner.Surface
         ref={drawerRef}
-        className="chat-composer-drawer-surface chat-composer-drawer-attached relative w-full overflow-hidden [--glass-opacity:100%]"
+        className="w-full overflow-hidden bg-(--chat-composer-attached-surface)! pb-(--chat-composer-attachment-overlap)"
         data-composer-prompt-history-search="true"
       >
         <div className="flex items-center gap-2 border-b border-border/60 p-2">
@@ -151,7 +152,7 @@ export const ComposerPromptHistorySearch = memo(function ComposerPromptHistorySe
             )}
           </CommandGroup>
         </CommandList>
-      </div>
+      </ComposerBanner.Surface>
     </Command>
   );
 });
