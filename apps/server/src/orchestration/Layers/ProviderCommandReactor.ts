@@ -74,9 +74,13 @@ function toNonEmptyProviderInput(value: string | undefined): string | undefined 
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
-export const REPLY_CONTEXT_MAX_CHARS = 1_200;
-const REPLY_CONTEXT_HEAD_CHARS = 800;
-const REPLY_CONTEXT_TAIL_CHARS = 400;
+// Matches ASSISTANT_CITATION_MAX_TEXT_LENGTH so a block reply and a citation of
+// the same excerpt reach the provider with the same fidelity.
+export const REPLY_CONTEXT_MAX_CHARS = 8_000;
+// Derived so a truncated excerpt still fills the budget: raising the cap without
+// these would collapse an over-cap quote to a fraction of what fits.
+const REPLY_CONTEXT_HEAD_CHARS = Math.floor((REPLY_CONTEXT_MAX_CHARS * 2) / 3);
+const REPLY_CONTEXT_TAIL_CHARS = REPLY_CONTEXT_MAX_CHARS - REPLY_CONTEXT_HEAD_CHARS;
 
 /** Keeps provider context bounded while retaining a response's conclusion. */
 export function formatReplyContext(input: {
