@@ -12,6 +12,17 @@ export function ProviderIcon(props: ProviderIconProps) {
   const size = props.size ?? 16;
   const mono = isDarkMode ? "#e5e5e5" : "#171717";
 
+  if (props.provider === "agy") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 1 14.5 9.5 12 12 9.5 9.5 12 1Z" fill="#4285F4" />
+        <Path d="m23 12-8.5 2.5L12 12l2.5-2.5L23 12Z" fill="#EA4335" />
+        <Path d="M12 23 9.5 14.5 12 12l2.5 2.5L12 23Z" fill="#FBBC04" />
+        <Path d="M1 12 9.5 9.5 12 12l-2.5 2.5L1 12Z" fill="#34A853" />
+      </Svg>
+    );
+  }
+
   if (props.provider === "claudeAgent") {
     return (
       <Svg width={size} height={size} viewBox="0 0 256 257" fill="none">
