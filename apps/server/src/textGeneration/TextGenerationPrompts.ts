@@ -278,7 +278,9 @@ Editorial rules:
 - Avoid project names already visible in the UI, quotes, labels, filler, trailing punctuation, and PR numbers. Identifier prefixes are applied by the runtime title policy.
 - For pull-request work, use PR titles and descriptions retrieved directly by /pr-review as authoritative context. Describe what the PR changes or fixes, not the act of reviewing it.
 - Use attached images as primary context for UI issues.
-- When a URL or attachment is the only source of the subject, use available tools to inspect it. If it cannot be resolved, remain accurate rather than guessing.`;
+- When a URL or attachment is the only source of the subject, use available tools to inspect it directly.
+- Local git history is not evidence of what a linked PR or issue is about. Never title the thread after branch names, commit messages, or merged commits found in the checkout.
+- If a linked PR or issue cannot be read, fall back to the user's stated action plus its number, such as "Take Over PR 8588". This is the one case where a PR or issue number belongs in the title.`;
 
 function regenerateThreadTitlePrompt(previousTitle: string): string {
   return `Regenerate the title for an existing T3 Code thread so the user can recognize it weeks later.
@@ -306,7 +308,9 @@ Editorial rules:
 - Avoid project names already visible in the UI, quotes, labels, filler, trailing punctuation, and PR numbers. Identifier prefixes are applied by the runtime title policy.
 - For pull-request work, use PR titles and descriptions retrieved directly by /pr-review as authoritative context. Describe what the PR changes or fixes, not the act of reviewing it.
 - Use attached images as primary context for UI issues.
-- When a URL or attachment is the only source of the subject, use available tools to inspect it. If it cannot be resolved, remain accurate rather than guessing.
+- When a URL or attachment is the only source of the subject, use available tools to inspect it directly.
+- Local git history is not evidence of what a linked PR or issue is about. Never title the thread after branch names, commit messages, or merged commits found in the checkout.
+- If a linked PR or issue cannot be read, fall back to the user's stated action plus its number, such as "Take Over PR 8588". This is the one case where a PR or issue number belongs in the title.
 - Return a meaningfully improved title, not a cosmetic paraphrase of the previous title.
 
 Examples of the distinction:

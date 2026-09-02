@@ -93,16 +93,6 @@ export interface TitlePolicyEvaluationResult {
   confidence: number;
 }
 
-export interface TextGenerationService {
-  generateCommitMessage(
-    input: CommitMessageGenerationInput,
-  ): Promise<CommitMessageGenerationResult>;
-  generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
-  generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
-  generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
-  evaluateTitlePolicy(input: TitlePolicyEvaluationInput): Promise<TitlePolicyEvaluationResult>;
-}
-
 /**
  * TextGeneration - Service tag for commit and change request text generation.
  */
