@@ -17,6 +17,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
+  buildTitlePolicyEvaluationPrompt,
 } from "./TextGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
@@ -35,7 +36,8 @@ type Operation =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
-  | "generateThreadTitle";
+  | "generateThreadTitle"
+  | "evaluateTitlePolicy";
 
 export const makeAgyTextGeneration = Effect.fn("makeAgyTextGeneration")(function* (
   settings: AgySettings,
@@ -264,10 +266,37 @@ export const makeAgyTextGeneration = Effect.fn("makeAgyTextGeneration")(function
       return { title: sanitizeThreadTitle(generated.title) };
     });
 
+  const evaluateTitlePolicy: TextGeneration.TextGeneration["Service"]["evaluateTitlePolicy"] =
+    Effect.fn("AgyTextGeneration.evaluateTitlePolicy")(function* (input) {
+      const built = buildTitlePolicyEvaluationPrompt({
+        threadContext: input.threadContext,
+        previousTitle: input.previousTitle,
+        protectedPrefix: input.protectedPrefix,
+        availableDescriptionCharacters: input.availableDescriptionCharacters,
+        guidance: input.guidance,
+      });
+      const generated = yield* runJson({
+        operation: "evaluateTitlePolicy",
+        cwd: input.cwd,
+        prompt: built.prompt,
+        outputSchema: built.outputSchema,
+        model: input.modelSelection.model,
+      });
+      return {
+        gist: generated.gist,
+        identifiers: generated.identifiers,
+        shouldRename: generated.shouldRename,
+        suggestedTitle: sanitizeThreadTitle(generated.suggestedTitle),
+        reason: generated.reason,
+        confidence: generated.confidence,
+      } satisfies TextGeneration.TitlePolicyEvaluationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    evaluateTitlePolicy,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

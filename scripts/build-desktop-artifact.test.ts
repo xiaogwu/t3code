@@ -1645,6 +1645,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
         undefined,
         false,
+        undefined,
         true,
       );
       const nightly = yield* createBuildConfig(
