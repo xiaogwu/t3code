@@ -57,6 +57,7 @@ import {
   providerErrorLabel,
   providerErrorLabelFromInstanceHint,
   ProviderCommandReactorLive,
+  REPLY_CONTEXT_MAX_CHARS,
 } from "./ProviderCommandReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
@@ -116,15 +117,32 @@ describe("ProviderCommandReactor", () => {
       );
     });
 
+    it("passes a quote that fits the budget through untouched", () => {
+      const replyText = "a".repeat(REPLY_CONTEXT_MAX_CHARS);
+      const value = formatReplyContext({ replyText, prompt: "Follow up" });
+      expect(value).not.toContain("[middle truncated]");
+      expect(value).toContain(replyText);
+    });
+
     it("retains the head and tail of long assistant output", () => {
       const value = formatReplyContext({
-        replyText: `${"a".repeat(800)}${"b".repeat(800)}`,
+        replyText: `${"a".repeat(REPLY_CONTEXT_MAX_CHARS)}${"b".repeat(REPLY_CONTEXT_MAX_CHARS)}`,
         prompt: "Follow up",
       });
       expect(value).toContain("[middle truncated]");
-      expect(value).toContain("a".repeat(800));
-      expect(value).toContain("b".repeat(400));
-      expect(value).not.toContain("b".repeat(401));
+      expect(value).toContain("a".repeat(100));
+      expect(value).toContain("b".repeat(100));
+    });
+
+    it("spends the whole budget on an over-long quote", () => {
+      const excerpt = formatReplyContext({
+        replyText: "a".repeat(REPLY_CONTEXT_MAX_CHARS * 3),
+        prompt: "Follow up",
+      })
+        .split("\n</reply_context>")[0]!
+        .split("earlier assistant message:\n")[1]!;
+      const kept = excerpt.replace("\n\n[middle truncated]\n\n", "");
+      expect(kept.length).toBe(REPLY_CONTEXT_MAX_CHARS);
     });
   });
   let runtime: ManagedRuntime.ManagedRuntime<
