@@ -46,6 +46,7 @@ import {
   ProviderEventLoggers,
 } from "../src/provider/Layers/ProviderEventLoggers.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
+import { ProviderAuthService } from "../src/provider/Services/ProviderAuthService.ts";
 import { AnalyticsService } from "../src/telemetry/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
 import { TitlePolicyReactorLive } from "../src/orchestration/Layers/TitlePolicyReactor.ts";
@@ -347,6 +348,11 @@ export const makeOrchestrationIntegrationHarness = (
         }),
     } as unknown as TextGenerationShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
+      Layer.provide(
+        Layer.mock(ProviderAuthService)({
+          tryHandlePromptCommand: () => Effect.succeed(false),
+        }),
+      ),
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitWorkflowLayer),
       Layer.provideMerge(textGenerationLayer),

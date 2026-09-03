@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { Path, Svg } from "react-native-svg";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 
@@ -20,6 +21,16 @@ export function ProviderIcon(props: ProviderIconProps) {
         <Path d="M12 23 9.5 14.5 12 12l2.5 2.5L12 23Z" fill="#FBBC04" />
         <Path d="M1 12 9.5 9.5 12 12l-2.5 2.5L1 12Z" fill="#34A853" />
       </Svg>
+    );
+  }
+
+  if (props.provider === "antigravity") {
+    return (
+      <Image
+        source={require("../../assets/antigravity.png")}
+        style={{ width: size, height: size }}
+        contentFit="contain"
+      />
     );
   }
 

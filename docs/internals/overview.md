@@ -18,13 +18,14 @@ there, never in the client.
 ┌──────────────────▼─────────────────────────────┐
 │ apps/server                                    │
 │  orchestration engine (event-sourced)          │
-│  provider driver registry (7 built-in drivers) │
+│  provider driver registry (8 built-in drivers) │
 │  checkpointing, VCS, terminals, filesystem     │
 └──────────────────┬─────────────────────────────┘
                    │ per-driver transport
 ┌──────────────────▼─────────────────────────────┐
 │ Agent CLIs: Codex, Claude, Cursor, Grok,       │
-│ Apple Gemini, Antigravity, OpenCode            │
+│ Apple Gemini, Antigravity CLI, OpenCode,        │
+│ Antigravity ACP                                 │
 └────────────────────────────────────────────────┘
 ```
 
@@ -97,7 +98,8 @@ when a connected environment drifts.
 once per minute, including when no client is connected. It dispatches the guarded internal
 `thread.auto-settle` command, which uses the existing settlement event lifecycle. Automatic
 settlement excludes live background work and requires a comparable PR timestamp for immediate PR
-settlement. The command also rejects any later event for its thread after the reactor's snapshot.
+settlement. The command carries the latest activity timestamp and rejects any later event for its
+thread after the reactor's snapshot.
 Clients render the persisted settlement state and do not derive settlement from PR or inactivity
 state. A committed `thread.settled` event also lets `ProviderCommandReactor` stop an idle provider
 session.
@@ -121,8 +123,8 @@ build production behavior on receipts.
 
 ## Provider drivers
 
-Seven drivers ship built in, registered in [`builtInDrivers.ts`][drivers] as `BUILT_IN_DRIVERS`:
-Codex, Claude, Cursor, Grok, Apple Gemini, Antigravity, and OpenCode. A driver declares its kind and config schema and creates a
+Eight drivers ship built in, registered in [`builtInDrivers.ts`][drivers] as `BUILT_IN_DRIVERS`:
+Codex, Claude, Cursor, Grok, Apple Gemini, Antigravity CLI, OpenCode, and the official Antigravity ACP agent. A driver declares its kind and config schema and creates a
 scoped adapter; `ProviderInstanceRegistry` owns live instances and `ProviderAdapterRegistry` resolves
 an instance to its adapter, so `ProviderService` routes session and turn operations without knowing
 which agent is behind them. See [providers.md](./providers.md).

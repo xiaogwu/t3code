@@ -10,7 +10,11 @@ import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER, type EnvironmentId } from "@t3tools/contracts";
+import {
+  DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
+  type EnvironmentId,
+  resolveEnvironmentMachineKind,
+} from "@t3tools/contracts";
 import { sortPinnedThreadsByOrderKey } from "@t3tools/client-runtime/state/thread-sort";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent } from "react-native";
@@ -448,6 +452,16 @@ function ThreadNavigationSidebarPane(
     }
     return supported;
   }, [serverConfigs]);
+  const machineByEnvironmentId = useMemo(
+    () =>
+      new Map(
+        [...serverConfigs].map(
+          ([environmentId, config]) =>
+            [environmentId, resolveEnvironmentMachineKind(config)] as const,
+        ),
+      ),
+    [serverConfigs],
+  );
   // Canonical arranged pinned order for Move up/down flags — computed from
   // all shells so search/scope filtering never disables a valid move.
   const arrangedPinnedKeys = useMemo(() => {
@@ -837,6 +851,9 @@ function ThreadNavigationSidebarPane(
                       ?.environmentLabel ?? null)
                   : null
               }
+              environmentMachine={machineByEnvironmentId.get(
+                item.pendingTask.message.environmentId,
+              )}
               pane="sidebar"
               showPendingDivider={item.showPendingDivider}
               onSelectPendingTask={openPendingTask}
@@ -871,6 +888,7 @@ function ThreadNavigationSidebarPane(
                   ? (savedConnectionsById[thread.environmentId]?.environmentLabel ?? null)
                   : null
               }
+              environmentMachine={machineByEnvironmentId.get(thread.environmentId)}
               searchMatch={threadSearchMatchByKey.get(
                 threadSearchMatchKey({
                   environmentId: thread.environmentId,
@@ -975,6 +993,9 @@ function ThreadNavigationSidebarPane(
                 savedConnectionsById[item.pendingTask.message.environmentId]?.environmentLabel ??
                 null
               }
+              environmentMachine={machineByEnvironmentId.get(
+                item.pendingTask.message.environmentId,
+              )}
               isLast={item.isLast}
               onSelectPendingTask={openPendingTask}
               onDeletePendingTask={confirmDeletePendingTask}
@@ -989,6 +1010,7 @@ function ThreadNavigationSidebarPane(
               environmentLabel={
                 savedConnectionsById[thread.environmentId]?.environmentLabel ?? null
               }
+              environmentMachine={machineByEnvironmentId.get(thread.environmentId)}
               projectCwd={
                 projectCwdByKey.get(scopedProjectKey(thread.environmentId, thread.projectId)) ??
                 null
@@ -1036,6 +1058,7 @@ function ThreadNavigationSidebarPane(
       handleSelectThread,
       handleSwipeableClose,
       handleSwipeableWillOpen,
+      machineByEnvironmentId,
       movePinnedThread,
       openPendingTask,
       pinReorderEnvironmentIds,

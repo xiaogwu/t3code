@@ -1,5 +1,6 @@
 import {
   AgySettings,
+  AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
@@ -81,7 +82,7 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
   },
   {
     value: ProviderDriverKind.make("agy"),
-    label: "Antigravity",
+    label: "Antigravity CLI",
     icon: AntigravityIcon,
     badgeLabel: "Early Access",
     settingsSchema: AgySettings,
@@ -91,6 +92,12 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     label: "OpenCode",
     icon: OpenCodeIcon,
     settingsSchema: OpenCodeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("antigravity"),
+    label: "Antigravity",
+    icon: AntigravityIcon,
+    settingsSchema: AntigravitySettings,
   },
 ];
 
