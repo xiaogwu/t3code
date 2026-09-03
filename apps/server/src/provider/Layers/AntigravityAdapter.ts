@@ -207,14 +207,22 @@ const resolveClientFilePath = Effect.fn("AntigravityAdapter.resolveClientFilePat
     const { path } = input;
     const resolved = path.resolve(input.requestPath);
     // Follow symlinks on the parent so a link out of the workspace cannot escape it.
-    const parent = yield* input.fileSystem
-      .realPath(path.dirname(resolved))
-      .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
-    const real = path.join(parent, path.basename(resolved));
+    const resolvedParent = path.dirname(resolved);
+    const realParent = yield* input.fileSystem.realPath(resolvedParent).pipe(Effect.option);
+    const real = path.join(
+      Option.isSome(realParent) ? realParent.value : resolvedParent,
+      path.basename(resolved),
+    );
     const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
       input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
     );
-    if (!roots.some((root) => isInsideRoot(path, root, real))) {
+    const isInsideCanonicalRoot = roots.some((root) => isInsideRoot(path, root, real));
+    // A new file can have a missing parent, so there is nothing to canonicalize yet.
+    // In that case retain the original root spelling for the lexical containment check.
+    const isNewPathInsideRoot =
+      Option.isNone(realParent) &&
+      input.allowedRoots.some((root) => isInsideRoot(path, root, resolved));
+    if (!isInsideCanonicalRoot && !isNewPathInsideRoot) {
       return yield* EffectAcpErrors.AcpRequestError.invalidParams(
         `Path '${input.requestPath}' is outside the session workspace.`,
       );
