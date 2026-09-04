@@ -2,7 +2,7 @@ import type { DesktopBridge } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { resolveThemeDockIconColors, syncDesktopDockIconPreference } from "../desktopDockIcon";
+import { resolveThemeDockIconPalette, syncDesktopDockIconPreference } from "../desktopDockIcon";
 import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
@@ -374,8 +374,12 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
 export function syncDesktopDockIcon(theme: Theme, appearance: ThemeAppearance): void {
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
-  const colors = resolveThemeDockIconColors(theme, appearance);
-  const signature = colors ? `${theme}|${appearance}|${JSON.stringify(colors)}` : null;
+  const palette = resolveThemeDockIconPalette(theme, appearance);
+  // Keyed on the palette actually drawn, so a theme with only one half does
+  // not redraw an identical tile every time the appearance flips.
+  const signature = palette
+    ? `${theme}|${palette.appearance}|${JSON.stringify(palette.colors)}`
+    : null;
   if (
     !bridge ||
     typeof bridge.setDockIcon !== "function" ||
