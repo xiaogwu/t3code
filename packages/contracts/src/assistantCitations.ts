@@ -1,5 +1,12 @@
 import * as Schema from "effect/Schema";
-import { EnvironmentId, MessageId, NonNegativeInt, ThreadId } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  IsoDateTime,
+  MessageId,
+  NonNegativeInt,
+  ThreadBookmarkId,
+  ThreadId,
+} from "./baseSchemas.ts";
 
 export const ASSISTANT_CITATION_MAX_TEXT_LENGTH = 8_000;
 export const ASSISTANT_CITATION_MAX_COMMENT_LENGTH = 8_000;
@@ -29,3 +36,15 @@ export const AssistantCitation = Schema.Struct({
   Schema.makeFilter((citation) => citation.end > citation.start && citation.text.trim().length > 0),
 );
 export type AssistantCitation = typeof AssistantCitation.Type;
+
+/**
+ * A saved, cross-device bookmark of an assistant text range. Reuses
+ * AssistantCitation verbatim for the anchor rather than inventing a second
+ * anchoring format.
+ */
+export const AssistantThreadBookmark = Schema.Struct({
+  id: ThreadBookmarkId,
+  citation: AssistantCitation,
+  createdAt: IsoDateTime,
+});
+export type AssistantThreadBookmark = typeof AssistantThreadBookmark.Type;

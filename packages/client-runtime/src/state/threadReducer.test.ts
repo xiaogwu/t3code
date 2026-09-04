@@ -3,10 +3,12 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   CheckpointRef,
   CommandId,
+  EnvironmentId,
   EventId,
   MessageId,
   ProjectId,
   ProviderInstanceId,
+  ThreadBookmarkId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -276,6 +278,103 @@ describe("applyThreadDetailEvent", () => {
       expect(result.kind).toBe("updated");
       if (result.kind === "updated") {
         expect(result.thread.pinnedAt).toBeNull();
+      }
+    });
+  });
+
+  describe("thread.bookmark.added / thread.bookmark.removed", () => {
+    const makeBookmark = (id: string, createdAt: string, start: number) => ({
+      id: ThreadBookmarkId.make(id),
+      citation: {
+        version: 1 as const,
+        environmentId: EnvironmentId.make("env-1"),
+        threadId: ThreadId.make("thread-1"),
+        messageId: MessageId.make("assistant-1"),
+        text: "bookmarked text",
+        start,
+        end: start + 15,
+        prefix: "before ",
+        suffix: " after",
+      },
+      createdAt,
+    });
+
+    const addEvent = (bookmark: ReturnType<typeof makeBookmark>, sequence: number) =>
+      ({
+        ...baseEventFields,
+        sequence,
+        occurredAt: bookmark.createdAt,
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.bookmark.added",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          bookmark,
+          updatedAt: bookmark.createdAt,
+        },
+      }) as const;
+
+    it("adds a bookmark to a thread that has none", () => {
+      const bookmark = makeBookmark("bookmark-1", "2026-04-01T05:00:00.000Z", 10);
+      const result = applyThreadDetailEvent(baseThread, addEvent(bookmark, 5));
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.bookmarks?.map((entry) => entry.id)).toEqual([bookmark.id]);
+      }
+    });
+
+    it("orders by createdAt regardless of arrival order", () => {
+      const later = makeBookmark("bookmark-b", "2026-04-01T07:00:00.000Z", 40);
+      const earlier = makeBookmark("bookmark-a", "2026-04-01T06:00:00.000Z", 20);
+
+      const first = applyThreadDetailEvent(baseThread, addEvent(later, 5));
+      expect(first.kind).toBe("updated");
+      if (first.kind !== "updated") return;
+      const second = applyThreadDetailEvent(first.thread, addEvent(earlier, 6));
+
+      expect(second.kind).toBe("updated");
+      if (second.kind === "updated") {
+        expect(second.thread.bookmarks?.map((entry) => entry.id)).toEqual([earlier.id, later.id]);
+      }
+    });
+
+    it("does not duplicate a re-delivered bookmark", () => {
+      const bookmark = makeBookmark("bookmark-1", "2026-04-01T05:00:00.000Z", 10);
+      const first = applyThreadDetailEvent(baseThread, addEvent(bookmark, 5));
+      expect(first.kind).toBe("updated");
+      if (first.kind !== "updated") return;
+      const second = applyThreadDetailEvent(first.thread, addEvent(bookmark, 5));
+
+      expect(second.kind).toBe("updated");
+      if (second.kind === "updated") {
+        expect(second.thread.bookmarks).toHaveLength(1);
+      }
+    });
+
+    it("removes only the named bookmark", () => {
+      const kept = makeBookmark("bookmark-keep", "2026-04-01T05:00:00.000Z", 10);
+      const dropped = makeBookmark("bookmark-drop", "2026-04-01T06:00:00.000Z", 40);
+      const updatedAt = "2026-04-01T07:00:00.000Z";
+      const seeded: OrchestrationThread = { ...baseThread, bookmarks: [kept, dropped] };
+
+      const result = applyThreadDetailEvent(seeded, {
+        ...baseEventFields,
+        sequence: 7,
+        occurredAt: updatedAt,
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.bookmark.removed",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          bookmarkId: dropped.id,
+          updatedAt,
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.bookmarks?.map((entry) => entry.id)).toEqual([kept.id]);
       }
     });
   });

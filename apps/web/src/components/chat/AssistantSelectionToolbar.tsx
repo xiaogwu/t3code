@@ -2,45 +2,60 @@ import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   MessageId,
   type AssistantCitation,
+  type AssistantThreadBookmark,
   type ScopedThreadRef,
+  type ThreadBookmarkId,
 } from "@t3tools/contracts";
-import { QuoteIcon } from "lucide-react";
+import { BookmarkIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   captureAssistantTextSelection,
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
+import { findOverlappingBookmark } from "~/lib/threadBookmarks.logic";
 import {
   observeSelectionActions,
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
 import { Button } from "../ui/button";
+import { cn } from "~/lib/utils";
 
 export function AssistantSelectionToolbar({
   viewport,
   threadRef,
+  bookmarks,
   onCite,
+  onToggleBookmark,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
+  /** Every bookmark on the thread, used only for overlap detection. */
+  bookmarks?: ReadonlyArray<AssistantThreadBookmark>;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  onToggleBookmark?: (
+    citation: AssistantCitation,
+    existingBookmarkId: ThreadBookmarkId | null,
+  ) => void;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
-  const toolbarRef = useRef<HTMLButtonElement>(null);
+  // The action container, not a single button: Tab-focus and the
+  // pointerdown/focus guards below need one element that contains every
+  // button in the popup.
+  const containerRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
   useLayoutEffect(() => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar || !selection) return;
-    const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    const container = containerRef.current;
+    if (!container || !selection) return;
+    const rect = container.getBoundingClientRect();
+    container.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
+    container.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
   }, [selection]);
 
   useEffect(() => {
@@ -79,13 +94,13 @@ export function AssistantSelectionToolbar({
     };
     const actions = observeSelectionActions({
       element: viewport,
-      getActionElement: () => toolbarRef.current,
+      getActionElement: () => containerRef.current,
       onSelection: update,
       onDismiss: clear,
     });
     actionsRef.current = actions;
     const focusActions = (event: KeyboardEvent) => {
-      const toolbar = toolbarRef.current;
+      const container = containerRef.current;
       if (
         event.key !== "Tab" ||
         event.shiftKey ||
@@ -94,15 +109,16 @@ export function AssistantSelectionToolbar({
         event.metaKey ||
         event.isComposing ||
         event.defaultPrevented ||
-        !toolbar ||
-        toolbar.contains(event.target as Node)
+        !container ||
+        container.contains(event.target as Node)
       ) {
         return;
       }
-      if (toolbar.disabled) return;
+      const focusTarget = container.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      if (!focusTarget) return;
       event.preventDefault();
       event.stopPropagation();
-      toolbar.focus({ preventScroll: true });
+      focusTarget.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
@@ -116,6 +132,9 @@ export function AssistantSelectionToolbar({
 
   if (!selection) return null;
   const tooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  const existingBookmark = bookmarks
+    ? findOverlappingBookmark(bookmarks, selection.citation)
+    : null;
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
@@ -126,18 +145,17 @@ export function AssistantSelectionToolbar({
     dismiss();
     return true;
   };
+  const toggleBookmark = () => {
+    if (tooLong || !onToggleBookmark) return;
+    onToggleBookmark(selection.citation, existingBookmark?.id ?? null);
+    window.getSelection()?.removeAllRanges();
+    dismiss();
+  };
   return createPortal(
-    <Button
-      ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)] rounded-full px-2.5"
+    <div
+      ref={containerRef}
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1 rounded-full border border-border/60 bg-popover/95 p-1 shadow-sm"
       style={{ left: selection.position.x, top: selection.position.y }}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
@@ -146,9 +164,45 @@ export function AssistantSelectionToolbar({
         }
       }}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={tooLong}
+        aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        className="rounded-full px-2.5"
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={cite}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {tooLong ? "Shorten selection" : "Cite"}
+      </Button>
+      {onToggleBookmark ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="glass"
+          disabled={tooLong}
+          aria-pressed={existingBookmark !== null}
+          aria-label={
+            tooLong
+              ? "Selection is too long to bookmark"
+              : existingBookmark
+                ? "Remove bookmark"
+                : "Bookmark selection"
+          }
+          className="rounded-full px-2.5"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={toggleBookmark}
+        >
+          <BookmarkIcon
+            aria-hidden="true"
+            className={cn("size-3.5", existingBookmark !== null && "fill-current")}
+          />
+          {existingBookmark ? "Unmark" : "Mark"}
+        </Button>
+      ) : null}
+    </div>,
     document.body,
   );
 }

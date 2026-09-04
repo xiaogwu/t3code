@@ -311,7 +311,9 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
       | "thread.reverted"
-      | "thread.session-set";
+      | "thread.session-set"
+      | "thread.bookmark.added"
+      | "thread.bookmark.removed";
   }
 > {
   return (
@@ -320,7 +322,11 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
-    event.type === "thread.session-set"
+    event.type === "thread.session-set" ||
+    // Bookmarks live on the detail, not the shell: without these the client
+    // that created one sees nothing until it reloads the whole thread.
+    event.type === "thread.bookmark.added" ||
+    event.type === "thread.bookmark.removed"
   );
 }
 

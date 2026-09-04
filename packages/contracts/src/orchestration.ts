@@ -17,11 +17,13 @@ import {
   PositiveInt,
   ProjectId,
   ProviderItemId,
+  ThreadBookmarkId,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
   TurnId,
 } from "./baseSchemas.ts";
+import { AssistantCitation, AssistantThreadBookmark } from "./assistantCitations.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
@@ -532,6 +534,11 @@ export const OrchestrationThread = Schema.Struct({
   // servers never need each other's threads to agree on the merged list.
   // Optional so payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Bookmarked assistant text ranges, synced server-side per thread. Optional
+  // so payloads from pre-bookmarking servers still decode.
+  bookmarks: Schema.optional(Schema.Array(AssistantThreadBookmark)).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   // Which code path last set `title`: a direct client rename ("manual") vs
@@ -612,6 +619,12 @@ export const OrchestrationThreadShell = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Optional, and never hydrated on the shell: bookmarks are not shown in
+  // the sidebar this pass, so the shell keeps its field for type parity with
+  // OrchestrationThread without paying for the join.
+  bookmarks: Schema.optional(Schema.Array(AssistantThreadBookmark)).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])).pipe(
     Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
@@ -925,6 +938,23 @@ const ThreadPinReorderCommand = Schema.Struct({
   orderKey: TrimmedNonEmptyString,
 });
 
+const ThreadBookmarkAddCommand = Schema.Struct({
+  type: Schema.Literal("thread.bookmark.add"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Client-generated so a retry of the same command is the same bookmark,
+  // and so the client can remove it later without a round trip.
+  bookmarkId: ThreadBookmarkId,
+  citation: AssistantCitation,
+});
+
+const ThreadBookmarkRemoveCommand = Schema.Struct({
+  type: Schema.Literal("thread.bookmark.remove"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  bookmarkId: ThreadBookmarkId,
+});
+
 const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
@@ -1092,6 +1122,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
+  ThreadBookmarkAddCommand,
+  ThreadBookmarkRemoveCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1120,6 +1152,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
+  ThreadBookmarkAddCommand,
+  ThreadBookmarkRemoveCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1253,6 +1287,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.pinned",
   "thread.unpinned",
   "thread.pin-reordered",
+  "thread.bookmark.added",
+  "thread.bookmark.removed",
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
@@ -1385,6 +1421,18 @@ export const ThreadUnpinnedPayload = Schema.Struct({
 export const ThreadPinReorderedPayload = Schema.Struct({
   threadId: ThreadId,
   orderKey: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadBookmarkAddedPayload = Schema.Struct({
+  threadId: ThreadId,
+  bookmark: AssistantThreadBookmark,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadBookmarkRemovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  bookmarkId: ThreadBookmarkId,
   updatedAt: IsoDateTime,
 });
 
@@ -1615,6 +1663,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.pin-reordered"),
     payload: ThreadPinReorderedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.bookmark.added"),
+    payload: ThreadBookmarkAddedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.bookmark.removed"),
+    payload: ThreadBookmarkRemovedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

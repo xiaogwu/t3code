@@ -365,6 +365,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               updatedAt: "2026-02-24T00:00:05.500Z",
             },
           ],
+          bookmarks: [],
           activities: [
             {
               id: asEventId("activity-1"),
@@ -469,6 +470,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           snoozedAt: null,
           pinnedAt: "2026-02-24T00:00:01.000Z",
           pinOrderKey: "gm",
+          bookmarks: [],
           titleRegeneration: null,
           titleProvenance: "automatic",
           titleProtectedPrefix: null,

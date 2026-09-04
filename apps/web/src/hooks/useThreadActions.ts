@@ -6,7 +6,13 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadBookmarkId,
+  type AssistantCitation,
+  type ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -15,6 +21,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { randomUUID } from "../lib/utils";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
@@ -168,6 +175,12 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const reorderPinnedThreadMutation = useAtomCommand(threadEnvironment.reorderPin, {
+    reportFailure: false,
+  });
+  const addBookmarkMutation = useAtomCommand(threadEnvironment.addBookmark, {
+    reportFailure: false,
+  });
+  const removeBookmarkMutation = useAtomCommand(threadEnvironment.removeBookmark, {
     reportFailure: false,
   });
   const snoozeThreadMutation = useAtomCommand(threadEnvironment.snooze, {
@@ -629,6 +642,30 @@ export function useThreadActions() {
     [reorderPinnedThreadMutation],
   );
 
+  const bookmarkAssistantText = useCallback(
+    async (target: ScopedThreadRef, citation: AssistantCitation) =>
+      addBookmarkMutation({
+        environmentId: target.environmentId,
+        input: {
+          threadId: target.threadId,
+          // Client-generated so this command's retry is the same bookmark,
+          // and so the id is known immediately for a later removal.
+          bookmarkId: ThreadBookmarkId.make(randomUUID()),
+          citation,
+        },
+      }),
+    [addBookmarkMutation],
+  );
+
+  const unbookmarkAssistantText = useCallback(
+    async (target: ScopedThreadRef, bookmarkId: ThreadBookmarkId) =>
+      removeBookmarkMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, bookmarkId },
+      }),
+    [removeBookmarkMutation],
+  );
+
   const snoozeThread = useCallback(
     async (target: ScopedThreadRef, snoozedUntil: string) => {
       // Version skew: never send the command to a server that predates it.
@@ -727,9 +764,12 @@ export function useThreadActions() {
       unpinThread,
       confirmAndUnpinThread,
       reorderPinnedThread,
+      bookmarkAssistantText,
+      unbookmarkAssistantText,
     }),
     [
       archiveThread,
+      bookmarkAssistantText,
       confirmAndDeleteThread,
       confirmAndUnpinThread,
       deleteThread,
@@ -738,6 +778,7 @@ export function useThreadActions() {
       settleThread,
       snoozeThread,
       unarchiveThread,
+      unbookmarkAssistantText,
       unpinThread,
       unsettleThread,
       unsnoozeThread,
