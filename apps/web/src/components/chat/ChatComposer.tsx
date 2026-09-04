@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 57176)
-Total output lines: 5688
-
 import type {
   ApprovalRequestId,
   AssistantCitation,
@@ -2567,7 +2564,771 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       promptRef.current = nextPrompt;
       setPrompt(nextPrompt);
-      if (!terminalContextIdList…7176 tokens truncated…file that actually failed to decode, or for one the composer simply
+      if (!terminalContextIdListsEqual(composerTerminalContexts, terminalContextIds)) {
+        setComposerDraftTerminalContexts(
+          composerDraftTarget,
+          syncTerminalContextsByIds(composerTerminalContexts, terminalContextIds),
+        );
+      }
+      setComposerCursor(nextCursor);
+      setComposerTrigger(
+        cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
+      );
+    },
+    [
+      activePendingProgress?.activeQuestion,
+      expandComposerForEditorChange,
+      pendingUserInputs.length,
+      onChangeActivePendingUserInputCustomAnswer,
+      promptRef,
+      setPrompt,
+      composerDraftTarget,
+      composerTerminalContexts,
+      setComposerDraftTerminalContexts,
+    ],
+  );
+
+  // ------------------------------------------------------------------
+  // Callbacks: prompt replacement / menu
+  // ------------------------------------------------------------------
+  const applyPromptReplacement = useCallback(
+    (
+      rangeStart: number,
+      rangeEnd: number,
+      replacement: string,
+      options?: {
+        expectedText?: string;
+        focusEditorAfterReplace?: boolean;
+        citationComment?: { start: number; sourceAnchor: AssistantCitationSourceAnchor };
+      },
+    ): boolean => {
+      if (
+        activePendingUserInput &&
+        activePendingProgress?.activeQuestion?.allowCustomAnswer === false
+      ) {
+        return false;
+      }
+      const currentText = promptRef.current;
+      const safeStart = Math.max(0, Math.min(currentText.length, rangeStart));
+      const safeEnd = Math.max(safeStart, Math.min(currentText.length, rangeEnd));
+      if (
+        options?.expectedText !== undefined &&
+        currentText.slice(safeStart, safeEnd) !== options.expectedText
+      ) {
+        return false;
+      }
+      const next = replaceTextRange(promptRef.current, rangeStart, rangeEnd, replacement);
+      const nextCursor = collapseExpandedComposerCursor(next.text, next.cursor);
+      const nextExpandedCursor = expandCollapsedComposerCursor(next.text, nextCursor);
+      if (options?.citationComment) {
+        composerEditorRef.current?.requestCitationComment({
+          previousValue: currentText,
+          value: next.text,
+          citationStart: options.citationComment.start,
+          sourceAnchor: options.citationComment.sourceAnchor,
+        });
+      }
+      promptRef.current = next.text;
+      const activePendingQuestion = activePendingProgress?.activeQuestion;
+      if (activePendingQuestion && activePendingUserInput) {
+        onChangeActivePendingUserInputCustomAnswer(
+          activePendingQuestion.id,
+          next.text,
+          nextCursor,
+          nextExpandedCursor,
+          false,
+        );
+      } else {
+        setPrompt(next.text);
+      }
+      setComposerCursor(nextCursor);
+      setComposerTrigger(detectComposerTrigger(next.text, nextExpandedCursor));
+      if (options?.focusEditorAfterReplace !== false) {
+        window.requestAnimationFrame(() => {
+          // Type-to-focus routes only the first key through here; once the
+          // controlled update focuses the editor, later keys land natively.
+          // Skip the deferred caret placement when the draft has moved on,
+          // or it drags the caret back behind what was typed since.
+          if (promptRef.current !== next.text) return;
+          composerEditorRef.current?.focusAt(nextCursor);
+        });
+      }
+      return true;
+    },
+    [
+      activePendingProgress?.activeQuestion,
+      activePendingUserInput,
+      onChangeActivePendingUserInputCustomAnswer,
+      promptRef,
+      setPrompt,
+    ],
+  );
+
+  const readComposerSnapshot = useCallback((): {
+    value: string;
+    cursor: number;
+    expandedCursor: number;
+    terminalContextIds: string[];
+  } => {
+    const editorSnapshot = composerEditorRef.current?.readSnapshot();
+    if (editorSnapshot) {
+      return editorSnapshot;
+    }
+    return {
+      value: promptRef.current,
+      cursor: composerCursor,
+      expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursor),
+      terminalContextIds: composerTerminalContexts.map((context) => context.id),
+    };
+  }, [composerCursor, composerTerminalContexts, promptRef]);
+
+  const resolveActiveComposerTrigger = useCallback((): {
+    snapshot: { value: string; cursor: number; expandedCursor: number };
+    trigger: ComposerTrigger | null;
+  } => {
+    const snapshot = readComposerSnapshot();
+    return {
+      snapshot,
+      trigger: detectComposerTrigger(snapshot.value, snapshot.expandedCursor),
+    };
+  }, [readComposerSnapshot]);
+
+  const onSelectComposerItem = useCallback(
+    (item: ComposerCommandItem) => {
+      if (composerSelectLockRef.current) return;
+      composerSelectLockRef.current = true;
+      window.requestAnimationFrame(() => {
+        composerSelectLockRef.current = false;
+      });
+      const { snapshot, trigger } = resolveActiveComposerTrigger();
+      if (!trigger) return;
+      if (item.type === "path") {
+        const replacement = `${serializeComposerFileLink(item.path)} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "slash-command") {
+        if (item.command === "model") {
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            focusEditorAfterReplace: false,
+          });
+          if (applied) {
+            setComposerHighlightedItemId(null);
+            setIsComposerModelPickerOpen(true);
+          }
+          return;
+        }
+        if (!planModeUiEnabled) return;
+        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "provider-slash-command") {
+        const replacement = `/${item.command.name} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "skill") {
+        const replacement = `$${item.skill.name} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+    },
+    [
+      applyPromptReplacement,
+      handleInteractionModeChange,
+      planModeUiEnabled,
+      resolveActiveComposerTrigger,
+    ],
+  );
+
+  const onComposerMenuItemHighlighted = useCallback(
+    (itemId: string | null) => {
+      setComposerHighlightedItemId(itemId);
+      setComposerHighlightedSearchKey(composerMenuSearchKey);
+    },
+    [composerMenuSearchKey],
+  );
+
+  const nudgeComposerMenuHighlight = useCallback(
+    (key: "ArrowDown" | "ArrowUp") => {
+      if (composerMenuItems.length === 0) return;
+      const highlightedIndex = composerMenuItems.findIndex(
+        (item) => item.id === composerHighlightedItemId,
+      );
+      const normalizedIndex =
+        highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
+      const offset = key === "ArrowDown" ? 1 : -1;
+      const nextIndex =
+        (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
+      const nextItem = composerMenuItems[nextIndex];
+      setComposerHighlightedItemId(nextItem?.id ?? null);
+    },
+    [composerHighlightedItemId, composerMenuItems],
+  );
+
+  const blurMobileComposerAfterSend = useCallback(() => {
+    if (!isMobileViewport) return;
+    if (composerBlurFrameRef.current !== null) {
+      window.cancelAnimationFrame(composerBlurFrameRef.current);
+      composerBlurFrameRef.current = null;
+    }
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
+    setIsComposerFocused(false);
+  }, [isMobileViewport]);
+
+  const shouldBlurMobileComposerOnSubmit = useCallback(() => {
+    if (!isMobileViewport) return false;
+    if (
+      isSendBusy ||
+      isSendDisabled ||
+      isConnecting ||
+      noProviderAvailable ||
+      environmentUnavailable !== null ||
+      phase === "running"
+    ) {
+      return false;
+    }
+    if (activePendingProgress) {
+      return activePendingProgress.isLastQuestion && Boolean(activePendingResolvedAnswers);
+    }
+    return showPlanFollowUpPrompt || composerSendState.hasSendableContent;
+  }, [
+    activePendingProgress,
+    activePendingResolvedAnswers,
+    composerSendState.hasSendableContent,
+    environmentUnavailable,
+    isConnecting,
+    isMobileViewport,
+    isSendBusy,
+    isSendDisabled,
+    noProviderAvailable,
+    phase,
+    showPlanFollowUpPrompt,
+  ]);
+
+  const submitComposer = useCallback(
+    (event?: { preventDefault: () => void }, intent: ComposerSubmissionIntent = "foreground") => {
+      if (noProviderAvailable || isSendDisabled) {
+        event?.preventDefault();
+        return;
+      }
+      // A send while a pasted image is still compressing would strand that
+      // image: the turn snapshot wouldn't include it, and it would surface
+      // in the *next* draft instead. Only oversized images hit this — small
+      // files clear the pending counter within a microtask.
+      if (activeThreadId && (pendingImageCompressionsRef.current.get(activeThreadId) ?? 0) > 0) {
+        event?.preventDefault();
+        toastManager.add({
+          type: "info",
+          title: "Still compressing a pasted image.",
+          description: "Send again once its thumbnail appears.",
+        });
+        return;
+      }
+      const submission = submitComposerDraft({
+        prompt: promptRef.current,
+        submissionTarget: activePendingProgress ? "pending-user-input" : "provider-turn",
+        event,
+        onSend: (sendEvent) => {
+          // ChatView reports its final composed-input preflight through the
+          // composer handle before its first asynchronous send step.
+          providerInputRejectedRef.current = false;
+          onSend(sendEvent, intent);
+          return !providerInputRejectedRef.current;
+        },
+      });
+      setComposerSubmissionError(submission.validationMessage);
+      if (!submission.didDispatch) return;
+      if (shouldBlurMobileComposerOnSubmit()) {
+        blurMobileComposerAfterSend();
+      }
+    },
+    [
+      activeThreadId,
+      activePendingProgress,
+      blurMobileComposerAfterSend,
+      isSendDisabled,
+      noProviderAvailable,
+      onSend,
+      promptRef,
+      shouldBlurMobileComposerOnSubmit,
+    ],
+  );
+  const submitCitationAndSend = useCallback(() => {
+    const intent = composerSubmissionIntentForEnter({
+      isMobileViewport,
+      shiftKey: false,
+      modifierKey: true,
+      isDraftThread: routeKind === "draft",
+    });
+    submitComposer(undefined, intent ?? "foreground");
+  }, [isMobileViewport, routeKind, submitComposer]);
+  const compactThreadContext = useCallback(() => {
+    if (
+      compactDisabled ||
+      noProviderAvailable ||
+      activePendingApproval !== null ||
+      pendingUserInputs.length > 0 ||
+      phase === "running" ||
+      isSendBusy ||
+      isConnecting ||
+      !activeThreadId
+    ) {
+      return;
+    }
+    // The compact buttons cannot see the compression counter (it lives in
+    // a ref), so they render enabled during a paste; toast instead of
+    // silently ignoring the click.
+    if ((pendingImageCompressionsRef.current.get(activeThreadId) ?? 0) > 0) {
+      toastManager.add({
+        type: "info",
+        title: "Still compressing a pasted image.",
+        description: "Compact again once its thumbnail appears.",
+      });
+      return;
+    }
+
+    promptRef.current = "/compact";
+    setComposerDraftPrompt(composerDraftTarget, "/compact");
+    submitComposer();
+    // A blocked dispatch (busy send ref, provider preflight rejection)
+    // would leave the injected "/compact" behind as if the user typed it.
+    // Clearing here is safe even when the send did dispatch: the send
+    // snapshots its prompt synchronously and clears the draft itself.
+    if (promptRef.current === "/compact") {
+      promptRef.current = "";
+      setComposerDraftPrompt(composerDraftTarget, "");
+    }
+  }, [
+    activePendingApproval,
+    activeThreadId,
+    compactDisabled,
+    composerDraftTarget,
+    isConnecting,
+    isSendBusy,
+    noProviderAvailable,
+    pendingUserInputs.length,
+    phase,
+    promptRef,
+    setComposerDraftPrompt,
+    submitComposer,
+  ]);
+  const expandMobileComposer = useCallback(() => {
+    if (composerBlurFrameRef.current !== null) {
+      window.cancelAnimationFrame(composerBlurFrameRef.current);
+      composerBlurFrameRef.current = null;
+    }
+    if (mobileComposerExpandFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileComposerExpandFrameRef.current);
+    }
+    if (mobileComposerExpandReleaseFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileComposerExpandReleaseFrameRef.current);
+    }
+    mobileComposerExpandInFlightRef.current = true;
+    setIsComposerFocused(true);
+    mobileComposerExpandFrameRef.current = window.requestAnimationFrame(() => {
+      mobileComposerExpandFrameRef.current = null;
+      composerEditorRef.current?.focusAtEnd();
+      mobileComposerExpandReleaseFrameRef.current = window.requestAnimationFrame(() => {
+        mobileComposerExpandReleaseFrameRef.current = null;
+        mobileComposerExpandInFlightRef.current = false;
+      });
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
+  // Callbacks: command key
+  // ------------------------------------------------------------------
+  const onComposerCommandKey = (
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "HistorySearch" | "Tab",
+    event: KeyboardEvent,
+  ) => {
+    if (key === "HistorySearch") {
+      if (
+        isComposerApprovalState ||
+        activePendingProgress !== null ||
+        pendingUserInputs.length > 0
+      ) {
+        return false;
+      }
+      setComposerTrigger(null);
+      setIsStashMenuOpen(false);
+      setIsTasksDrawerOpen(false);
+      setIsPromptHistorySearchOpen(true);
+      return true;
+    }
+    if (key === "Tab" && event.shiftKey) {
+      if (!planModeUiEnabled) return false;
+      toggleInteractionMode();
+      return true;
+    }
+    const { trigger } = resolveActiveComposerTrigger();
+    const menuIsActive = composerMenuOpenRef.current || trigger !== null;
+    if (menuIsActive) {
+      const currentItems = composerMenuItemsRef.current;
+      const selectedItem = activeComposerMenuItemRef.current ?? currentItems[0];
+      if (key === "ArrowDown" && currentItems.length > 0) {
+        nudgeComposerMenuHighlight("ArrowDown");
+        return true;
+      }
+      if (key === "ArrowUp" && currentItems.length > 0) {
+        nudgeComposerMenuHighlight("ArrowUp");
+        return true;
+      }
+      if ((key === "Enter" || key === "Tab") && selectedItem) {
+        onSelectComposerItem(selectedItem);
+        return true;
+      }
+    }
+    if (
+      (key === "ArrowUp" || key === "ArrowDown") &&
+      !isComposerApprovalState &&
+      activePendingProgress === null &&
+      pendingUserInputs.length === 0
+    ) {
+      const next = resolvePromptHistoryStep({
+        entries: promptHistoryEntries,
+        index: promptHistoryIndexRef.current,
+        direction: key === "ArrowUp" ? "older" : "newer",
+        prompt: promptRef.current,
+      });
+      if (next) {
+        promptRef.current = next.text;
+        setComposerDraftPrompt(composerDraftTarget, next.text);
+        setComposerCursor(collapseExpandedComposerCursor(next.text, next.text.length));
+        setComposerTrigger(null);
+        promptHistoryIndexRef.current = next.index;
+        promptHistoryTextRef.current = next.text;
+        return true;
+      }
+    }
+    const submissionIntent =
+      key === "Enter"
+        ? composerSubmissionIntentForEnter({
+            isMobileViewport,
+            shiftKey: event.shiftKey,
+            modifierKey: event.metaKey || event.ctrlKey,
+            isDraftThread: routeKind === "draft",
+          })
+        : null;
+    if (submissionIntent) {
+      submitComposer(undefined, submissionIntent);
+      return true;
+    }
+    return false;
+  };
+
+  // ------------------------------------------------------------------
+  // Prompt stash (⌘S)
+  // ------------------------------------------------------------------
+  // Files remain tied to the environment that owns their uploaded bytes.
+  const stashQueue = usePromptStashStore((state) => state.entries);
+  const promptHistoryEntries = usePromptHistoryStore((state) => state.entries);
+  const restorePromptHistoryEntry = useCallback(
+    (entry: PromptHistoryEntry) => {
+      promptRef.current = entry.text;
+      setComposerDraftPrompt(composerDraftTarget, entry.text);
+      setComposerCursor(collapseExpandedComposerCursor(entry.text, entry.text.length));
+      setComposerTrigger(null);
+      promptHistoryIndexRef.current = promptHistoryEntries.indexOf(entry);
+      promptHistoryTextRef.current = entry.text;
+      setIsPromptHistorySearchOpen(false);
+      window.requestAnimationFrame(() => composerEditorRef.current?.focusAtEnd());
+    },
+    [composerDraftTarget, promptHistoryEntries, promptRef, setComposerDraftPrompt],
+  );
+  const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
+  const takeStashEntry = usePromptStashStore((state) => state.takeEntry);
+  const finalizeStashEntryImages = usePromptStashStore((state) => state.finalizeEntryImages);
+
+  useEffect(() => {
+    return () => {
+      if (stashPulseTimeoutRef.current !== null) {
+        window.clearTimeout(stashPulseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  /** Briefly highlight the badge so the save registers without a flourish. */
+  const pulseStashBadge = useCallback(() => {
+    stashPulseKeyRef.current += 1;
+    setStashPulse({ key: stashPulseKeyRef.current, active: true });
+    if (stashPulseTimeoutRef.current !== null) {
+      window.clearTimeout(stashPulseTimeoutRef.current);
+    }
+    stashPulseTimeoutRef.current = window.setTimeout(() => {
+      stashPulseTimeoutRef.current = null;
+      setStashPulse((current) => ({ ...current, active: false }));
+    }, 1200);
+  }, []);
+
+  const restoreStashEntry = useCallback(
+    async (menuEntry: PromptStashEntry) => {
+      const filesToVerify = menuEntry.files ?? [];
+      if (filesToVerify.some((file) => file.environmentId !== environmentId)) {
+        toastManager.add({
+          type: "error",
+          title: "Stashed files belong to another environment",
+          description: "Restore this prompt in the environment that received its files.",
+        });
+        return;
+      }
+      setIsStashMenuOpen(false);
+
+      // The server sweeps pending uploads after 24 hours, so ask before
+      // reattaching. An expired upload restores as a needs-reattach row
+      // instead of a reference the next send would fail to verify. Verify
+      // BEFORE taking: the take removes the entry from durable storage, and a
+      // tab closed during this await must still find it there after reload.
+      const verifications = await Promise.all(
+        filesToVerify.map((file) =>
+          verifyStashedAttachmentUpload({ environmentId, attachmentId: file.attachmentId }),
+        ),
+      );
+      const expiredAttachmentIds = new Set(
+        filesToVerify
+          .filter((_, index) => verifications[index]?.status === "missing")
+          .map((file) => file.attachmentId),
+      );
+
+      // A thread switch during the verify await would mix the new thread's
+      // prompt with this invocation's captured target. Nothing was taken yet,
+      // so abort and leave the entry restorable where the user now is.
+      if (composerTargetKey(composerDraftTarget) !== composerDraftTargetKeyRef.current) {
+        return;
+      }
+
+      // The take is also the double-activation guard (click + Enter): the
+      // second caller finds the entry gone and stops here.
+      const { entry, durable } = takeStashEntry(menuEntry.id);
+      if (!entry) return;
+      if (!durable) {
+        toastManager.add({
+          type: "warning",
+          title: "Restored prompt may reappear in the stash",
+          description:
+            "Browser storage rejected the update, so this entry could still be there after a reload.",
+          data: { hideCopyButton: true },
+        });
+      }
+
+      const currentPrompt = promptRef.current;
+      // An image-only stash must not append blank lines to whatever is
+      // already in the composer.
+      const nextPrompt =
+        entry.prompt.length === 0
+          ? currentPrompt
+          : currentPrompt.trim().length
+            ? `${currentPrompt.replace(/\s+$/, "")}\n\n${entry.prompt}`
+            : entry.prompt;
+      const promptChanged = nextPrompt !== currentPrompt;
+      if (promptChanged) {
+        promptRef.current = nextPrompt;
+        setComposerDraftPrompt(composerDraftTarget, nextPrompt);
+        setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
+        setComposerTrigger(null);
+      }
+
+      let unrestoredFileNames: string[] = [];
+      const expiredFileNames: string[] = [];
+      let restoredFileCount = 0;
+      const stashedFiles = entry.files ?? [];
+      if (stashedFiles.length > 0) {
+        const composerFilesNow = composerFilesRef.current;
+        const existingFileIds = new Set(composerFilesNow.map((file) => file.id));
+        const retainedUploadIds = new Set(
+          composerFilesNow.flatMap((file) =>
+            file.uploadedAttachmentId ? [file.uploadedAttachmentId] : [],
+          ),
+        );
+        const existingFileKeys = new Set(composerFilesNow.map(composerFileDedupKey));
+        const reattachMarkers = composerFilesNow.filter(composerFileNeedsReattach);
+        const restoredMarkerIds = new Set<string>();
+        const duplicateFiles: PersistedComposerFileAttachment[] = [];
+        const markerReplacements: ComposerFileAttachment[] = [];
+        const appendedFiles: ComposerFileAttachment[] = [];
+        for (const file of stashedFiles) {
+          const expired = expiredAttachmentIds.has(file.attachmentId);
+          const key = composerFileDedupKey(file);
+          const restored: ComposerFileAttachment = {
+            type: "file",
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes,
+            file: null,
+            // An expired upload carries no ids, so it hydrates as a
+            // needs-reattach row and the "Attach again" flow takes over.
+            ...(expired
+              ? {}
+              : { uploadedAttachmentId: file.attachmentId, uploadEnvironmentId: environmentId }),
+          };
+          if (existingFileIds.has(file.id)) {
+            if (!expired && !retainedUploadIds.has(file.attachmentId)) {
+              duplicateFiles.push(file);
+            }
+            continue;
+          }
+          const reattachMarker = reattachMarkers.find(
+            (marker) =>
+              !restoredMarkerIds.has(marker.id) && composerFileMatchesReattachMarker(marker, file),
+          );
+          if (reattachMarker) {
+            restoredMarkerIds.add(reattachMarker.id);
+            existingFileIds.add(file.id);
+            existingFileKeys.add(key);
+            if (expired) {
+              expiredFileNames.push(file.name);
+            } else {
+              retainedUploadIds.add(file.attachmentId);
+              markerReplacements.push(restored);
+            }
+            continue;
+          }
+          if (existingFileKeys.has(key)) {
+            if (!expired && !retainedUploadIds.has(file.attachmentId)) {
+              duplicateFiles.push(file);
+            }
+            continue;
+          }
+          existingFileIds.add(file.id);
+          existingFileKeys.add(key);
+          if (expired) {
+            expiredFileNames.push(file.name);
+          } else {
+            retainedUploadIds.add(file.attachmentId);
+          }
+          appendedFiles.push(restored);
+        }
+        const capacity = Math.max(
+          0,
+          PROVIDER_SEND_TURN_MAX_ATTACHMENTS -
+            composerImagesRef.current.length -
+            composerFilesNow.length,
+        );
+        // Marker replacements reuse their marker's slot; only appended files
+        // consume capacity.
+        const filesToAppend = appendedFiles.slice(0, capacity);
+        const skippedFiles = appendedFiles.slice(capacity);
+        unrestoredFileNames = skippedFiles.map((file) => file.name);
+        // A non-durable take can resurrect the stash entry after a reload;
+        // deleting these uploads would leave it pointing at nothing.
+        if (durable) {
+          for (const file of duplicateFiles) {
+            releasePersistedAttachmentUpload({
+              id: file.id,
+              environmentId,
+              attachmentId: file.attachmentId,
+            });
+          }
+          for (const file of skippedFiles) {
+            if (file.uploadedAttachmentId) {
+              releasePersistedAttachmentUpload({
+                id: file.id,
+                environmentId,
+                attachmentId: file.uploadedAttachmentId,
+              });
+            }
+          }
+        }
+        const restoredFiles = [...markerReplacements, ...filesToAppend];
+        if (restoredFiles.length > 0) {
+          addComposerDraftFiles(composerDraftTarget, restoredFiles);
+          restoredFileCount = filesToAppend.length;
+        }
+      }
+
+      let unrestoredImageNames: string[] = [];
+      if (entry.attachments.length > 0) {
+        const existingIds = new Set(composerImagesRef.current.map((image) => image.id));
+        // The draft store also dedupes by mimeType+sizeBytes+name, so filter
+        // on the same key here. Counting a duplicate against capacity would
+        // burn a slot the store then refuses to fill, pushing a genuinely
+        // unique image into the overflow list for nothing.
+        const existingDedupKeys = new Set(
+          composerImagesRef.current.map(
+            (image) => `${image.mimeType}\0${image.sizeBytes}\0${image.name}`,
+          ),
+        );
+        const capacity = Math.max(
+          0,
+          PROVIDER_SEND_TURN_MAX_ATTACHMENTS -
+            composerImagesRef.current.length -
+            composerFilesRef.current.length -
+            restoredFileCount,
+        );
+        const pending = entry.attachments.filter(
+          (attachment) =>
+            !existingIds.has(attachment.id) &&
+            !existingDedupKeys.has(
+              `${attachment.mimeType}\0${attachment.sizeBytes}\0${attachment.name}`,
+            ),
+        );
+        // Anything past the attachment limit cannot be restored. The entry is
+        // already out of the queue, so report the overflow by name instead of
+        // discarding it silently.
+        unrestoredImageNames = pending.slice(capacity).map((attachment) => attachment.name);
+        const restoredImages = hydrateImagesFromPersisted(pending.slice(0, capacity));
+        if (restoredImages.length > 0) {
+          addComposerDraftImages(composerDraftTarget, restoredImages);
+        }
+      }
+
+      // Deliberately no model/provider restore: the stash exists to carry a
+      // prompt across threads and providers, so whatever the composer has
+      // selected right now stays selected.
+
+      // Each cause gets its own sentence so "too large" is never blamed for a
+      // file that actually failed to decode, or for one the composer simply
       // had no room to take back.
       const missingImageReasons: string[] = [];
       if (entry.droppedImageNames.length > 0) {
