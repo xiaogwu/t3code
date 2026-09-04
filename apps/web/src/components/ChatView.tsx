@@ -89,6 +89,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { readThreadTimelinePosition } from "../threadTimelinePositionStore";
 import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
@@ -4895,19 +4896,34 @@ export default function ChatView(props: ChatViewProps) {
 
   useEffect(() => {
     setPullRequestDialogState(null);
-    isAtEndRef.current = true;
     timelineScrollIntentRef.current = null;
-    timelineScrollModeRef.current = "following-end";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
     pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
+
+    const savedPosition = activeThreadKey ? readThreadTimelinePosition(activeThreadKey) : undefined;
+    if (savedPosition) {
+      // A saved mid-thread position must not re-pin to the bottom, even if
+      // the thread streamed new messages while away. The scroll-to-bottom
+      // pill is the way back to the edge, and — unlike showScrollDebouncer's
+      // suppressed flash while initialScrollAtEnd settles — it must be
+      // visible immediately on a restore.
+      isAtEndRef.current = false;
+      timelineScrollModeRef.current = "free-scrolling";
+      liveFollowUserScrollGenerationRef.current = null;
+      setTimelineLiveFollowEnabled(false);
+      setShowScrollToBottom(true);
+    } else {
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "following-end";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      setShowScrollToBottom(false);
+    }
     // activeThreadRef resets transitively with the active thread.
-  }, [activeThread?.id]);
+  }, [activeThread?.id, activeThreadKey]);
 
   // Command-palette content-match reveal. Must be declared after the
   // thread-change reset effect above: effects run in declaration order, and

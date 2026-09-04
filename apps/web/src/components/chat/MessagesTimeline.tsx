@@ -189,6 +189,11 @@ import {
   parseReviewCommentMessageSegments,
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
+import {
+  clearThreadTimelinePosition,
+  readThreadTimelinePosition,
+  saveThreadTimelinePosition,
+} from "../../threadTimelinePositionStore";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -583,6 +588,33 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     revertTurnCountByUserMessageId,
   ]);
   const rows = useStableRows(rawRows);
+
+  // A saved reading position restores the mount scroll index instead of the
+  // live edge. A citation/reveal request wins over a saved position — it is
+  // an explicit navigation to a specific message. The component remounts per
+  // thread (keyed in ChatView), so this mount-time lazy state is already
+  // per-thread and needs no extra keying.
+  const [restoreTarget] = useState<
+    { readonly index: number; readonly viewOffset: number; readonly rowId: string } | undefined
+  >(() => {
+    if (citationRequest !== null) return undefined;
+    const savedPosition = readThreadTimelinePosition(routeThreadKey);
+    if (!savedPosition) return undefined;
+    const resolved = resolveWorkGroupScrollIndex(rows, {
+      entryId: savedPosition.rowId,
+      offset: savedPosition.offsetWithinRow,
+    });
+    return resolved ? { ...resolved, rowId: savedPosition.rowId } : undefined;
+  });
+  const initialScrollIndex = restoreTarget
+    ? { index: restoreTarget.index, viewOffset: restoreTarget.viewOffset }
+    : undefined;
+  const [restoringPosition, setRestoringPosition] = useState(restoreTarget !== undefined);
+  // handleScroll reads the guard through a ref so a stale closure can never
+  // keep it on forever, and so the callback is not recreated on the flip.
+  // Both are written together in handleLoad, never during render.
+  const restoringPositionRef = useRef(restoreTarget !== undefined);
+
   const bookmarksByMessageId = useMemo(() => {
     const map = new Map<MessageId, Array<AssistantThreadBookmark>>();
     for (const bookmark of threadBookmarks ?? []) {
@@ -631,6 +663,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   });
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
+  // The citation reveal and the restored reading position each pin their own
+  // row through `alwaysRender` so LegendList measures it even outside its
+  // small bootstrap render window. Two spreads of the same prop would let the
+  // last one silently win, so both are merged into one `keys` array here.
+  const alwaysRender = useMemo(() => {
+    const keys = [
+      ...(citationAlwaysRender?.keys ?? []),
+      ...(restoringPosition && restoreTarget ? [restoreTarget.rowId] : []),
+    ];
+    return keys.length > 0 ? { keys } : undefined;
+  }, [citationAlwaysRender, restoringPosition, restoreTarget]);
+  const handleLoad = useCallback(() => {
+    const list = listRef.current;
+    const element = list?.getScrollableNode?.();
+    if (restoreTarget && list && element) {
+      // Bootstrap can report the restored target before the DOM has applied
+      // it. Reconcile once at load, before releasing the measured anchor row.
+      const offset = Math.max(
+        0,
+        Math.min(list.getState().scroll, element.scrollHeight - element.clientHeight),
+      );
+      if (Math.abs(element.scrollTop - offset) > 1) {
+        void list.scrollToOffset({ offset, animated: false });
+      }
+    }
+    restoringPositionRef.current = false;
+    setRestoringPosition(false);
+    onCitationListLoad();
+  }, [listRef, onCitationListLoad, restoreTarget]);
   const handleAnchorReady = useCallback(
     (info: { anchorIndex: number | undefined; size: number }) => {
       if (anchorMessageId !== null && info.anchorIndex !== undefined) {
@@ -659,6 +720,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (isAtEnd !== undefined && !citationPositioning) {
       onIsAtEndChange(isAtEnd);
     }
+    // A citation reveal is driving the scroll, not the user, and a restore's
+    // own settling scroll events must not overwrite the position it is
+    // restoring to.
+    if (state && isAtEnd !== undefined && !citationPositioning && !restoringPositionRef.current) {
+      if (isAtEnd) {
+        clearThreadTimelinePosition(routeThreadKey);
+      } else {
+        const anchor = resolveWorkGroupScrollAnchor(state);
+        if (anchor) {
+          saveThreadTimelinePosition(routeThreadKey, {
+            rowId: anchor.rowId,
+            offsetWithinRow: anchor.offsetWithinRow,
+          });
+        }
+      }
+    }
     if (!state || minimapItems.length === 0) {
       return;
     }
@@ -681,7 +758,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       strip.dataset.inView = inView ? "true" : "false";
     }
-  }, [citationPositioning, listRef, minimapItems, minimapStripMap, onIsAtEndChange]);
+  }, [
+    citationPositioning,
+    listRef,
+    minimapItems,
+    minimapStripMap,
+    onIsAtEndChange,
+    routeThreadKey,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(handleScroll);
@@ -875,11 +959,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             getItemType={getItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
-            initialScrollAtEnd={citationRequest === null}
+            initialScrollAtEnd={citationRequest === null && initialScrollIndex === undefined}
+            {...(initialScrollIndex ? { initialScrollIndex } : {})}
             // Legend needs a data refresh to mount new pins without a scroll event.
             {...(readyCitationRequest ? { dataVersion: readyCitationRequest.key } : {})}
-            {...(citationAlwaysRender ? { alwaysRender: citationAlwaysRender } : {})}
-            onLoad={onCitationListLoad}
+            {...(alwaysRender ? { alwaysRender } : {})}
+            onLoad={handleLoad}
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
             maintainScrollAtEnd={
