@@ -1,10 +1,12 @@
 import {
   type AssistantCitation,
+  type AssistantThreadBookmark,
   type EnvironmentId,
   type MessageId,
   type MessageReplyReference,
   type ScopedThreadRef,
   type ServerProviderSkill,
+  type ThreadBookmarkId,
   type ToolActivityIcon,
   type TurnId,
 } from "@t3tools/contracts";
@@ -79,6 +81,7 @@ import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import { T3Wordmark } from "../T3Wordmark";
 import {
+  BookmarkIcon,
   BotIcon,
   BrainIcon,
   CheckIcon,
@@ -196,6 +199,7 @@ import {
 
 interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
+  bookmarksByMessageId: ReadonlyMap<MessageId, ReadonlyArray<AssistantThreadBookmark>>;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
   routeThreadKey: string;
@@ -316,6 +320,11 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  threadBookmarks?: ReadonlyArray<AssistantThreadBookmark>;
+  onToggleThreadBookmark?: (
+    citation: AssistantCitation,
+    existingBookmarkId: ThreadBookmarkId | null,
+  ) => void;
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
   isWorking: boolean;
@@ -371,6 +380,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   citationRequest = null,
   citationHistoryLoading = false,
   onCiteAssistantText,
+  threadBookmarks,
+  onToggleThreadBookmark,
   isWorking,
   isPreparingWorktree = false,
   isCompacting = false,
@@ -572,17 +583,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     revertTurnCountByUserMessageId,
   ]);
   const rows = useStableRows(rawRows);
-  const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  const bookmarksByMessageId = useMemo(() => {
+    const map = new Map<MessageId, Array<AssistantThreadBookmark>>();
+    for (const bookmark of threadBookmarks ?? []) {
+      const forMessage = map.get(bookmark.citation.messageId) ?? [];
+      forMessage.push(bookmark);
+      map.set(bookmark.citation.messageId, forMessage);
+    }
+    return map;
+  }, [threadBookmarks]);
+  const minimapItems = useMemo(
+    () => deriveTimelineMinimapItems(rows, bookmarksByMessageId),
+    [bookmarksByMessageId, rows],
+  );
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
+  // A bookmark points at a text range inside a message, not at the message top.
+  // Scrolling its row into view leaves a quote near the end of a long response
+  // offscreen, so reuse the citation reveal, which measures the resolved range.
+  const [bookmarkReveal, setBookmarkReveal] = useState<{
+    readonly request: AssistantCitationRequest;
+    readonly urlCitationKey: string | null;
+  } | null>(null);
+  const bookmarkRevealCountRef = useRef(0);
+  const urlCitationKey = citationRequest?.key ?? null;
+  // A link-driven citation that arrived after the reveal outranks it.
+  const activeCitationRequest =
+    bookmarkReveal !== null && bookmarkReveal.urlCitationKey === urlCitationKey
+      ? bookmarkReveal.request
+      : citationRequest;
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
     onListLoad: onCitationListLoad,
     alwaysRender: citationAlwaysRender,
   } = useAssistantCitationTarget({
-    request: citationRequest,
+    request: activeCitationRequest,
     entries: timelineEntries,
     rows,
     listRef,
@@ -717,6 +754,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       citationRequest: readyCitationRequest,
+      bookmarksByMessageId,
       listRef,
       timestampFormat,
       routeThreadKey,
@@ -744,6 +782,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [
       readyCitationRequest,
+      bookmarksByMessageId,
       listRef,
       timestampFormat,
       routeThreadKey,
@@ -823,7 +862,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             <AssistantSelectionToolbar
               viewport={timelineViewportElement}
               threadRef={citationThreadRef}
+              {...(threadBookmarks ? { bookmarks: threadBookmarks } : {})}
               onCite={onCiteAssistantText}
+              {...(onToggleThreadBookmark ? { onToggleBookmark: onToggleThreadBookmark } : {})}
             />
           ) : null}
           <LegendList<MessagesTimelineRow>
@@ -878,8 +919,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             hasPersistentGutter={minimapHasPersistentGutter}
             hitStripWidth={minimapHitStripWidth}
             stripMap={minimapStripMap}
+            {...(onToggleThreadBookmark
+              ? {
+                  onRemoveBookmark: (bookmark: AssistantThreadBookmark) =>
+                    onToggleThreadBookmark(bookmark.citation, bookmark.id),
+                }
+              : {})}
             onSelect={(item) => {
               onManualNavigation();
+              if (item.kind === "bookmark") {
+                // Re-clicking the same bookmark must re-activate, so the key
+                // carries a counter rather than only the bookmark id.
+                bookmarkRevealCountRef.current += 1;
+                setBookmarkReveal({
+                  request: {
+                    citation: item.bookmark.citation,
+                    key: `bookmark:${item.bookmark.id}:${bookmarkRevealCountRef.current}`,
+                  },
+                  urlCitationKey,
+                });
+                return;
+              }
               void listRef.current?.scrollToIndex({
                 index: item.rowIndex,
                 animated: true,
@@ -901,12 +961,27 @@ function getItemType(item: MessagesTimelineRow) {
   return item.kind === "message" ? `message:${item.message.role}` : item.kind;
 }
 
-interface TimelineMinimapItem {
-  readonly id: string;
-  readonly rowIndex: number;
-  readonly userText: string | null;
-  readonly assistantText: string | null;
-}
+/**
+ * One line on the rail. Prompts carry the turn structure; bookmarks sit between
+ * the two prompts that bracket them, ordered by where they fall in the turn, so
+ * a bookmark reads as its own stop rather than a dot interpolated onto a prompt.
+ */
+export type TimelineMinimapItem =
+  | {
+      readonly kind: "prompt";
+      readonly id: string;
+      readonly rowIndex: number;
+      readonly userText: string | null;
+      readonly assistantText: string | null;
+    }
+  | {
+      readonly kind: "bookmark";
+      readonly id: string;
+      readonly rowIndex: number;
+      readonly bookmark: AssistantThreadBookmark;
+      /** The prompt this bookmark's turn belongs to, shown under the quote. */
+      readonly userText: string | null;
+    };
 
 interface TimelinePositionState {
   readonly contentLength?: number;
@@ -916,22 +991,51 @@ interface TimelinePositionState {
   readonly sizeAtIndex?: (index: number) => number | undefined;
 }
 
-function deriveTimelineMinimapItems(
+export function deriveTimelineMinimapItems(
   rows: ReadonlyArray<MessagesTimelineRow>,
+  bookmarksByMessageId: ReadonlyMap<MessageId, ReadonlyArray<AssistantThreadBookmark>>,
 ): TimelineMinimapItem[] {
   const items: TimelineMinimapItem[] = [];
+  // Tracks the prompt whose turn we are inside, so a bookmark on an assistant
+  // message can name the prompt that produced it.
+  let currentUserText: string | null = null;
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
-    if (row?.kind !== "message" || row.message.role !== "user") {
+    if (row?.kind !== "message") {
       continue;
     }
 
-    items.push({
-      id: row.id,
-      rowIndex: index,
-      userText: compactMinimapPreview(row.message.text),
-      assistantText: compactMinimapPreview(resolveFinalAssistantTextForTurn(rows, index)),
-    });
+    if (row.message.role === "user") {
+      currentUserText = compactMinimapPreview(row.message.text);
+      items.push({
+        kind: "prompt",
+        id: row.id,
+        rowIndex: index,
+        userText: currentUserText,
+        assistantText: compactMinimapPreview(resolveFinalAssistantTextForTurn(rows, index)),
+      });
+      continue;
+    }
+
+    if (row.message.role !== "assistant" || bookmarksByMessageId.size === 0) {
+      continue;
+    }
+    const messageBookmarks = bookmarksByMessageId.get(row.message.id);
+    if (!messageBookmarks || messageBookmarks.length === 0) {
+      continue;
+    }
+    // Row order already sequences messages within the turn; sorting by anchor
+    // offset sequences several bookmarks inside one message.
+    const ordered = [...messageBookmarks].sort((a, b) => a.citation.start - b.citation.start);
+    for (const bookmark of ordered) {
+      items.push({
+        kind: "bookmark",
+        id: `bookmark:${bookmark.id}`,
+        rowIndex: index,
+        bookmark,
+        userText: currentUserText,
+      });
+    }
   }
   return items;
 }
@@ -981,12 +1085,14 @@ function TimelineMinimap({
   items,
   stripMap,
   onSelect,
+  onRemoveBookmark,
 }: {
   hasPersistentGutter: boolean;
   hitStripWidth: number;
   items: ReadonlyArray<TimelineMinimapItem>;
   stripMap: Map<string, HTMLSpanElement>;
   onSelect: (item: TimelineMinimapItem) => void;
+  onRemoveBookmark?: (bookmark: AssistantThreadBookmark) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
@@ -1037,7 +1143,13 @@ function TimelineMinimap({
     [items.length],
   );
 
-  if (items.length < TIMELINE_MINIMAP_MIN_ITEMS) {
+  // Counts prompts, not lines: bookmarks must not be what lifts a one-prompt
+  // thread over the threshold, since the rail exists to show turn structure.
+  const promptCount = items.reduce(
+    (total, item) => (item.kind === "prompt" ? total + 1 : total),
+    0,
+  );
+  if (promptCount < TIMELINE_MINIMAP_MIN_ITEMS) {
     return null;
   }
 
@@ -1054,7 +1166,11 @@ function TimelineMinimap({
     >
       <div className="relative h-full w-full select-none">
         <button
-          aria-label={`Jump to message: ${activeItem?.userText ?? "User message"}`}
+          aria-label={
+            activeItem?.kind === "bookmark"
+              ? `Jump to bookmark: ${activeItem.bookmark.citation.text}`
+              : `Jump to message: ${activeItem?.userText ?? "User message"}`
+          }
           className={cn(
             "absolute top-1/2 left-3 -translate-y-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
             // The strip is width-capped to the side gutter so it never overlays
@@ -1113,13 +1229,22 @@ function TimelineMinimap({
             const top = `${resolveTimelineMinimapTopPercent(index, items.length)}%`;
             const activeDistance =
               resolvedActiveIndex === null ? null : Math.abs(index - resolvedActiveIndex);
+            const isBookmark = item.kind === "bookmark";
             return (
               <span
                 aria-hidden="true"
                 className={cn(
-                  "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full bg-muted-foreground/35 transition-[background-color,width] duration-150 data-[in-view=true]:bg-foreground/90",
+                  "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full transition-[background-color,width] duration-150",
+                  // Bookmarks read in the accent colour and skip the in-view
+                  // treatment, so they stay distinguishable from the prompt
+                  // that happens to be on screen.
+                  isBookmark
+                    ? "bg-primary/70"
+                    : "bg-muted-foreground/35 data-[in-view=true]:bg-foreground/90",
                   activeDistance === 0
-                    ? "w-6 bg-muted-foreground/75"
+                    ? isBookmark
+                      ? "w-6 bg-primary"
+                      : "w-6 bg-muted-foreground/75"
                     : activeDistance === 1
                       ? "w-4"
                       : activeDistance === 2
@@ -1128,6 +1253,7 @@ function TimelineMinimap({
                 )}
                 data-in-view="false"
                 data-minimap-strip
+                data-minimap-strip-kind={item.kind}
                 key={item.id}
                 ref={(node) => {
                   if (node) {
@@ -1151,21 +1277,69 @@ function TimelineMinimap({
               }}
             >
               <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
-                <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
-                  {activeItem.userText ?? "User message"}
-                </span>
-                {activeItem.assistantText ? (
-                  <span
-                    className="mt-1 max-h-[3.75rem] overflow-hidden text-muted-foreground text-sm leading-5"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 3,
-                    }}
-                  >
-                    {activeItem.assistantText}
-                  </span>
-                ) : null}
+                {activeItem.kind === "bookmark" ? (
+                  <>
+                    <span className="flex items-start gap-2.5">
+                      <BookmarkIcon
+                        aria-hidden="true"
+                        className="mt-0.5 size-4 shrink-0 fill-current text-primary"
+                      />
+                      {/* The accent rule reads the quote as quoted material,
+                          which the prompt line below deliberately does not. */}
+                      <span
+                        className="min-w-0 flex-1 border-primary/60 border-l-2 pl-2.5 text-sm font-medium leading-5"
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 3,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {activeItem.bookmark.citation.text}
+                      </span>
+                      {onRemoveBookmark ? (
+                        <button
+                          aria-label="Remove bookmark"
+                          className="-mt-1 -mr-1 shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemoveBookmark(activeItem.bookmark);
+                          }}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          type="button"
+                        >
+                          <XIcon aria-hidden="true" className="size-3.5" />
+                        </button>
+                      ) : null}
+                    </span>
+                    {activeItem.userText ? (
+                      <span className="mt-2.5 flex border-border/50 border-t pt-2 text-xs leading-4">
+                        <span className="shrink-0 text-muted-foreground">from&nbsp;</span>
+                        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
+                          {activeItem.userText}
+                        </span>
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
+                      {activeItem.userText ?? "User message"}
+                    </span>
+                    {activeItem.assistantText ? (
+                      <span
+                        className="mt-1 max-h-[3.75rem] overflow-hidden text-muted-foreground text-sm leading-5"
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 3,
+                        }}
+                      >
+                        {activeItem.assistantText}
+                      </span>
+                    ) : null}
+                  </>
+                )}
               </span>
             </span>
           ) : null}
@@ -1585,6 +1759,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const messageBookmarks = ctx.bookmarksByMessageId.get(row.message.id);
 
   return (
     <>
@@ -1598,6 +1773,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           itemKey={row.id}
           request={ctx.citationRequest}
           listRef={ctx.listRef}
+          {...(messageBookmarks ? { bookmarks: messageBookmarks } : {})}
         >
           <ChatMarkdown
             text={messageText}
