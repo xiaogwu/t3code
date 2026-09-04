@@ -1,6 +1,7 @@
 import {
   ContextMenuItemSchema,
   DesktopAppBrandingSchema,
+  DesktopDockIconSchema,
   DesktopEnvironmentBootstrapSchema,
   DesktopThemeSchema,
   EDITORS,
@@ -288,6 +289,16 @@ export const setTheme = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.setTheme")(function* (theme) {
     const electronTheme = yield* ElectronTheme.ElectronTheme;
     yield* electronTheme.setSource(theme);
+  }),
+});
+
+export const setDockIcon = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_DOCK_ICON_CHANNEL,
+  payload: DesktopDockIconSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.setDockIcon")(function* ({ dataUrl }) {
+    const electronApp = yield* ElectronApp.ElectronApp;
+    yield* electronApp.setDockIcon(dataUrl);
   }),
 });
 

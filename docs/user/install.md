@@ -32,6 +32,9 @@ or use a package manager:
 | Arch Linux         | `yay -S t3code-bin`             |
 | Arch Linux nightly | `yay -S t3code-nightly-bin`     |
 
+On macOS, the running app's Dock icon follows the colors of the active T3 Code theme. Finder and
+Launchpad continue to show the installed build's regular app icon.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects

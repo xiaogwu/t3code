@@ -183,7 +183,10 @@ export const make = ElectronApp.of({
     }),
   setDockIcon: (iconPath) =>
     Effect.sync(() => {
-      Electron.app.dock?.setIcon(iconPath);
+      const icon = iconPath.startsWith("data:image/")
+        ? Electron.nativeImage.createFromDataURL(iconPath)
+        : iconPath;
+      Electron.app.dock?.setIcon(icon);
     }),
   appendCommandLineSwitch: (switchName, value) =>
     Effect.sync(() => {

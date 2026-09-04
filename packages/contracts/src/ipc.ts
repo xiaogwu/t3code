@@ -168,6 +168,9 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+export type DesktopDockIcon = Readonly<{
+  dataUrl: string;
+}>;
 export type DesktopUpdateChannel = "latest" | "nightly";
 export type DesktopAppStageLabel = "Alpha" | "Dev" | "Nightly";
 
@@ -183,6 +186,11 @@ export const DesktopUpdateStatusSchema = Schema.Literals([
 ]);
 export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"]);
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
+export const DesktopDockIconSchema = Schema.Struct({
+  dataUrl: Schema.String.check(Schema.isPattern(/^data:image\/png;base64,/)).check(
+    Schema.isMaxLength(2_000_000),
+  ),
+});
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Dev", "Nightly"]);
 
@@ -1116,6 +1124,8 @@ export interface DesktopBridge {
    */
   pickThemeFiles?: () => Promise<readonly PickedThemeFile[] | null>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
+  /** Optional while older desktop shells can host a newer web client. */
+  setDockIcon?: (icon: DesktopDockIcon) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },
