@@ -61,7 +61,12 @@ describe("desktop Dock icon", () => {
 
   it("reports the half it fell back to when a theme lacks the requested one", async () => {
     const { dockIconPaletteFor } = await import("./desktopDockIcon");
-    const lightOnly = { ...GROVE_THEME, variants: undefined };
+    const lightOnly = {
+      id: GROVE_THEME.id,
+      label: GROVE_THEME.label,
+      appearance: GROVE_THEME.appearance,
+      colors: GROVE_THEME.colors,
+    };
 
     expect(dockIconPaletteFor(lightOnly, "dark")).toEqual({
       appearance: "light",
