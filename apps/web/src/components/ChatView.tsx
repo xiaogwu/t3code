@@ -2,6 +2,7 @@ import {
   type AssistantCitation,
   type ApprovalRequestId,
   type ChatFileAttachment,
+  type ThreadBookmarkId,
   DEFAULT_MODEL,
   type EnvironmentId,
   type MessageId,
@@ -1330,7 +1331,13 @@ function ChatViewContent(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const {
+    settleThread,
+    pinThread,
+    confirmAndUnpinThread,
+    bookmarkAssistantText,
+    unbookmarkAssistantText,
+  } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1517,6 +1524,17 @@ function ChatViewContent(props: ChatViewProps) {
       return inserted;
     },
     [composerRef],
+  );
+  const toggleThreadBookmark = useCallback(
+    (citation: AssistantCitation, existingBookmarkId: ThreadBookmarkId | null) => {
+      const target = scopeThreadRef(citation.environmentId, citation.threadId);
+      if (existingBookmarkId) {
+        void unbookmarkAssistantText(target, existingBookmarkId);
+      } else {
+        void bookmarkAssistantText(target, citation);
+      }
+    },
+    [bookmarkAssistantText, unbookmarkAssistantText],
   );
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -7803,6 +7821,8 @@ function ChatViewContent(props: ChatViewProps) {
                 citationRequest={citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 onCiteAssistantText={citeAssistantText}
+                {...(activeThread.bookmarks ? { threadBookmarks: activeThread.bookmarks } : {})}
+                onToggleThreadBookmark={toggleThreadBookmark}
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
                 key={activeThread.id}

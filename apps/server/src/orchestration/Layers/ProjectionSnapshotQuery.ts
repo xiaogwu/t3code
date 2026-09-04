@@ -15,6 +15,7 @@ import {
   ProjectScript,
   ProjectIconOverride,
   TurnId,
+  type AssistantThreadBookmark,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
@@ -51,6 +52,7 @@ import { ThreadPlanProgressService } from "../ThreadPlanProgress.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
+import { ProjectionThreadBookmark } from "../../persistence/Services/ProjectionThreadBookmarks.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
@@ -135,6 +137,7 @@ function mapProjectedMessage(row: Schema.Schema.Type<typeof ProjectionThreadMess
   } satisfies OrchestrationMessage;
 }
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
+const ProjectionThreadBookmarkDbRowSchema = ProjectionThreadBookmark;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
@@ -424,6 +427,27 @@ function mapProposedPlanRow(
   };
 }
 
+function mapBookmarkRow(
+  row: Schema.Schema.Type<typeof ProjectionThreadBookmarkDbRowSchema>,
+): AssistantThreadBookmark {
+  return {
+    id: row.bookmarkId,
+    citation: {
+      version: 1,
+      environmentId: row.environmentId,
+      threadId: row.threadId,
+      messageId: row.messageId,
+      text: row.text,
+      ...(row.comment === null ? {} : { comment: row.comment }),
+      start: row.startOffset,
+      end: row.endOffset,
+      prefix: row.prefix,
+      suffix: row.suffix,
+    },
+    createdAt: row.createdAt,
+  };
+}
+
 function mapThreadActivityRow(
   row: Schema.Schema.Type<typeof ProjectionThreadActivityDbRowSchema>,
 ): OrchestrationThreadActivity {
@@ -671,6 +695,28 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt"
         FROM projection_thread_proposed_plans
         ORDER BY thread_id ASC, created_at ASC, plan_id ASC
+      `,
+  });
+
+  const listThreadBookmarkRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadBookmarkDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          bookmark_id AS "bookmarkId",
+          thread_id AS "threadId",
+          environment_id AS "environmentId",
+          message_id AS "messageId",
+          text AS "text",
+          comment AS "comment",
+          start_offset AS "startOffset",
+          end_offset AS "endOffset",
+          prefix AS "prefix",
+          suffix AS "suffix",
+          created_at AS "createdAt"
+        FROM projection_thread_bookmarks
+        ORDER BY thread_id ASC, created_at ASC, bookmark_id ASC
       `,
   });
 
@@ -1148,6 +1194,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listThreadBookmarkRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadBookmarkDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          bookmark_id AS "bookmarkId",
+          thread_id AS "threadId",
+          environment_id AS "environmentId",
+          message_id AS "messageId",
+          text AS "text",
+          comment AS "comment",
+          start_offset AS "startOffset",
+          end_offset AS "endOffset",
+          prefix AS "prefix",
+          suffix AS "suffix",
+          created_at AS "createdAt"
+        FROM projection_thread_bookmarks
+        WHERE thread_id = ${threadId}
+        ORDER BY created_at ASC, bookmark_id ASC
+      `,
+  });
+
   const listThreadActivityRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
     Result: ProjectionThreadActivityDbRowSchema,
@@ -1374,7 +1443,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             'thread.activity-appended',
             'thread.turn-diff-completed',
             'thread.reverted',
-            'thread.session-set'
+            'thread.session-set',
+            'thread.bookmark.added',
+            'thread.bookmark.removed'
           )
       `,
   });
@@ -1759,6 +1830,14 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          listThreadBookmarkRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getSnapshot:listThreadBookmarks:query",
+                "ProjectionSnapshotQuery.getSnapshot:listThreadBookmarks:decodeRows",
+              ),
+            ),
+          ),
           listThreadActivityRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -1808,6 +1887,7 @@ pending_approval_requests AS (
             threadRows,
             messageRows,
             proposedPlanRows,
+            bookmarkRows,
             activityRows,
             sessionRows,
             checkpointRows,
@@ -1817,6 +1897,7 @@ pending_approval_requests AS (
             Effect.gen(function* () {
               const messagesByThread = new Map<string, Array<OrchestrationMessage>>();
               const proposedPlansByThread = new Map<string, Array<OrchestrationProposedPlan>>();
+              const bookmarksByThread = new Map<string, Array<AssistantThreadBookmark>>();
               const activitiesByThread = new Map<string, Array<OrchestrationThreadActivity>>();
               const checkpointsByThread = new Map<string, Array<OrchestrationCheckpointSummary>>();
               const sessionsByThread = new Map<string, OrchestrationSession>();
@@ -1854,6 +1935,13 @@ pending_approval_requests AS (
                   updatedAt: row.updatedAt,
                 });
                 proposedPlansByThread.set(row.threadId, threadProposedPlans);
+              }
+
+              for (const row of bookmarkRows) {
+                updatedAt = maxIso(updatedAt, row.createdAt);
+                const threadBookmarks = bookmarksByThread.get(row.threadId) ?? [];
+                threadBookmarks.push(mapBookmarkRow(row));
+                bookmarksByThread.set(row.threadId, threadBookmarks);
               }
 
               for (const row of activityRows) {
@@ -1988,6 +2076,7 @@ pending_approval_requests AS (
                 deletedAt: row.deletedAt,
                 messages: messagesByThread.get(row.threadId) ?? [],
                 proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
+                bookmarks: bookmarksByThread.get(row.threadId) ?? [],
                 activities: activitiesByThread.get(row.threadId) ?? [],
                 checkpoints: checkpointsByThread.get(row.threadId) ?? [],
                 session: sessionsByThread.get(row.threadId) ?? null,
@@ -2043,6 +2132,14 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          listThreadBookmarkRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getCommandReadModel:listThreadBookmarks:query",
+                "ProjectionSnapshotQuery.getCommandReadModel:listThreadBookmarks:decodeRows",
+              ),
+            ),
+          ),
           listThreadSessionRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -2071,7 +2168,15 @@ pending_approval_requests AS (
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, threadRows, proposedPlanRows, sessionRows, latestTurnRows, stateRows]) =>
+          ([
+            projectRows,
+            threadRows,
+            proposedPlanRows,
+            bookmarkRows,
+            sessionRows,
+            latestTurnRows,
+            stateRows,
+          ]) =>
             Effect.sync(() => {
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
@@ -2112,6 +2217,13 @@ pending_approval_requests AS (
                 }
                 updatedAt = maxIso(updatedAt, row.updatedAt);
               }
+              for (let index = 0; index < bookmarkRows.length; index += 1) {
+                const row = bookmarkRows[index];
+                if (!row) {
+                  continue;
+                }
+                updatedAt = maxIso(updatedAt, row.createdAt);
+              }
               for (let index = 0; index < sessionRows.length; index += 1) {
                 const row = sessionRows[index];
                 if (!row) {
@@ -2149,6 +2261,7 @@ pending_approval_requests AS (
                 latestTurnByThread.set(row.threadId, mapLatestTurn(row));
               }
               const proposedPlansByThread = new Map<string, Array<OrchestrationProposedPlan>>();
+              const bookmarksByThread = new Map<string, Array<AssistantThreadBookmark>>();
               const sessionByThread = new Map<string, OrchestrationSession>();
 
               for (let index = 0; index < sessionRows.length; index += 1) {
@@ -2167,6 +2280,16 @@ pending_approval_requests AS (
                 const threadProposedPlans = proposedPlansByThread.get(row.threadId) ?? [];
                 threadProposedPlans.push(mapProposedPlanRow(row));
                 proposedPlansByThread.set(row.threadId, threadProposedPlans);
+              }
+
+              for (let index = 0; index < bookmarkRows.length; index += 1) {
+                const row = bookmarkRows[index];
+                if (!row) {
+                  continue;
+                }
+                const threadBookmarks = bookmarksByThread.get(row.threadId) ?? [];
+                threadBookmarks.push(mapBookmarkRow(row));
+                bookmarksByThread.set(row.threadId, threadBookmarks);
               }
 
               for (let index = 0; index < threadRows.length; index += 1) {
@@ -2202,6 +2325,7 @@ pending_approval_requests AS (
                   deletedAt: row.deletedAt,
                   messages: [],
                   proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
+                  bookmarks: bookmarksByThread.get(row.threadId) ?? [],
                   activities: [],
                   checkpoints: [],
                   session: sessionByThread.get(row.threadId) ?? null,
@@ -2937,6 +3061,7 @@ pending_approval_requests AS (
         threadRow,
         messageRows,
         proposedPlanRows,
+        bookmarkRows,
         activities,
         checkpointRows,
         latestTurnRow,
@@ -2966,6 +3091,14 @@ pending_approval_requests AS (
             toPersistenceSqlOrDecodeError(
               "ProjectionSnapshotQuery.getThreadDetailById:listPlans:query",
               "ProjectionSnapshotQuery.getThreadDetailById:listPlans:decodeRows",
+            ),
+          ),
+        ),
+        listThreadBookmarkRowsByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadDetailById:listBookmarks:query",
+              "ProjectionSnapshotQuery.getThreadDetailById:listBookmarks:decodeRows",
             ),
           ),
         ),
@@ -3028,6 +3161,7 @@ pending_approval_requests AS (
         deletedAt: null,
         messages: messageRows.map(mapProjectedMessage),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),
+        bookmarks: bookmarkRows.map(mapBookmarkRow),
         activities,
         checkpoints: checkpointRows.map((row) => ({
           turnId: row.turnId,

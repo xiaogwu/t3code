@@ -2,6 +2,7 @@ import { pipe } from "effect/Function";
 import * as Arr from "effect/Array";
 import * as O from "effect/Order";
 import type {
+  AssistantThreadBookmark,
   MessageId,
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
@@ -21,6 +22,13 @@ export type ThreadDetailReducerResult =
 const proposedPlanOrder = O.combine<OrchestrationThread["proposedPlans"][number]>(
   O.mapInput(O.String, (p) => p.createdAt),
   O.mapInput(O.String, (p) => p.id),
+);
+
+// Mirrors the snapshot query's `created_at ASC, bookmark_id ASC`, so a live
+// event and a fresh load agree on order.
+const bookmarkOrder = O.combine<AssistantThreadBookmark>(
+  O.mapInput(O.String, (bookmark) => bookmark.createdAt),
+  O.mapInput(O.String, (bookmark) => bookmark.id),
 );
 
 const checkpointOrder = O.mapInput(
@@ -204,6 +212,34 @@ export function applyThreadDetailEvent(
           ...thread,
           pinnedAt: null,
           pinOrderKey: null,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    // Re-sorted rather than just appended so this array matches the order a
+    // snapshot load produces (`created_at ASC, bookmark_id ASC`), which an
+    // out-of-order or replayed delivery would otherwise diverge from.
+    case "thread.bookmark.added": {
+      const added = event.payload.bookmark;
+      const kept = (thread.bookmarks ?? []).filter((bookmark) => bookmark.id !== added.id);
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          bookmarks: Arr.sort(pipe(kept, Arr.append(added)), bookmarkOrder),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+    }
+
+    case "thread.bookmark.removed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          bookmarks: (thread.bookmarks ?? []).filter(
+            (bookmark) => bookmark.id !== event.payload.bookmarkId,
+          ),
           updatedAt: event.payload.updatedAt,
         },
       };

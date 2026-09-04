@@ -526,6 +526,17 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   ::highlight(t3-assistant-citation-comment) {
     background-color: color-mix(in oklab, var(--primary) 45%, transparent);
   }
+  /* Held highlight for bookmarked ranges. Underlined as well as tinted: the
+     tint alone has to stay below the comment highlight above (so a pulse still
+     reads on top of it), and at that strength it is too faint to find by eye
+     when scanning a long thread. */
+  ::highlight(t3-thread-bookmark) {
+    background-color: color-mix(in oklab, var(--primary) 28%, transparent);
+    text-decoration-line: underline;
+    text-decoration-color: var(--primary);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+  }
   :root {
     /* Keep the original T3 Code artwork palettes as the defaults. Built-in
        themes override them with their own pigments in the components layer. */

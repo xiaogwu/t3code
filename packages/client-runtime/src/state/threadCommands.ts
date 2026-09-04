@@ -8,10 +8,12 @@ import {
   createEnvironmentRpcCommand,
 } from "./runtime.ts";
 import {
+  type AddThreadBookmarkInput,
   type ArchiveThreadInput,
   type CreateThreadInput,
   type DeleteThreadInput,
   type InterruptThreadTurnInput,
+  type RemoveThreadBookmarkInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type RevertThreadCheckpointInput,
@@ -28,10 +30,12 @@ import {
   type UnsettleThreadInput,
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
+  addThreadBookmark,
   archiveThread,
   createThread,
   deleteThread,
   interruptThreadTurn,
+  removeThreadBookmark,
   respondToThreadApproval,
   respondToThreadUserInput,
   revertThreadCheckpoint,
@@ -52,10 +56,12 @@ import {
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 export type {
+  AddThreadBookmarkInput,
   ArchiveThreadInput,
   CreateThreadInput,
   DeleteThreadInput,
   InterruptThreadTurnInput,
+  RemoveThreadBookmarkInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   RevertThreadCheckpointInput,
@@ -147,6 +153,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderPin: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-pin",
       execute: (input: ReorderPinnedThreadInput) => reorderPinnedThread(input),
+      scheduler,
+      concurrency,
+    }),
+    addBookmark: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:add-bookmark",
+      execute: (input: AddThreadBookmarkInput) => addThreadBookmark(input),
+      scheduler,
+      concurrency,
+    }),
+    removeBookmark: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:remove-bookmark",
+      execute: (input: RemoveThreadBookmarkInput) => removeThreadBookmark(input),
       scheduler,
       concurrency,
     }),

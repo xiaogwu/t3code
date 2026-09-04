@@ -20,6 +20,7 @@ import { ProjectionProjectRepository } from "../../persistence/Services/Projecti
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
+import { ProjectionThreadBookmarkRepository } from "../../persistence/Services/ProjectionThreadBookmarks.ts";
 import {
   type ProjectionThreadMessage,
   ProjectionThreadMessageRepository,
@@ -38,6 +39,7 @@ import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layer
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
+import { ProjectionThreadBookmarkRepositoryLive } from "../../persistence/Layers/ProjectionThreadBookmarks.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
@@ -60,6 +62,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threads: "projection.threads",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
+  threadBookmarks: "projection.thread-bookmarks",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
@@ -495,6 +498,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
+    const projectionThreadBookmarkRepository = yield* ProjectionThreadBookmarkRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -1195,6 +1199,46 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyThreadBookmarksProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyThreadBookmarksProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.created":
+          // Thread ids can be reused after a hard delete; a reused id must
+          // not inherit a prior incarnation's bookmarks.
+          yield* projectionThreadBookmarkRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
+        case "thread.bookmark.added":
+          yield* projectionThreadBookmarkRepository.upsert({
+            bookmarkId: event.payload.bookmark.id,
+            threadId: event.payload.threadId,
+            environmentId: event.payload.bookmark.citation.environmentId,
+            messageId: event.payload.bookmark.citation.messageId,
+            text: event.payload.bookmark.citation.text,
+            comment: event.payload.bookmark.citation.comment ?? null,
+            startOffset: event.payload.bookmark.citation.start,
+            endOffset: event.payload.bookmark.citation.end,
+            prefix: event.payload.bookmark.citation.prefix,
+            suffix: event.payload.bookmark.citation.suffix,
+            createdAt: event.payload.bookmark.createdAt,
+          });
+          return;
+
+        case "thread.bookmark.removed":
+          yield* projectionThreadBookmarkRepository.deleteOne({
+            threadId: event.payload.threadId,
+            bookmarkId: event.payload.bookmarkId,
+          });
+          return;
+
+        default:
+          return;
+      }
+    });
+
     const applyThreadActivitiesProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadActivitiesProjection",
     )(function* (event, _attachmentSideEffects) {
@@ -1765,6 +1809,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadProposedPlansProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.threadBookmarks,
+        apply: applyThreadBookmarksProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
         apply: applyThreadActivitiesProjection,
       },
@@ -1952,6 +2000,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
+  Layer.provideMerge(ProjectionThreadBookmarkRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),

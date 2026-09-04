@@ -778,6 +778,68 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.bookmark.add": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      // Idempotent by re-emission: a retry with the same client-generated
+      // bookmarkId re-emits the existing bookmark rather than overwriting
+      // its anchor, so a raced duplicate cannot silently move it.
+      const existing = (thread.bookmarks ?? []).find(
+        (bookmark) => bookmark.id === command.bookmarkId,
+      );
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.bookmark.added",
+        payload: {
+          threadId: command.threadId,
+          bookmark: existing ?? {
+            id: command.bookmarkId,
+            citation: command.citation,
+            createdAt: occurredAt,
+          },
+          updatedAt: existing ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "thread.bookmark.remove": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Idempotent by re-emission (see thread.settle): removing a bookmark
+      // that is already gone lands on the same absent state without
+      // churning updatedAt.
+      const exists = (thread.bookmarks ?? []).some(
+        (bookmark) => bookmark.id === command.bookmarkId,
+      );
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.bookmark.removed",
+        payload: {
+          threadId: command.threadId,
+          bookmarkId: command.bookmarkId,
+          updatedAt: exists ? occurredAt : thread.updatedAt,
+        },
+      };
+    }
+
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,

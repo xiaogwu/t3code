@@ -16,6 +16,8 @@ import {
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
+  ThreadBookmarkAddedPayload,
+  ThreadBookmarkRemovedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
@@ -458,6 +460,48 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    case "thread.bookmark.added":
+      return decodeForEvent(ThreadBookmarkAddedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              bookmarks: [
+                ...(thread.bookmarks ?? []).filter(
+                  (bookmark) => bookmark.id !== payload.bookmark.id,
+                ),
+                payload.bookmark,
+              ],
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.bookmark.removed":
+      return decodeForEvent(
+        ThreadBookmarkRemovedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              bookmarks: (thread.bookmarks ?? []).filter(
+                (bookmark) => bookmark.id !== payload.bookmarkId,
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.meta-updated":

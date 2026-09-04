@@ -1,5 +1,10 @@
 import type { LegendListRef } from "@legendapp/list/react";
-import type { AssistantCitation, MessageId, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  AssistantCitation,
+  AssistantThreadBookmark,
+  MessageId,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import {
   resolveAssistantCitationRange,
@@ -342,12 +347,78 @@ export function observeAssistantCitationSource({
   return dispose;
 }
 
+const BOOKMARK_HIGHLIGHT_NAME = "t3-thread-bookmark";
+
+/**
+ * Holds a highlight over every bookmarked range for as long as this message
+ * is mounted (the timeline is virtualized, so that is the whole lifetime).
+ * Copies observeAssistantCitationCommentSource's pattern: re-anchor via
+ * resolveAssistantCitationRange on any mutation, own only this component's
+ * ranges in the shared registry entry so unrelated messages' bookmarks
+ * (added under the same highlight name) are untouched.
+ */
+function observeThreadBookmarkHighlights({
+  root,
+  viewport,
+  bookmarks,
+}: {
+  root: HTMLElement;
+  viewport: HTMLElement;
+  bookmarks: ReadonlyArray<AssistantThreadBookmark>;
+}): () => void {
+  const registry = typeof CSS !== "undefined" ? CSS.highlights : undefined;
+  let ownedRanges: Range[] = [];
+  let stopped = false;
+
+  const releaseOwnedRanges = () => {
+    const highlight = registry?.get(BOOKMARK_HIGHLIGHT_NAME);
+    if (highlight) {
+      for (const range of ownedRanges) highlight.delete(range);
+      if (highlight.size === 0) registry?.delete(BOOKMARK_HIGHLIGHT_NAME);
+    }
+    ownedRanges = [];
+  };
+
+  const rebuild = () => {
+    if (stopped) return;
+    releaseOwnedRanges();
+    if (
+      bookmarks.length === 0 ||
+      !root.isConnected ||
+      !viewport.contains(root) ||
+      typeof Highlight === "undefined" ||
+      !registry
+    ) {
+      return;
+    }
+    const highlight = registry.get(BOOKMARK_HIGHLIGHT_NAME) ?? new Highlight();
+    if (!registry.get(BOOKMARK_HIGHLIGHT_NAME)) registry.set(BOOKMARK_HIGHLIGHT_NAME, highlight);
+    for (const bookmark of bookmarks) {
+      const range = resolveAssistantCitationRange(root, bookmark.citation);
+      if (!range) continue;
+      highlight.add(range);
+      ownedRanges.push(range);
+    }
+  };
+
+  rebuild();
+  const observer = new MutationObserver(rebuild);
+  observer.observe(viewport, { childList: true, subtree: true, characterData: true });
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    observer.disconnect();
+    releaseOwnedRanges();
+  };
+}
+
 export function AssistantCitationSource({
   messageId,
   threadRef,
   itemKey,
   request,
   listRef,
+  bookmarks,
   children,
 }: {
   messageId: MessageId;
@@ -355,6 +426,7 @@ export function AssistantCitationSource({
   itemKey: string;
   request: AssistantCitationTarget | null;
   listRef: RefObject<LegendListRef | null>;
+  bookmarks?: ReadonlyArray<AssistantThreadBookmark>;
   children: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -364,6 +436,13 @@ export function AssistantCitationSource({
     if (!root || !list || !request || request.citation.messageId !== messageId) return;
     return observeAssistantCitationSource({ root, itemKey, request, list });
   }, [itemKey, listRef, messageId, request]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    const viewport = root?.closest<HTMLElement>("[data-assistant-citation-viewport]");
+    if (!root || !viewport || !bookmarks || bookmarks.length === 0) return;
+    return observeThreadBookmarkHighlights({ root, viewport, bookmarks });
+  }, [bookmarks]);
 
   return (
     <div
