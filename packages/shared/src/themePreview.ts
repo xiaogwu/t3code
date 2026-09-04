@@ -131,6 +131,15 @@ function oklabToHex(color: Oklab): string {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/**
+ * CSS gives a `circle` radial-gradient a farthest-corner ray by default, so
+ * renderers that need an explicit radius (SVG, canvas) have to reproduce it or
+ * the glow lands at a different size than the web preview's.
+ */
+export function themePreviewGlowRadius(center: readonly [x: number, y: number]): number {
+  return Math.hypot(Math.max(center[0], 1 - center[0]), Math.max(center[1], 1 - center[1]));
+}
+
 export function mixThemePreviewBase(colors: ThemePreviewColors, mode: ThemeAppearance): string {
   const spec = THEME_PREVIEW_RENDER_SPECS[mode]!;
   const canvas = parseOklab(colors.canvas);

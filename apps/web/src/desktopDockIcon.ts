@@ -1,8 +1,24 @@
 import type { DesktopBridge } from "@t3tools/contracts";
-import type { ThemeAppearance, ThemeColors, ThemePreference } from "./themePalette";
-import { getThemeColorsForMode, getThemeDefinition } from "./themePalette";
+import {
+  mixThemePreviewBase,
+  THEME_PREVIEW_RENDER_SPECS,
+  themePreviewGlowRadius,
+} from "@t3tools/shared/themePreview";
+import type {
+  ThemeAppearance,
+  ThemeColors,
+  ThemeDefinition,
+  ThemePreference,
+} from "./themePalette";
+import { getThemeColorsForMode, getThemeDefinition, themeColorToHex } from "./themePalette";
 
 type DesktopDockIconBridge = Pick<DesktopBridge, "setDockIcon">;
+
+/** The palette a Dock icon is drawn from, plus the appearance it belongs to. */
+export type DockIconPalette = Readonly<{
+  appearance: ThemeAppearance;
+  colors: ThemeColors;
+}>;
 
 const ICON_SIZE = 512;
 const T3_MARK_PATH =
@@ -14,7 +30,40 @@ function roundedSquare(context: CanvasRenderingContext2D): void {
   context.closePath();
 }
 
-export function createThemeDockIconDataUrl(colors: ThemeColors): string | null {
+// Canvas gradient stops need a concrete alpha, and `oklch()`/`color-mix()`
+// support in canvas color strings lags the CSS parser, so fade through hex.
+function withAlpha(color: string, alpha: number): string {
+  const hex = themeColorToHex(color);
+  if (!hex) return color;
+  const existing = hex.length > 7 ? Number.parseInt(hex.slice(7, 9), 16) / 255 : 1;
+  const channel = Math.round(Math.min(1, Math.max(0, alpha * existing)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex.slice(0, 7)}${channel}`;
+}
+
+/**
+ * Paints one of the preview spec's glows. The spec's offsets are fractions of
+ * a farthest-corner ray, so the glow covers the same share of the icon as it
+ * does of a settings preview orb.
+ */
+function paintGlow(
+  context: CanvasRenderingContext2D,
+  color: string,
+  spec: { center: readonly [x: number, y: number]; endOffset: number },
+  stops: ReadonlyArray<readonly [offset: number, alpha: number]>,
+): void {
+  const x = spec.center[0] * ICON_SIZE;
+  const y = spec.center[1] * ICON_SIZE;
+  const radius = themePreviewGlowRadius(spec.center) * ICON_SIZE;
+  const glow = context.createRadialGradient(x, y, 0, x, y, radius);
+  for (const [offset, alpha] of stops) glow.addColorStop(offset, withAlpha(color, alpha));
+  glow.addColorStop(1, withAlpha(color, 0));
+  context.fillStyle = glow;
+  context.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
+}
+
+export function createThemeDockIconDataUrl(palette: DockIconPalette): string | null {
   if (typeof document === "undefined" || typeof Path2D === "undefined") return null;
   const canvas = document.createElement("canvas");
   canvas.width = ICON_SIZE;
@@ -22,18 +71,33 @@ export function createThemeDockIconDataUrl(colors: ThemeColors): string | null {
   const context = canvas.getContext("2d");
   if (!context) return null;
 
+  const { appearance, colors } = palette;
+  const spec = THEME_PREVIEW_RENDER_SPECS[appearance];
+
   context.save();
   roundedSquare(context);
   context.clip();
 
-  const background = context.createLinearGradient(70, 34, 450, 490);
-  background.addColorStop(0, colors.messageAction);
-  background.addColorStop(0.48, colors.accent);
-  background.addColorStop(1, colors.focus);
-  context.fillStyle = background;
+  // The canvas carries the tile's light/dark identity, exactly as it does for
+  // the settings preview orbs: a near-true base with contained accent glows.
+  // Washing the tile in accent instead makes both appearances read alike,
+  // which is why a dark theme used to ship a bright icon.
+  context.fillStyle = mixThemePreviewBase(colors, appearance);
   context.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
 
-  context.strokeStyle = colors.accentForeground;
+  // The action color is a soft tint from the opposite corner, not a second
+  // light source — two bright hotspots read as headlights.
+  paintGlow(context, colors.messageAction, spec.action, [
+    [0, spec.action.startOpacity],
+    [spec.action.endOffset, 0],
+  ]);
+  paintGlow(context, colors.accent, spec.accent, [
+    [0, 1],
+    [spec.accent.middleOffset, spec.accent.middleOpacity],
+    [spec.accent.endOffset, 0],
+  ]);
+
+  context.strokeStyle = colors.text;
   context.lineWidth = 1;
   context.globalAlpha = 0.18;
   for (let position = 52; position < 492; position += 32) {
@@ -65,7 +129,9 @@ export function createThemeDockIconDataUrl(colors: ThemeColors): string | null {
   context.save();
   context.translate(0, 8);
   context.scale(4, 4);
-  context.fillStyle = colors.accentForeground;
+  // The mark tracks the palette's own text color, so it stays legible whether
+  // the base came out near-white or near-black.
+  context.fillStyle = colors.text;
   context.shadowColor = "rgba(0, 0, 0, 0.28)";
   context.shadowBlur = 5;
   context.shadowOffsetY = 2;
@@ -75,12 +141,27 @@ export function createThemeDockIconDataUrl(colors: ThemeColors): string | null {
   return canvas.toDataURL("image/png");
 }
 
-export function resolveThemeDockIconColors(
+/**
+ * Picks the half to draw. A theme without a half for the requested appearance
+ * falls back to the one it does define, and reports that half's own appearance
+ * so the tile is not mixed toward a base the palette never meant.
+ */
+export function dockIconPaletteFor(
+  definition: ThemeDefinition,
+  appearance: ThemeAppearance,
+): DockIconPalette {
+  const colors = getThemeColorsForMode(definition, appearance);
+  return colors
+    ? { appearance, colors }
+    : { appearance: definition.appearance, colors: definition.colors };
+}
+
+export function resolveThemeDockIconPalette(
   theme: ThemePreference,
   appearance: ThemeAppearance,
-): ThemeColors | null {
+): DockIconPalette | null {
   const definition = getThemeDefinition(theme);
-  return definition ? (getThemeColorsForMode(definition, appearance) ?? definition.colors) : null;
+  return definition ? dockIconPaletteFor(definition, appearance) : null;
 }
 
 export async function syncDesktopDockIconPreference(
@@ -89,9 +170,9 @@ export async function syncDesktopDockIconPreference(
   appearance: ThemeAppearance,
 ): Promise<boolean> {
   if (typeof bridge.setDockIcon !== "function") return false;
-  const colors = resolveThemeDockIconColors(theme, appearance);
-  if (!colors) return false;
-  const dataUrl = createThemeDockIconDataUrl(colors);
+  const palette = resolveThemeDockIconPalette(theme, appearance);
+  if (!palette) return false;
+  const dataUrl = createThemeDockIconDataUrl(palette);
   if (!dataUrl) return false;
   await bridge.setDockIcon({ dataUrl });
   return true;
