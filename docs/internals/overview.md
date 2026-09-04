@@ -1,11 +1,11 @@
 # Architecture
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+T3 Code keeps execution in the environment that owns the workspace. Web, desktop, and mobile
+clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
+provider credentials, or machine state for the environment's. The desktop app bundles a server,
+but its renderer follows the same boundary.
 
-T3 Code is a server runtime that owns agent sessions, workspaces, and version control, plus clients
-(web, desktop, mobile) that talk to it over one authenticated Effect RPC WebSocket. The server is the
-execution boundary: every provider process, terminal, git operation, and filesystem read happens
-there, never in the client.
+## Ownership boundaries
 
 ```
 ┌────────────────────────────────────────────────┐
@@ -29,62 +29,55 @@ there, never in the client.
 └────────────────────────────────────────────────┘
 ```
 
-## The RPC boundary
+The [RPC contract](../../packages/contracts/src/rpc.ts) is the boundary between independently
+versioned clients and servers. Subscriptions send the state a client needs, so a client viewing one
+thread does not pay for every thread's history. Authentication of a socket does not authorize every
+method on it. See [environment auth](./environment-auth.md).
 
-The client/server contract is an Effect RPC group, not a hand-rolled push protocol. [`rpc.ts`][rpc]
-declares `WS_METHODS` and assembles `WsRpcGroup`; each member is either unary or a server stream
-(`stream: true`). Streaming members such as `orchestration.subscribeShell`,
-`orchestration.subscribeThread`, `subscribeServerConfig`, and `terminal.attach` replace what used to
-be a broadcast push bus: a client subscribes to what it needs and the server pushes only on that
-subscription.
+Provider-specific behavior belongs behind an adapter. Orchestration works with normalized commands
+and events, so adding a provider should not require branches throughout the domain or clients.
+See [provider constraints](./providers.md).
 
-[`ws.ts`][ws] serves the group. `websocketRpcRouteLayer` mounts `GET /ws`, authenticates the upgrade
-through `EnvironmentAuth.authenticateWebSocketUpgrade`, then hands the socket to
-`RpcServer.toHttpEffectWebsocket`. Authorization is per method: `RPC_REQUIRED_SCOPE` maps each method
-to a scope, and `authorizeEffect`/`authorizeStream` enforce it. Holding a valid socket is not
-authorization to call everything on it. See [environment-auth.md](./environment-auth.md).
+## Durable intent and side effects
 
-On the client, [`session.ts`][session] opens the socket and builds the typed client.
-`RpcSessionFactory` is the service; a session exposes `client`, `initialConfig`, `ready`, `probe`,
-and `closed`. It performs one attempt and does not retry. Retry, backoff, and offline policy belong
-to the connection supervisor.
+The event log is the source of truth for orchestration state. The
+[engine](../../apps/server/src/orchestration/Layers/OrchestrationEngine.ts) serializes commands;
+the [decider](../../apps/server/src/orchestration/decider.ts) produces events without performing
+provider or filesystem work. Events, persisted projections, and the accepted command receipt commit
+in one database transaction. The in-memory state changes and subscribers receive events after that
+commit. This keeps command retries idempotent and prevents a persisted projection from getting
+ahead of the event log.
 
-## Shared client runtime
+Reactors perform side effects after intent has been recorded, then feed results back through
+commands. A command acknowledgement therefore means the intent committed, not that the provider,
+checkpoint, or other follow-up work finished. Keep external I/O out of the decider and the database
+transaction.
 
-`packages/client-runtime` holds every non-visual client concern: connection lifecycle,
-authentication, RPC, cached environment data, and domain state as Atom factories. Web and mobile
-compose it the same way (`apps/web/src/connection/runtime.ts` and
-`apps/mobile/src/connection/runtime.ts` mirror each other, differing only in platform-specific
-background-activity layers) and differ beyond that only in the platform layer they supply and the
-UI they build on top. React components never construct transports, retry loops,
-or RPC clients. See [connection-runtime.md](./connection-runtime.md).
+Persisted events must remain decodable on replay. Changing a schema affects old environments at
+startup as well as live RPC traffic. Compatibility work must account for stored history, not just
+what the newest client sends.
 
-## Orchestration is event-sourced
+## Turn completion and checkpoints
 
-The server does not mutate app state directly. Clients dispatch typed commands; the engine turns them
-into persisted events; projections derive the read model.
+A turn ending and its follow-up work settling are separate milestones. The
+[projector](../../apps/server/src/orchestration/projector.ts) settles the turn from its session
+status. A late checkpoint or diff must not extend the recorded turn duration or keep the client
+showing provider work as active.
 
-[`OrchestrationEngine.ts`][engine] serializes this. `dispatch` offers a `CommandEnvelope` onto
-`commandQueue` and awaits its result; a single worker fiber takes envelopes one at a time, so command
-processing is totally ordered. For each envelope `processEnvelope`:
+[Checkpoints](../../apps/server/src/checkpointing/CheckpointStore.ts) use hidden Git refs to
+capture workspace state without adding commits to the user's branch. A revert must coordinate
+workspace state with the provider conversation. A provider that cannot roll back its conversation
+must reject that operation before changing the filesystem.
 
-1. checks the durable command receipt, making retries idempotent;
-2. runs `decideOrchestrationCommand` ([`decider.ts`][decider]) to produce events from command plus
-   current state, pure and side-effect free;
-3. inside one SQL transaction, appends events to the event store, applies them to the in-memory read
-   model via [`projector.ts`][projector], projects them into persisted tables, and writes the
-   accepted receipt;
-4. after commit, swaps in the new read model, cleans up attachments, and publishes committed events
-   to subscribers. Attachment cleanup failures are logged and do not reject committed commands.
+## Waiting for asynchronous work
 
-Because persistence and projection share a transaction, the read model cannot durably disagree with
-the event log. On dispatch failure the engine rereads persisted events past the starting sequence and
-reconciles.
+Tests use [drainable workers](../../packages/shared/src/DrainableWorker.ts) to wait until both the
+queue and its current item have finished. An empty queue alone does not prove the worker is idle.
 
-Command and event names live in [`orchestration.ts`][contracts]. Some commands are client
-dispatchable (`thread.create`, `thread.turn.start`, `thread.approval.respond`); others are internal
-and produced only by server-side reactors (`thread.message.assistant.delta`,
-`thread.turn.diff.complete`).
+Runtime receipts mark specific test milestones. Their
+[production layer](../../apps/server/src/orchestration/Layers/RuntimeReceiptBus.ts) is a no-op;
+production behavior must use persisted state and events. These test signals are separate from the
+durable command receipts that make dispatch idempotent.
 
 A turn is complete when its session leaves `running` status, projected by
 `settledTurnStateForSessionStatus` in [`projector.ts`][projector]. Checkpoint work settling later

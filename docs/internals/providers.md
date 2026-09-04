@@ -1,11 +1,15 @@
-# Provider architecture
+# Provider constraints
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+Orchestration records intent and state without knowing which provider runs a thread. Provider
+protocols, account ownership, permissions, and capabilities belong at the
+[adapter boundary](../../apps/server/src/provider/Services/ProviderAdapter.ts). Normalize there
+instead of spreading provider checks through reactors and clients.
 
-A provider is the agent runtime that does the actual work. T3 Code supports several, and the
-orchestration layer does not know which one is behind a thread.
+A driver kind identifies an integration; an instance identifies one configuration and account
+lifecycle. Route work by instance, so two accounts using the same driver do not share mutable
+session or catalog state.
 
-## Built-in drivers
+## Process and account isolation
 
 [`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with eight entries:
 
@@ -20,65 +24,67 @@ orchestration layer does not know which one is behind a thread.
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]       |
 | `antigravity` | [`Drivers/AntigravityDriver.ts`][antigravity] |
 
-Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
-adapter in a child scope. Adapter implementations live beside them in
-`apps/server/src/provider/Layers/` (`CodexAdapter.ts`, `ClaudeAdapter.ts`, and so on) and conform to
-[`ProviderAdapter.ts`][adapter]. Read the driver plus its adapter to see how a specific agent's
-transport, config, and event shapes are mapped.
+Antigravity separates account profiles per instance while sharing installed executables across the
+environment. It forces file-based credential storage because the native macOS keychain entry would
+otherwise be shared across instances. The launch environment removes ambient Google credentials,
+so an instance cannot silently use another account or billing project.
+See [profile isolation](../../apps/server/src/provider/antigravityAuthSupport.ts).
 
-## Registry and routing
+The [Antigravity installer](../../apps/server/src/provider/AntigravityInstallation.ts) outlives
+client connections and provider-instance rebuilds. Releases are immutable, with an atomic pointer
+selecting the version for new processes. Running processes hold leases on their version. Updates
+and removal must respect those leases instead of replacing executables under a running agent.
 
-Two registries separate configuration from live processes:
+## Setup must not happen as a health-check side effect
 
-- [`ProviderInstanceRegistry`][instances] keys configured instances by `ProviderInstanceId`. Creating
-  one looks up the driver by `driverKind`, decodes `entry.config` with that driver's schema, opens a
-  child scope, and calls `driver.create`.
-- [`ProviderAdapterRegistry`][registry] resolves an instance ID to its live adapter via
-  `getByInstance`.
+Opening a provider session can start MCP servers, run hooks, or launch a login browser.
+[Grok probes](../../apps/server/src/provider/Layers/GrokProvider.ts) avoid authentication and
+session creation for this reason. Antigravity likewise reserves authenticated catalog sessions for
+explicit setup or model refresh; background checks use initialization only.
 
-[`ProviderService`][service] sits on top. It combines the adapter registry with the provider session
-directory to route session and turn operations for a thread, so callers name a thread, not an agent.
+[Antigravity sign-in](../../apps/server/src/provider/AntigravityAuth.ts) belongs to the initiating
+T3 auth session. The client carries the return URL back to the environment because the provider's
+loopback listener may be on another machine. Forward only the callback for the owned pending flow;
+a successful callback HTTP request is not proof that provider authentication finished. The native
+process owns token exchange and storage.
 
-`ProviderService.sendTurn` expands [assistant citations](./assistant-citations.md) into quoted
-reference data before dispatching to any adapter. Bound user comments remain distinct from the quoted
-assistant text. Persisted messages keep their serialized links.
+Antigravity sign-out closes admission to new processes and stops existing processes before clearing account
+metadata. Otherwise a helper or resumed session could retain the old account. Cached model lists
+do not establish current access, and an authoritative empty catalog must clear the old list.
 
-Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
-orchestration, contract, or client change is required for the common case.
+Antigravity text-generation helpers deny tool requests, but native hooks and MCP configuration can
+run before the prompt. They reject profiles with such configuration before launch. Prompt
+instructions and tool denial do not create a native sandbox.
+See [helper constraints](../../apps/server/src/textGeneration/AntigravityTextGeneration.ts).
 
-### Grok health check
+## Protocol traps
 
-`checkGrokProviderStatus` never opens an ACP session. It runs `grok --version`, then `grok models`
-for login state and model slugs, then a single ACP `initialize` and reads models from
-`_meta.modelState`. `authenticate` and `session/new` are skipped on purpose: `authenticate` can open
-a browser login and `session/new` boots every configured MCP server, both of which made background
-probes hang or surprise the user. A failed `initialize` degrades to `warning` with the CLI's model
-list instead of persisting `error` over a working install. The built-in `grok-build` slug is the
-CLI's product name, not an ACP model id. `applyGrokAcpModelSelection` treats it as "keep the
-session's current model" and never sends it in `session/set_model`.
+Codex async questions arrive as notifications and are answered with a new user message. There is
+no pending RPC response to send. Blocking questions still use the request/response path. The
+[adapter](../../apps/server/src/provider/Layers/CodexAdapter.ts) distinguishes them; the
+[decider](../../apps/server/src/orchestration/decider.ts) records an async answer and its user
+message together.
 
-## Antigravity ownership and protocol
+An async question can outlive the turn or a server restart. The engine reads that request's
+durable activity before resolving it because the in-memory command snapshot omits old activities.
+Do not infer that a request has disappeared merely because it is outside the recent window.
 
-[`AntigravityDriver`][antigravity] uses Google's official ACP executable. The instance config
-selects the ACP auth method: `oauth-personal` (default), `oauth-business`, `gemini-api-key`, or
-`agent-platform`. The two OAuth methods share the loopback sign-in flow below. The API key
-methods pass the configured key to the agent as `GEMINI_API_KEY` or `GOOGLE_API_KEY` and never
-open a browser. A GCP project and location are written to the profile's `settings.json` on each
-launch. The driver never reuses CLI credentials or ambient `GOOGLE_*` variables and never falls
-back to another method. Antigravity is disabled by default and supports multiple provider
-instances. The open driver and instance identifiers require no database migration.
+Capabilities must describe what the provider can actually do. Antigravity can capture workspace
+checkpoints but cannot roll back its conversation. The [checkpoint boundary](./overview.md#turn-completion-and-checkpoints)
+therefore rejects revert before touching files. Native permission and question option IDs must
+also survive normalization; a display label is not necessarily a valid reply.
 
-### Runtime installation
+## Attachments and stored history
 
-[`AntigravityInstallation`][antigravity-installation] belongs to the environment, outside
-WebSocket and provider-instance scopes. Instances share an explicit download operation and the
-completed runtime. Client disconnects and instance rebuilds do not cancel installation.
+Attachments live outside the project workspace. [ProviderService](../../apps/server/src/provider/Layers/ProviderService.ts)
+puts their environment-local paths in turn input and lets adapters choose native input formats.
+A path in the prompt does not grant filesystem access. Keep provider sandbox and approval rules
+in force; copying uploads into the project to bypass them changes that boundary.
 
-The fixed [release table][antigravity-release] contains official Google URLs, SHA-256 hashes,
-archive sizes, and the exact executable pair for each published host. Downloads stream to disk.
-Lazy `yauzl` entry streams extract only that pair, with member names, types, duplicates, and
-sizes checked. Validation runs ACP `initialize` in a temporary profile without authentication
-or a session. Progress updates are bounded, not sent for every network chunk.
+File attachments introduced a replay compatibility limit. Image-only clients cannot decode
+file-bearing messages, and an image-only server can fail the entire environment's startup when
+replaying one such event. Rollouts and downgrades must account for persisted history as well as
+current client support.
 
 Complete releases live in immutable version directories under the T3 home
 `tools/antigravity-acp/<platform>-<arch>/versions`. An atomic `active.json` change selects the
