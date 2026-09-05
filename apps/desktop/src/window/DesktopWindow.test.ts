@@ -103,6 +103,7 @@ function makeFakeBrowserWindow() {
       windowListeners.set(eventName, listener);
     }),
     restore: vi.fn(),
+    setBounds: vi.fn(),
     setBackgroundColor: vi.fn(),
     setAutoHideCursor: vi.fn(),
     setFullScreen: vi.fn(),
@@ -129,6 +130,7 @@ function makeFakeBrowserWindow() {
     setZoomLevel: webContents.setZoomLevel,
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
+    setBounds: window.setBounds,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
     webContentsListeners,
@@ -596,6 +598,21 @@ describe("DesktopWindow", () => {
         assert.equal(createdWindowOptions[0]?.height, 880);
         assert.equal(createdWindowOptions[0]?.x, 120);
         assert.equal(createdWindowOptions[0]?.y, 80);
+
+        // The OS may adjust a large hidden window between construction and
+        // first reveal. Reapply the saved geometry after show so the visible
+        // window still matches it.
+        fakeWindow.getBounds.mockReturnValue({ x: 0, y: 33, width: 1510, height: 1040 });
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
+
+        assert.deepEqual(fakeWindow.setBounds.mock.calls, [
+          [{ x: 120, y: 80, width: 1320, height: 880 }],
+        ]);
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -626,7 +643,15 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("window ready-to-show listener was not registered");
         }
         readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
         assert.equal(fakeWindow.maximize.mock.calls.length, 1);
+        assert.deepEqual(fakeWindow.setBounds.mock.calls, [
+          [{ x: 120, y: 80, width: 1320, height: 880 }],
+        ]);
+        assert.isBelow(
+          fakeWindow.setBounds.mock.invocationCallOrder[0]!,
+          fakeWindow.maximize.mock.invocationCallOrder[0]!,
+        );
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -683,6 +708,22 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("window bounds listeners were not registered");
         }
 
+        // Startup geometry notifications must not overwrite the restored
+        // bounds before the hidden window is revealed.
+        fakeWindow.getBounds.mockReturnValue({ x: 0, y: 0, width: 1510, height: 1084 });
+        move();
+        resize();
+        yield* TestClock.adjust(500);
+        yield* Effect.promise(() => Promise.resolve());
+        assert.deepEqual(mainWindowBoundsUpdates, []);
+
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
+
         fakeWindow.getBounds.mockReturnValue({ x: 120, y: 80, width: 1280, height: 840 });
         move();
         yield* TestClock.adjust(250);
@@ -725,6 +766,12 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
         close();
         yield* Effect.promise(() => Promise.resolve());
 
@@ -763,6 +810,20 @@ describe("DesktopWindow", () => {
         fakeWindow.isMaximized.mockReturnValue(true);
         fakeWindow.getBounds.mockReturnValue({ x: 0, y: 0, width: 1920, height: 1080 });
         fakeWindow.getNormalBounds.mockReturnValue({ x: 220, y: 140, width: 1380, height: 920 });
+        maximize();
+        yield* TestClock.adjust(500);
+        yield* Effect.promise(() => Promise.resolve());
+
+        assert.deepEqual(mainWindowBoundsUpdates, []);
+        assert.deepEqual(mainWindowMaximizedUpdates, []);
+
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
+
         maximize();
         yield* TestClock.adjust(500);
         yield* Effect.promise(() => Promise.resolve());
@@ -831,6 +892,13 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("window lifecycle listeners were not registered");
         }
 
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
+
         close();
         yield* Effect.promise(() => Promise.resolve());
         assert.deepEqual(mainWindowBoundsUpdates, []);
@@ -867,6 +935,12 @@ describe("DesktopWindow", () => {
         if (!resize) {
           return yield* Effect.die("window resize listener was not registered");
         }
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
         resize();
         yield* TestClock.adjust(250);
         fakeWindow.isFullScreen.mockReturnValue(true);
@@ -903,6 +977,12 @@ describe("DesktopWindow", () => {
         if (!resize) {
           return yield* Effect.die("window resize listener was not registered");
         }
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
         resize();
         yield* TestClock.adjust(250);
         fakeWindow.isMinimized.mockReturnValue(true);
@@ -994,6 +1074,12 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
         close();
         yield* Deferred.await(writeStarted);
         fakeWindow.isDestroyed.mockReturnValue(true);
@@ -1017,6 +1103,41 @@ describe("DesktopWindow", () => {
             height: 930,
           },
         ]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("does not persist startup bounds when flushed before the first reveal", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      fakeWindow.getBounds.mockReturnValue({ x: 0, y: 0, width: 1510, height: 1084 });
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const mainWindowBoundsUpdates: DesktopAppSettings.DesktopWindowBounds[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        mainWindowBoundsUpdates,
+        desktopSettings: {
+          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+          mainWindowBounds: { x: 120, y: 80, width: 1320, height: 880 },
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        yield* desktopWindow.flushMainWindowBounds;
+        const close = fakeWindow.windowListeners.get("close");
+        if (!close) {
+          return yield* Effect.die("window close listener was not registered");
+        }
+        close();
+        yield* Effect.promise(() => Promise.resolve());
+
+        assert.deepEqual(mainWindowBoundsUpdates, []);
       }).pipe(Effect.provide(layer));
     }),
   );
