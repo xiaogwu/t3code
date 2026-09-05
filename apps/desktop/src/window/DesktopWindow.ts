@@ -392,6 +392,10 @@ export const make = Effect.gen(function* () {
     }
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
+    // Electron can emit move/resize/maximize events while it applies the
+    // constructor bounds and before the hidden window is first revealed. Do
+    // not let that startup geometry overwrite the restored settings.
+    let initialRestorationComplete = false;
     let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
     const readPersistableBounds = (): DesktopAppSettings.DesktopWindowBounds | null => {
       if (window.isDestroyed()) {
@@ -411,7 +415,7 @@ export const make = Effect.gen(function* () {
     const fallbackWindowBounds = boundsPersistenceEnabled ? null : readPersistableBounds();
     const fallbackWindowMaximized = persistedSettings.mainWindowMaximized;
     const persistCurrentBounds = (): Fiber.Fiber<void, never> | undefined => {
-      if (!boundsPersistenceEnabled) {
+      if (!initialRestorationComplete || !boundsPersistenceEnabled) {
         return pendingBoundsPersistFiber;
       }
       const bounds = readPersistableBounds();
@@ -431,6 +435,9 @@ export const make = Effect.gen(function* () {
       return pendingBoundsPersistFiber;
     };
     const scheduleBoundsPersist = () => {
+      if (!initialRestorationComplete) {
+        return;
+      }
       if (!boundsPersistenceEnabled) {
         const currentBounds = readPersistableBounds();
         if (
@@ -755,10 +762,29 @@ export const make = Effect.gen(function* () {
       }
       // Reveal the real window, then close the connecting splash (if any) so the
       // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
-        window.maximize();
-      }
-      void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      void runPromise(
+        Effect.andThen(
+          Effect.andThen(
+            electronWindow.reveal(window),
+            Effect.sync(() => {
+              // macOS can constrain a large hidden window while preparing it for
+              // display. Reapply the validated normal bounds after show, while
+              // persistence is still gated, so that startup adjustment does not
+              // become the visible or next persisted size.
+              if (restoredPersistedBounds && !window.isDestroyed()) {
+                window.setBounds(persistedBounds);
+              }
+              if (persistedSettings.mainWindowMaximized && !window.isDestroyed()) {
+                window.maximize();
+              }
+              // Only start persisting after the saved bounds and maximized state
+              // have been fully reapplied to the revealed window.
+              initialRestorationComplete = true;
+            }),
+          ),
+          dismissConnectingSplash,
+        ),
+      );
     });
 
     loadApplication();
