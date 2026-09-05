@@ -314,6 +314,11 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
 // remeasure; ChatView's scroll-mode refs still gate when maintenance runs.
 const TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD = 1;
 
+// Settling passes needed to converge on a restored reading position. Measured
+// against estimated rows, a handful is enough; the cap only exists so an
+// unstable layout cannot ping-pong against the virtualizer forever.
+const MAX_RESTORE_CORRECTIONS = 24;
+
 // ---------------------------------------------------------------------------
 // Props (public API)
 // ---------------------------------------------------------------------------
@@ -612,8 +617,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [restoringPosition, setRestoringPosition] = useState(restoreTarget !== undefined);
   // handleScroll reads the guard through a ref so a stale closure can never
   // keep it on forever, and so the callback is not recreated on the flip.
-  // Both are written together in handleLoad, never during render.
+  // The guard is released by real user input, never by a timer or by `onLoad`:
+  // `onLoad` fires while rows above the anchor are still estimated at
+  // `estimatedItemSize`, so releasing there let the settling scroll events save
+  // a drifted anchor, which the next visit restored and drifted again.
   const restoringPositionRef = useRef(restoreTarget !== undefined);
+  // Bounded so an unstable layout cannot ping-pong against the virtualizer.
+  const restoreCorrectionsRef = useRef(0);
 
   const bookmarksByMessageId = useMemo(() => {
     const map = new Map<MessageId, Array<AssistantThreadBookmark>>();
@@ -674,24 +684,39 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ];
     return keys.length > 0 ? { keys } : undefined;
   }, [citationAlwaysRender, restoringPosition, restoreTarget]);
-  const handleLoad = useCallback(() => {
-    const list = listRef.current;
-    const element = list?.getScrollableNode?.();
-    if (restoreTarget && list && element) {
-      // Bootstrap can report the restored target before the DOM has applied
-      // it. Reconcile once at load, before releasing the measured anchor row.
-      const offset = Math.max(
-        0,
-        Math.min(list.getState().scroll, element.scrollHeight - element.clientHeight),
-      );
-      if (Math.abs(element.scrollTop - offset) > 1) {
-        void list.scrollToOffset({ offset, animated: false });
+  // Re-aim at the saved offset as measurement replaces estimates. Rows above
+  // the anchor start at `estimatedItemSize` and almost always measure taller,
+  // which grows the content above and leaves the viewport showing earlier
+  // content than was saved. Correcting on each settling pass converges on the
+  // saved offset instead of stopping at the first, pre-measurement guess.
+  const reassertRestorePosition = useCallback(
+    (state: TimelinePositionState | undefined) => {
+      if (!restoringPositionRef.current || !restoreTarget || !state) {
+        return;
       }
-    }
-    restoringPositionRef.current = false;
-    setRestoringPosition(false);
+      if (restoreCorrectionsRef.current >= MAX_RESTORE_CORRECTIONS) {
+        return;
+      }
+      const rowTop = resolveTimelineRowTop(state, restoreTarget.index);
+      if (rowTop === null) {
+        return;
+      }
+      // `viewOffset` is the negated offset into the row, so subtracting it puts
+      // the saved offset back at the top of the viewport.
+      const desired = Math.max(0, rowTop - restoreTarget.viewOffset);
+      if (Math.abs((state.scroll ?? 0) - desired) <= 1) {
+        return;
+      }
+      restoreCorrectionsRef.current += 1;
+      void listRef.current?.scrollToOffset({ offset: desired, animated: false });
+    },
+    [listRef, restoreTarget],
+  );
+
+  const handleLoad = useCallback(() => {
+    reassertRestorePosition(listRef.current?.getState?.());
     onCitationListLoad();
-  }, [listRef, onCitationListLoad, restoreTarget]);
+  }, [listRef, onCitationListLoad, reassertRestorePosition]);
   const handleAnchorReady = useCallback(
     (info: { anchorIndex: number | undefined; size: number }) => {
       if (anchorMessageId !== null && info.anchorIndex !== undefined) {
@@ -722,8 +747,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     // A citation reveal is driving the scroll, not the user, and a restore's
     // own settling scroll events must not overwrite the position it is
-    // restoring to.
-    if (state && isAtEnd !== undefined && !citationPositioning && !restoringPositionRef.current) {
+    // restoring to — they are what made the position creep upward on every
+    // visit. While restoring, a scroll event is a settling pass to correct.
+    if (restoringPositionRef.current) {
+      reassertRestorePosition(state);
+    } else if (state && isAtEnd !== undefined && !citationPositioning) {
       if (isAtEnd) {
         clearThreadTimelinePosition(routeThreadKey);
       } else {
@@ -764,8 +792,48 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     minimapItems,
     minimapStripMap,
     onIsAtEndChange,
+    reassertRestorePosition,
     routeThreadKey,
   ]);
+
+  // Release the restore guard on real user input, the same signal set the
+  // citation reveal uses to know the reader has taken over (see
+  // useAssistantCitationTarget). Until then every scroll event is the
+  // virtualizer settling, and treating those as reading progress is what made
+  // the saved position ratchet upward on each visit.
+  useEffect(() => {
+    if (!restoringPosition) {
+      return;
+    }
+    const release = () => {
+      restoringPositionRef.current = false;
+      setRestoringPosition(false);
+    };
+    // React's synthetic event types shadow the DOM ones in this file.
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (
+        timelineViewportElement?.contains(event.target as Node) &&
+        ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)
+      ) {
+        release();
+      }
+    };
+    const onWheel = (event: globalThis.WheelEvent) => {
+      if (event.deltaY !== 0) {
+        release();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", release, true);
+    timelineViewportElement?.addEventListener("wheel", onWheel, { passive: true });
+    timelineViewportElement?.addEventListener("touchmove", release, { passive: true });
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", release, true);
+      timelineViewportElement?.removeEventListener("wheel", onWheel);
+      timelineViewportElement?.removeEventListener("touchmove", release);
+    };
+  }, [restoringPosition, timelineViewportElement]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(handleScroll);
