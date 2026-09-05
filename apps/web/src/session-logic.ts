@@ -16,6 +16,7 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
+  ProviderDriverKind,
   ProviderApprovalOption,
   ProviderRequestKind,
   type ToolLifecycleItemType,
