@@ -404,6 +404,71 @@ describe("expanded tool group scrolling", () => {
   });
 });
 
+describe("restoring a position whose row is gone", () => {
+  const at = (minute: number) => new Date(Date.UTC(2026, 8, 4, 12, minute)).toISOString();
+  const rows = [
+    { id: "message:1", createdAt: at(0) },
+    { id: "message:2", createdAt: at(10) },
+    { id: "message:3", createdAt: at(20) },
+  ];
+
+  it("falls back to the last row at or before the anchor's timestamp", () => {
+    expect(
+      resolveWorkGroupScrollIndex(rows, {
+        entryId: "work-live:vanished",
+        offset: 120,
+        createdAt: at(15),
+      }),
+    ).toEqual({ index: 1, viewOffset: 0 });
+  });
+
+  it("prefers an exact row id over the timestamp", () => {
+    expect(
+      resolveWorkGroupScrollIndex(rows, {
+        entryId: "message:3",
+        offset: 120,
+        createdAt: at(0),
+      }),
+    ).toEqual({ index: 2, viewOffset: -120 });
+  });
+
+  it("lands on the first row when the anchor predates every row", () => {
+    expect(
+      resolveWorkGroupScrollIndex(rows, {
+        entryId: "gone",
+        offset: 40,
+        createdAt: new Date(Date.UTC(2026, 8, 3)).toISOString(),
+      }),
+    ).toEqual({ index: 0, viewOffset: 0 });
+  });
+
+  it("lands on the last row when the anchor outlives every row", () => {
+    expect(
+      resolveWorkGroupScrollIndex(rows, {
+        entryId: "gone",
+        offset: 40,
+        createdAt: at(90),
+      }),
+    ).toEqual({ index: 2, viewOffset: 0 });
+  });
+
+  it("gives up without a usable timestamp on either side", () => {
+    expect(
+      resolveWorkGroupScrollIndex(rows, { entryId: "gone", offset: 0, createdAt: null }),
+    ).toBeUndefined();
+    expect(
+      resolveWorkGroupScrollIndex(rows, { entryId: "gone", offset: 0, createdAt: "not a date" }),
+    ).toBeUndefined();
+    expect(
+      resolveWorkGroupScrollIndex([{ id: "live", createdAt: null }], {
+        entryId: "gone",
+        offset: 0,
+        createdAt: at(5),
+      }),
+    ).toBeUndefined();
+  });
+});
+
 describe("work entry labels", () => {
   const entry = {
     id: "tool-1",

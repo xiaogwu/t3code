@@ -106,16 +106,52 @@ export function workEntryIsVisibleInGroup(
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
   readonly offset: number;
+  /**
+   * When the anchored row itself is gone, the nearest row in time stands in for
+   * it. Row ids encode transient UI state — a live tool, a folded turn, an
+   * expanded group — so an id that resolved yesterday resolves to nothing once
+   * that state changes. `createdAt` outlives all of it.
+   */
+  readonly createdAt?: string | null;
+}
+
+/**
+ * Chronological neighbour of a vanished anchor: the last row at or before it,
+ * falling back to the first row after it when the anchor predates every row.
+ * The intra-row offset is dropped, because it means nothing in a different row.
+ */
+function resolveNearestRowIndexByTime(
+  entries: ReadonlyArray<{ readonly createdAt?: string | null }>,
+  createdAt: string | null | undefined,
+): { index: number; viewOffset: number } | undefined {
+  if (!createdAt) return undefined;
+  const target = Date.parse(createdAt);
+  if (Number.isNaN(target)) return undefined;
+
+  let nearest: number | undefined;
+  for (const [index, entry] of entries.entries()) {
+    const rowCreatedAt = entry.createdAt;
+    if (!rowCreatedAt) continue;
+    const rowTime = Date.parse(rowCreatedAt);
+    if (Number.isNaN(rowTime)) continue;
+    if (rowTime <= target) {
+      nearest = index;
+      continue;
+    }
+    return { index: nearest ?? index, viewOffset: 0 };
+  }
+  return nearest === undefined ? undefined : { index: nearest, viewOffset: 0 };
 }
 
 /** Restore a visible tool, including a position partway through its expanded output. */
 export function resolveWorkGroupScrollIndex(
-  entries: ReadonlyArray<{ readonly id: string }>,
+  entries: ReadonlyArray<{ readonly id: string; readonly createdAt?: string | null }>,
   anchor: WorkGroupScrollAnchor | undefined,
 ): { index: number; viewOffset: number } | undefined {
   if (!anchor) return undefined;
   const index = entries.findIndex((entry) => entry.id === anchor.entryId);
-  return index < 0 ? undefined : { index, viewOffset: -anchor.offset };
+  if (index >= 0) return { index, viewOffset: -anchor.offset };
+  return resolveNearestRowIndexByTime(entries, anchor.createdAt);
 }
 
 /** Only newly appended calls may follow the end, never status or output updates. */
