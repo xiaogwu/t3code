@@ -22,6 +22,13 @@ const MAX_THREAD_TIMELINE_POSITIONS = 200;
 export interface ThreadTimelinePosition {
   readonly rowId: string;
   readonly offsetWithinRow: number;
+  /**
+   * Timestamp of the anchored row, so a position outlives its row id. Row ids
+   * encode transient UI state (a live tool, a folded turn, an expanded group)
+   * and stop resolving once that state changes; the timestamp still locates the
+   * nearest surviving row. Absent on positions saved before this was tracked.
+   */
+  readonly rowCreatedAt?: string | null;
 }
 
 interface PersistedThreadTimelinePositionStoreState {

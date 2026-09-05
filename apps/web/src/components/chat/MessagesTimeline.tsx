@@ -193,6 +193,7 @@ import {
   clearThreadTimelinePosition,
   readThreadTimelinePosition,
   saveThreadTimelinePosition,
+  type ThreadTimelinePosition,
 } from "../../threadTimelinePositionStore";
 
 // ---------------------------------------------------------------------------
@@ -318,6 +319,26 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD = 1;
 // against estimated rows, a handful is enough; the cap only exists so an
 // unstable layout cannot ping-pong against the virtualizer forever.
 const MAX_RESTORE_CORRECTIONS = 24;
+
+/**
+ * Where a saved reading position lands in the current projection. Resolves by
+ * row id first, then by the anchor's timestamp, so a position outlives the row
+ * it was taken from. Returns the row actually landed on, which `alwaysRender`
+ * needs to pin the right row — not necessarily the one that was saved.
+ */
+function resolveRestoreTarget(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  savedPosition: ThreadTimelinePosition | undefined,
+) {
+  if (!savedPosition) return undefined;
+  const resolved = resolveWorkGroupScrollIndex(rows, {
+    entryId: savedPosition.rowId,
+    offset: savedPosition.offsetWithinRow,
+    createdAt: savedPosition.rowCreatedAt ?? null,
+  });
+  if (!resolved) return undefined;
+  return { ...resolved, rowId: rows[resolved.index]?.id ?? savedPosition.rowId };
+}
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -599,29 +620,38 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // an explicit navigation to a specific message. The component remounts per
   // thread (keyed in ChatView), so this mount-time lazy state is already
   // per-thread and needs no extra keying.
-  const [restoreTarget] = useState<
-    { readonly index: number; readonly viewOffset: number; readonly rowId: string } | undefined
-  >(() => {
-    if (citationRequest !== null) return undefined;
-    const savedPosition = readThreadTimelinePosition(routeThreadKey);
-    if (!savedPosition) return undefined;
-    const resolved = resolveWorkGroupScrollIndex(rows, {
-      entryId: savedPosition.rowId,
-      offset: savedPosition.offsetWithinRow,
-    });
-    return resolved ? { ...resolved, rowId: savedPosition.rowId } : undefined;
+  const [savedPosition] = useState(() =>
+    citationRequest !== null ? undefined : readThreadTimelinePosition(routeThreadKey),
+  );
+  // Frozen at mount, because `initialScrollIndex` is a mount-only prop. A
+  // position that only resolves once rows arrive has to scroll imperatively.
+  const [initialScrollIndex] = useState(() => {
+    const target = resolveRestoreTarget(rows, savedPosition);
+    return target ? { index: target.index, viewOffset: target.viewOffset } : undefined;
   });
-  const initialScrollIndex = restoreTarget
-    ? { index: restoreTarget.index, viewOffset: restoreTarget.viewOffset }
-    : undefined;
-  const [restoringPosition, setRestoringPosition] = useState(restoreTarget !== undefined);
+  // Re-resolved as the projection changes: rows can still be empty on the first
+  // render, and rows appearing above the anchor shift its index.
+  const restoreTarget = useMemo(
+    () => resolveRestoreTarget(rows, savedPosition),
+    [rows, savedPosition],
+  );
+  // Looked up from a scroll handler, so it is a map rather than a scan of every
+  // row per scroll event.
+  const rowCreatedAtById = useMemo(
+    () => new Map(rows.map((row) => [row.id, row.createdAt])),
+    [rows],
+  );
+  // Guarding starts as soon as there is a position to restore, even if it does
+  // not resolve until rows arrive, so the settling scrolls of a late restore are
+  // corrected rather than saved.
+  const [restoringPosition, setRestoringPosition] = useState(savedPosition !== undefined);
   // handleScroll reads the guard through a ref so a stale closure can never
   // keep it on forever, and so the callback is not recreated on the flip.
   // The guard is released by real user input, never by a timer or by `onLoad`:
   // `onLoad` fires while rows above the anchor are still estimated at
   // `estimatedItemSize`, so releasing there let the settling scroll events save
   // a drifted anchor, which the next visit restored and drifted again.
-  const restoringPositionRef = useRef(restoreTarget !== undefined);
+  const restoringPositionRef = useRef(savedPosition !== undefined);
   // Bounded so an unstable layout cannot ping-pong against the virtualizer.
   const restoreCorrectionsRef = useRef(0);
 
@@ -749,9 +779,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     // own settling scroll events must not overwrite the position it is
     // restoring to — they are what made the position creep upward on every
     // visit. While restoring, a scroll event is a settling pass to correct.
-    if (restoringPositionRef.current) {
+    if (restoringPositionRef.current && restoreTarget) {
       reassertRestorePosition(state);
     } else if (state && isAtEnd !== undefined && !citationPositioning) {
+      // A populated projection that cannot place the anchor has lost it for
+      // good, so stop guarding rather than never saving a position again.
+      if (restoringPositionRef.current && rowCreatedAtById.size > 0) {
+        restoringPositionRef.current = false;
+        setRestoringPosition(false);
+      }
       if (isAtEnd) {
         clearThreadTimelinePosition(routeThreadKey);
       } else {
@@ -760,6 +796,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           saveThreadTimelinePosition(routeThreadKey, {
             rowId: anchor.rowId,
             offsetWithinRow: anchor.offsetWithinRow,
+            // Saved alongside the id so the position survives the row: ids of
+            // live tools, folded turns and expanded groups all stop resolving
+            // once that state changes.
+            rowCreatedAt: rowCreatedAtById.get(anchor.rowId) ?? null,
           });
         }
       }
@@ -793,8 +833,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     minimapStripMap,
     onIsAtEndChange,
     reassertRestorePosition,
+    restoreTarget,
     routeThreadKey,
+    rowCreatedAtById,
   ]);
+
+  // Chase the target whenever it resolves or moves. `initialScrollIndex` only
+  // covers a target that already existed at mount; one that resolves later —
+  // rows arrived after the first render, or the anchor row was gone and the
+  // nearest row in time stood in for it — has to scroll itself.
+  useEffect(() => {
+    if (!restoringPosition || !restoreTarget) {
+      return;
+    }
+    reassertRestorePosition(listRef.current?.getState?.());
+  }, [listRef, reassertRestorePosition, restoreTarget, restoringPosition]);
 
   // Release the restore guard on real user input, the same signal set the
   // citation reveal uses to know the reader has taken over (see
