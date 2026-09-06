@@ -1880,11 +1880,27 @@ const make = Effect.gen(function* () {
         const shouldApplyFallbackCompletionText =
           !existingAssistantMessage || existingAssistantMessage.text.length === 0;
 
-        const shouldSkipRedundantCompletion =
-          Option.isNone(activeAssistantMessageId) &&
+        // A completion can land after the next turn has already started. The message
+        // id is derived from the provider's item id, so it resolves back to the
+        // finished message from the earlier turn, while `event.turnId` now names the
+        // new turn — completing it again would restamp that message onto the wrong
+        // turn. Adapters that resolve a notification's turn from live session state
+        // cannot avoid this on their own, so refuse the restamp here for every
+        // provider.
+        const isCompletedMessageFromAnotherTurn =
+          existingAssistantMessage !== undefined &&
+          !existingAssistantMessage.streaming &&
+          existingAssistantMessage.text.length > 0 &&
+          existingAssistantMessage.turnId !== null &&
           turnId !== undefined &&
-          hasAssistantMessagesForTurn &&
-          (assistantCompletion.fallbackText?.trim().length ?? 0) === 0;
+          existingAssistantMessage.turnId !== turnId;
+
+        const shouldSkipRedundantCompletion =
+          isCompletedMessageFromAnotherTurn ||
+          (Option.isNone(activeAssistantMessageId) &&
+            turnId !== undefined &&
+            hasAssistantMessagesForTurn &&
+            (assistantCompletion.fallbackText?.trim().length ?? 0) === 0);
 
         if (!shouldSkipRedundantCompletion) {
           if (turnId && Option.isNone(activeAssistantMessageId)) {
