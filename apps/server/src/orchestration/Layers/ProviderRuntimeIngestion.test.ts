@@ -1304,6 +1304,75 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("keeps a finished assistant message on its own turn when a late completion repeats", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-late-completion-delta"),
+      provider: ProviderDriverKind.make("grok"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-late-1"),
+      itemId: asItemId("item-late"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "answer for turn one",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-late-completion-first"),
+      provider: ProviderDriverKind.make("grok"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-late-1"),
+      itemId: asItemId("item-late"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-late" && !message.streaming,
+      ),
+    );
+
+    // The provider re-delivers the completion for the same item after the next
+    // turn has already started. Honouring it would restamp turn one's final
+    // message onto turn two.
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-late-completion-second"),
+      provider: ProviderDriverKind.make("grok"),
+      createdAt: "2026-01-01T00:04:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-late-2"),
+      itemId: asItemId("item-late"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+    await harness.drain();
+
+    const thread = await harness.readModel().then((snapshot) => {
+      const entry = snapshot.threads.find((candidate) => candidate.id === asThreadId("thread-1"));
+      if (!entry) throw new Error("Expected thread-1 in the read model");
+      return entry;
+    });
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-late",
+    );
+    expect(message?.turnId).toBe("turn-late-1");
+    expect(message?.text).toBe("answer for turn one");
+    expect(message?.streaming).toBe(false);
+  });
+
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

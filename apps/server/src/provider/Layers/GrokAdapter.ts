@@ -49,6 +49,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import { resolveAcpItemTurnId } from "../acp/AcpItemTurnTracking.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -148,6 +149,13 @@ interface GrokSessionContext {
   /** True after enter_plan_mode until the turn ends or exit_plan_mode resolves. */
   planModeActive: boolean;
   activeTurnId: TurnId | undefined;
+  /**
+   * Turn each provider item was first seen in. An item's notifications belong to
+   * the turn that was active when the item opened, which is not always the turn
+   * active when a notification arrives: ACP can deliver a completion after the
+   * next prompt has already moved `activeTurnId` on.
+   */
+  readonly itemTurnIds: Map<string, TurnId>;
   /** Turns already interrupted; late prompt RPCs must not resurrect them. */
   interruptedTurnIds: Set<TurnId>;
   /** Number of sendTurn prompts currently in flight or being prepared.
@@ -212,8 +220,6 @@ function appendPromptResultToTurn(
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
-const resolveNotificationTurnId = (ctx: GrokSessionContext): TurnId | undefined => ctx.activeTurnId;
 
 const resolveCallbackTurnId = (ctx: GrokSessionContext): TurnId | undefined => ctx.activeTurnId;
 
@@ -1286,6 +1292,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             planModeActive: false,
             activeTurnId: undefined,
             interruptedTurnIds: new Set(),
+            itemTurnIds: new Map(),
             promptsInFlight: 0,
             promptEpoch: 0,
             discardBeforeEpoch: 0,
@@ -1323,7 +1330,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   return;
                 }
 
-                const notificationTurnId = resolveNotificationTurnId(ctx);
+                const notificationTurnId = resolveAcpItemTurnId(ctx, event);
                 if (
                   notificationTurnId === undefined ||
                   ctx.interruptedTurnIds.has(notificationTurnId)
