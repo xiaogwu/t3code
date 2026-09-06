@@ -56,7 +56,6 @@ export {
   ExternalLauncherEditorSpawnError,
   ExternalLauncherUnknownEditorError,
   ExternalLauncherUnsupportedEditorError,
-  isExternalLauncherError,
 } from "@t3tools/contracts";
 export {
   ExternalTerminalCommandNotFoundError,
