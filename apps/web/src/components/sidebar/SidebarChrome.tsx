@@ -3,8 +3,9 @@ import {
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
   SettingsIcon,
+  SquarePenIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
@@ -20,6 +21,7 @@ import {
   useEnvironmentStageLabel,
 } from "../SidebarStageBackdrop";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import {
   SidebarFooter,
   SidebarHeader,
@@ -36,8 +38,16 @@ import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUp
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
+  newThread,
 }: {
   isElectron: boolean;
+  // The sidebar's primary action, promoted onto the titlebar row. Styling stays
+  // here because only the header knows whether the stage artwork is behind it.
+  newThread?: {
+    disabled: boolean;
+    onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+    tooltip: ReactNode;
+  };
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
@@ -66,16 +76,63 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
         )}
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
+      {/* Brand and pill share a container whose padding already absorbs the
+          traffic-light inset, so the pill's query sees the space actually left
+          after the new-thread button rather than the whole sidebar width. */}
+      <div className="@container/sidebar-title relative z-10 flex min-w-0 flex-1 items-center ps-[var(--workspace-titlebar-content-left)]">
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        {pillLabel ? (
+          <Badge
+            className="ml-1 hidden shrink-0 rounded-full px-1.5 text-muted-foreground @[7rem]/sidebar-title:inline-flex"
+            data-environment-identification="pill"
+            size="sm"
+            variant="secondary"
+          >
+            {pillLabel}
+          </Badge>
+        ) : null}
+      </div>
+      {newThread ? (
+        <div className="relative z-10 ms-auto flex shrink-0 items-center ps-1 pe-3 md:pe-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label="New thread"
+                  className={cn(
+                    "group size-7 rounded-full border",
+                    // On the stage artwork the button carries its own scrim: the art's
+                    // brightness varies across the row, so a translucent-white chip would
+                    // lose contrast over the glow. Darkening whatever is behind it keeps
+                    // the white icon legible everywhere.
+                    backdropVariant
+                      ? "border-white/40 bg-black/35 backdrop-blur-sm hover:border-white hover:bg-black/50 focus-visible:ring-white/90"
+                      : "border-sidebar-border bg-sidebar-control-surface hover:border-sidebar-foreground hover:bg-sidebar-row-hover",
+                    backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
+                  )}
+                  disabled={newThread.disabled}
+                  onClick={newThread.onClick}
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  {/* The icon carries its own colour because `variant="ghost"` pins
+                      --control-icon-color to a muted grey, so a `text-*` class on the
+                      button would never reach the stroke. */}
+                  <SquarePenIcon
+                    className={cn(
+                      "size-3.5",
+                      backdropVariant
+                        ? "text-white/90 group-hover:text-white"
+                        : "text-[var(--sidebar-icon-color)] group-hover:text-sidebar-foreground",
+                    )}
+                  />
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">{newThread.tooltip}</TooltipPopup>
+          </Tooltip>
+        </div>
       ) : null}
     </SidebarHeader>
   );
@@ -86,7 +143,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Link
       aria-label="Go to threads"
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 hidden h-7 w-fit min-w-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
