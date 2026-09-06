@@ -506,6 +506,7 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -539,6 +540,9 @@ export const OrchestrationThread = Schema.Struct({
   bookmarks: Schema.optional(Schema.Array(AssistantThreadBookmark)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  // Manual Active placement. Keyless threads retain their creation/re-entry
+  // order above the arranged run. Settling clears this slot.
+  activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   // Which code path last set `title`: a direct client rename ("manual") vs
@@ -605,6 +609,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -625,6 +630,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   bookmarks: Schema.optional(Schema.Array(AssistantThreadBookmark)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])).pipe(
     Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
@@ -956,6 +962,13 @@ const ThreadBookmarkRemoveCommand = Schema.Struct({
   bookmarkId: ThreadBookmarkId,
 });
 
+const ThreadActiveReorderCommand = Schema.Struct({
+  type: Schema.Literal("thread.active.reorder"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  orderKey: TrimmedNonEmptyString,
+});
+
 const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
@@ -1125,6 +1138,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadBookmarkAddCommand,
   ThreadBookmarkRemoveCommand,
+  ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1155,6 +1169,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadBookmarkAddCommand,
   ThreadBookmarkRemoveCommand,
+  ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1266,6 +1281,22 @@ export const TitlePolicyEvaluatedCommand = Schema.Struct({
   rename: Schema.optional(Schema.Struct({ title: TrimmedNonEmptyString })),
 });
 export type TitlePolicyEvaluatedCommand = typeof TitlePolicyEvaluatedCommand.Type;
+const ThreadPullRequestSyncCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.sync"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  snapshotSequence: NonNegativeInt,
+  expected: Schema.Struct({
+    workspaceRoot: TrimmedNonEmptyString,
+    branch: Schema.NullOr(TrimmedNonEmptyString),
+    worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+    linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+    branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+  }),
+  branchPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+  linkedPullRequest: Schema.optional(ThreadLinkedPullRequest),
+});
 
 const InternalOrchestrationCommand = Schema.Union([
   ThreadAutoSettleCommand,
@@ -1279,6 +1310,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
   TitlePolicyEvaluatedCommand,
+  ThreadPullRequestSyncCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1454,6 +1486,9 @@ export const ThreadBookmarkRemovedPayload = Schema.Struct({
 
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
+  // Order updates use this existing event so older clients can ignore the
+  // new field while continuing to decode the event stream.
+  activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: Schema.optional(TrimmedNonEmptyString),
   /** Intent marker consumed by the title-generation reactor. Keeping this on
       the existing event lets older clients safely ignore the new field. */
@@ -1469,6 +1504,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   updatedAt: IsoDateTime,
 });
 

@@ -9,8 +9,8 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
-  activeThreadAnchorTimestampMs,
   getThreadSortTimestamp,
+  sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
@@ -22,6 +22,12 @@ import type {
 } from "@t3tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
+
+import {
+  applyPendingThreadOrder,
+  reconcilePendingThreadOrder,
+  type PendingThreadOrder,
+} from "./threadOrder";
 
 export { snoozeWakeLabel };
 
@@ -167,20 +173,69 @@ export function sortThreadsForListV2<
   T extends {
     readonly id: string;
     readonly createdAt: string;
-    readonly updatedAt: string;
+    readonly updatedAt?: string;
     readonly latestUserMessageAt?: string | null;
     readonly unsettledAt?: string | null | undefined;
+    readonly activeOrderKey?: string | null | undefined;
+    readonly environmentId?: string | undefined;
   },
->(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
-  // .sort() on a copy, not .toSorted(): Hermes doesn't ship the ES2023
-  // change-by-copy array methods.
-  return [...threads].sort(
-    (left, right) =>
-      (sortOrder === "created_at"
-        ? activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left)
-        : getThreadSortTimestamp(right, sortOrder) - getThreadSortTimestamp(left, sortOrder)) ||
-      left.id.localeCompare(right.id),
-  );
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
+  const activeOrder = sortActiveThreadsByOrderKey(threads);
+  const arrangedIndex = activeOrder.findIndex((thread) => thread.activeOrderKey != null);
+  const unarrangedEnd = arrangedIndex === -1 ? activeOrder.length : arrangedIndex;
+  const unarranged =
+    sortOrder === "created_at"
+      ? activeOrder.slice(0, unarrangedEnd)
+      : activeOrder
+          .slice(0, unarrangedEnd)
+          .sort(
+            (left, right) =>
+              getThreadSortTimestamp(
+                { ...right, updatedAt: right.updatedAt ?? right.createdAt },
+                sortOrder,
+              ) -
+                getThreadSortTimestamp(
+                  { ...left, updatedAt: left.updatedAt ?? left.createdAt },
+                  sortOrder,
+                ) || left.id.localeCompare(right.id),
+          );
+  return [...unarranged, ...activeOrder.slice(unarrangedEnd)];
+}
+
+/** Canonical card section for Move up/down, independent of search or scope. */
+export function getThreadListV2OrderedSection(input: {
+  readonly threads: readonly EnvironmentThreadShell[];
+  readonly section: "pinned" | "active";
+  readonly pendingOrder?: PendingThreadOrder | null;
+  readonly now: string;
+  readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
+}): EnvironmentThreadShell[] {
+  const threads = input.threads.filter((thread) => {
+    if (thread.archivedAt !== null) return false;
+    if (
+      (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
+      thread.settledOverride === "settled"
+    ) {
+      return false;
+    }
+    if (
+      (input.snoozeEnvironmentIds?.has(thread.environmentId) ?? true) &&
+      effectiveSnoozed(thread, { now: input.now })
+    ) {
+      return false;
+    }
+    return (thread.pinnedAt != null) === (input.section === "pinned");
+  });
+  const ordered =
+    input.section === "pinned"
+      ? sortPinnedThreadsByOrderKey(threads)
+      : sortActiveThreadsByOrderKey(threads);
+  const pending =
+    input.pendingOrder?.section === input.section
+      ? reconcilePendingThreadOrder(input.pendingOrder, ordered)
+      : null;
+  return applyPendingThreadOrder(ordered, input.section, pending);
 }
 
 export interface ThreadListV2Item {
@@ -275,7 +330,7 @@ export function buildThreadListV2ListItems(input: {
   }));
   const pendingItems = input.pendingTasks.map((pendingTask, index): ThreadListV2ListItem => ({
     type: "v2-pending",
-    key: `v2-pending:${pendingTask.message.messageId}`,
+    key: `v2-${pendingTask.key}`,
     pendingTask,
     showPendingDivider: index === 0,
   }));
@@ -308,10 +363,11 @@ export function buildThreadListV2ListItems(input: {
 }
 
 /**
- * Partitions visible threads into the active card block (creation order) and
+ * Partitions visible threads into the active card block (saved order) and
  * the settled recency tail, matching the web v2 list.
  */
 export function buildThreadListV2Items(input: {
+  readonly pendingOrder?: PendingThreadOrder | null;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
   readonly projectRefs?: ReadonlyArray<{
@@ -354,6 +410,17 @@ export function buildThreadListV2Items(input: {
   const autoSettleAfterDays = input.autoSettleAfterDays ?? 3;
   const threadSortOrder = input.threadSortOrder ?? "created_at";
   const autoSettleOnMerge = input.autoSettleOnMerge ?? true;
+  const pending =
+    input.pendingOrder == null
+      ? null
+      : reconcilePendingThreadOrder(
+          input.pendingOrder,
+          getThreadListV2OrderedSection({
+            ...input,
+            section: input.pendingOrder.section,
+            pendingOrder: null,
+          }),
+        );
   const query = input.searchQuery.trim().toLocaleLowerCase();
   const projectKeys = input.projectRefs
     ? new Set(input.projectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`))
@@ -405,7 +472,11 @@ export function buildThreadListV2Items(input: {
     }
   }
 
-  const orderedActive = sortThreadsForListV2(active, threadSortOrder);
+  const orderedActive = applyPendingThreadOrder(
+    sortThreadsForListV2(active, threadSortOrder),
+    "active",
+    pending,
+  );
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
@@ -437,7 +508,11 @@ export function buildThreadListV2Items(input: {
         );
 
   const items: ThreadListV2Item[] = [];
-  for (const thread of sortPinnedThreadsByOrderKey(pinned)) {
+  for (const thread of applyPendingThreadOrder(
+    sortPinnedThreadsByOrderKey(pinned),
+    "pinned",
+    pending,
+  )) {
     items.push({
       thread,
       variant: "card",

@@ -44,6 +44,7 @@ export type UnpinThreadInput = CommandInput<"thread.unpin">;
 export type ReorderPinnedThreadInput = CommandInput<"thread.pin.reorder">;
 export type AddThreadBookmarkInput = CommandInput<"thread.bookmark.add">;
 export type RemoveThreadBookmarkInput = CommandInput<"thread.bookmark.remove">;
+export type ReorderActiveThreadInput = CommandInput<"thread.active.reorder">;
 export type UpdateThreadMetadataInput = CommandInput<"thread.meta.update">;
 export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
@@ -248,6 +249,16 @@ export const removeThreadBookmark: (input: RemoveThreadBookmarkInput) => Command
   return yield* dispatch({
     ...input,
     type: "thread.bookmark.remove",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const reorderActiveThread: (input: ReorderActiveThreadInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.reorderActiveThread",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.active.reorder",
     commandId: yield* commandId(input),
   });
 });

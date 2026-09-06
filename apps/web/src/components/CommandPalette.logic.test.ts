@@ -10,13 +10,12 @@ import {
 } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
-  browseInputEndPaddingClass,
   buildBrowseGroups,
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
-  normalizeSearchText,
+  browseInputEndPaddingClass,
   parseCommandPaletteQuery,
   parseThreadStateFilterQuery,
   reduceCommandPaletteUiState,
@@ -24,6 +23,7 @@ import {
   toggleThreadStateFilterQuery,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+import { normalizeSearchText } from "../lib/utils";
 
 describe("browseInputEndPaddingClass", () => {
   it("reserves the widest space for the create action", () => {
@@ -380,10 +380,33 @@ describe("buildThreadActionItems", () => {
   });
 
   it("normalizes case independently of the host locale", () => {
-    const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockReturnValue("gıt");
+    const toLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    const localeLowerCase = vi
+      .spyOn(String.prototype, "toLocaleLowerCase")
+      .mockImplementation(function (this: string) {
+        return toLocaleLowerCase.call(this, "tr");
+      });
     try {
-      expect(normalizeSearchText("GIT")).toBe("git");
-      expect(localeLowerCase).not.toHaveBeenCalled();
+      const groups = filterCommandPaletteGroups({
+        activeGroups: [],
+        query: "GIT",
+        isInSubmenu: false,
+        projectSearchItems: [],
+        threadSearchItems: [],
+        settingsSearchItems: [
+          {
+            kind: "action",
+            value: "setting:version-control",
+            title: "Version control",
+            searchTerms: ["git"],
+            icon: null,
+            run: async () => undefined,
+          },
+        ],
+      });
+      expect(groups.flatMap((group) => group.items.map((item) => item.value))).toEqual([
+        "setting:version-control",
+      ]);
     } finally {
       localeLowerCase.mockRestore();
     }
