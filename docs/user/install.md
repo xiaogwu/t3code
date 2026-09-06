@@ -78,7 +78,6 @@ computer.
 | Cursor              | [Cursor CLI](https://cursor.com/cli)                                                                       | `cursor-agent`     | `agent login`                      |
 | Grok Build          | [Grok Build CLI](https://x.ai/cli)                                                                         | `grok`             | `grok login`                       |
 | Apple Gemini        | Apple Gemini CLI                                                                                           | `apple-gemini`     | existing Apple auth                |
-| Antigravity CLI     | [Antigravity CLI](https://antigravity.google/docs/cli/)                                                    | `agy`              | Run `agy` once                     |
 | OpenCode            | [OpenCode](https://opencode.ai)                                                                            | `opencode`         | `opencode auth login`              |
 | Antigravity managed | [Official ACP agent](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json) | Managed by T3 Code | **Sign in with Google** in T3 Code |
 

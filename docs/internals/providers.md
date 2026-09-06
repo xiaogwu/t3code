@@ -20,7 +20,6 @@ session or catalog state.
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]           |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]               |
 | `gemini`      | [`Drivers/GeminiDriver.ts`][gemini]           |
-| `agy`         | [`Drivers/AgyDriver.ts`][agy]                 |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode]       |
 | `antigravity` | [`Drivers/AntigravityDriver.ts`][antigravity] |
 
@@ -375,7 +374,6 @@ than starting a server whose backend is absent. Two consequences worth knowing:
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [gemini]: ../../apps/server/src/provider/Drivers/GeminiDriver.ts
-[agy]: ../../apps/server/src/provider/Drivers/AgyDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
 [opencoderuntime]: ../../apps/server/src/provider/opencodeRuntime.ts
 [antigravity]: ../../apps/server/src/provider/Drivers/AntigravityDriver.ts

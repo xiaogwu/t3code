@@ -81,12 +81,6 @@ export const PROVIDER_OPTIONS: Array<{
     pickerSidebarBadge: "new",
   },
   {
-    value: ProviderDriverKind.make("agy"),
-    label: "Antigravity CLI",
-    available: true,
-    pickerSidebarBadge: "new",
-  },
-  {
     value: ProviderDriverKind.make("antigravity"),
     label: "Antigravity",
     available: true,

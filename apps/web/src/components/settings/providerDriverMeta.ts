@@ -1,5 +1,4 @@
 import {
-  AgySettings,
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
@@ -79,13 +78,6 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     icon: Gemini,
     badgeLabel: "Early Access",
     settingsSchema: GeminiSettings,
-  },
-  {
-    value: ProviderDriverKind.make("agy"),
-    label: "Antigravity CLI",
-    icon: AntigravityIcon,
-    badgeLabel: "Early Access",
-    settingsSchema: AgySettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),

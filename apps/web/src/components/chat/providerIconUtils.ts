@@ -18,7 +18,6 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("cursor")]: CursorIcon,
   [ProviderDriverKind.make("grok")]: GrokIcon,
   [ProviderDriverKind.make("gemini")]: Gemini,
-  [ProviderDriverKind.make("agy")]: AntigravityIcon,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
 };
 
