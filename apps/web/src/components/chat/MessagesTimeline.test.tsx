@@ -267,7 +267,19 @@ describe("MessagesTimeline", () => {
       const props = buildProps();
       let timelineIsAtEnd = isAtEnd;
       props.listRef.current = {
-        getState: () => ({ isAtEnd: timelineIsAtEnd }),
+        // `data`, `scroll` and `positionAtIndex` are what resolveWorkGroupScrollAnchor
+        // reads when a scroll lands away from the end. Omitting them threw
+        // "Cannot read properties of undefined (reading 'length')" out of the scroll
+        // handler; the `as unknown as LegendListRef` cast below is why typecheck
+        // never caught it. An empty projection is the honest shape here — this test
+        // is about composer restoration, not anchor placement — and it resolves to
+        // no anchor rather than crashing.
+        getState: () => ({
+          isAtEnd: timelineIsAtEnd,
+          data: [],
+          scroll: 0,
+          positionAtIndex: () => 0,
+        }),
         getScrollableNode: () => null,
       } as unknown as LegendListRef;
       let isResting = true;

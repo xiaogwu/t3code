@@ -91,6 +91,13 @@ const THREAD = {
     archivedAt: null,
     settledOverride: null,
     settledAt: null,
+    // The fork adds these three with decoding defaults, so a payload that omits
+    // them decodes to a thread that is *not* deep-equal to the payload, and the
+    // `toEqual(loader.response)` round-trip below fails. Spelling them out keeps
+    // this fixture a complete wire response.
+    bookmarks: [],
+    titleProvenance: "automatic",
+    titleTurnsSincePolicyEval: 0,
     deletedAt: null,
     messages: [],
     proposedPlans: [],

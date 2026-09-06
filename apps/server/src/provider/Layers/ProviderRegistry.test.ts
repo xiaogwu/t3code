@@ -2290,7 +2290,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
               ChildProcessSpawner.make((command) => {
                 if (command._tag !== "StandardCommand") return spawner.spawn(command);
-                spawnedCommands.push(command.command);
+                // Only the codex probes this test is about. A machine with Homebrew
+                // also spawns `brew` here from AntigravityInstallation, which CI
+                // never sees because it has no Homebrew, so recording every command
+                // made the assertions below machine-dependent.
+                if (command.command === firstMissing || command.command === secondMissing) {
+                  spawnedCommands.push(command.command);
+                }
                 const beforeSpawn =
                   command.command === secondMissing
                     ? Deferred.succeed(secondProbeStarted, undefined).pipe(
