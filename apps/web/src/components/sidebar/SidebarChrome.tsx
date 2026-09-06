@@ -100,14 +100,14 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
                 <Button
                   aria-label="New thread"
                   className={cn(
-                    "size-7 rounded-full border [&_svg]:size-3.5",
+                    "group size-7 rounded-full border",
                     // On the stage artwork the button carries its own scrim: the art's
                     // brightness varies across the row, so a translucent-white chip would
                     // lose contrast over the glow. Darkening whatever is behind it keeps
                     // the white icon legible everywhere.
                     backdropVariant
-                      ? "border-white/40 bg-black/35 text-white backdrop-blur-sm hover:border-white/60 hover:bg-black/50 hover:text-white focus-visible:ring-white/90"
-                      : "border-sidebar-border bg-sidebar-control-surface text-sidebar-foreground hover:bg-sidebar-row-hover",
+                      ? "border-white/40 bg-black/35 backdrop-blur-sm hover:border-white hover:bg-black/50 focus-visible:ring-white/90"
+                      : "border-sidebar-border bg-sidebar-control-surface hover:border-sidebar-foreground hover:bg-sidebar-row-hover",
                     backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
                   )}
                   disabled={newThread.disabled}
@@ -116,7 +116,17 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
                   type="button"
                   variant="ghost"
                 >
-                  <SquarePenIcon />
+                  {/* The icon carries its own colour because `variant="ghost"` pins
+                      --control-icon-color to a muted grey, so a `text-*` class on the
+                      button would never reach the stroke. */}
+                  <SquarePenIcon
+                    className={cn(
+                      "size-3.5",
+                      backdropVariant
+                        ? "text-white/90 group-hover:text-white"
+                        : "text-[var(--sidebar-icon-color)] group-hover:text-sidebar-foreground",
+                    )}
+                  />
                 </Button>
               }
             />
