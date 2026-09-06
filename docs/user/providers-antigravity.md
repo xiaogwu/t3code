@@ -138,22 +138,5 @@ If Google reports `SUBSCRIPTION_REQUIRED`, an account restriction, or a usage li
 follow the provider's message and any retry time. See [Google's account plans][plans]
 for eligibility.
 
-## Antigravity CLI (`agy`)
-
-This build also supports Google's separate Antigravity CLI (`agy`) integration. Install the CLI,
-run `agy` once to sign in and trust your workspace, then restart T3 Code. Choose **Antigravity
-CLI** in provider settings or the model picker. If the binary is not on the server's `PATH`, set
-its **Binary path** to the full path to `agy`.
-
-The headless CLI cannot pause for interactive approval. In approval-required modes, it follows
-the allow rules in `~/.gemini/antigravity-cli/settings.json` and soft-denies tools that still
-require confirmation. In **Full access** mode, T3 starts it with
-`--dangerously-skip-permissions`. Plan mode maps to `--mode plan`; model changes take effect on
-the next turn.
-
-The CLI integration does not support interactive tool approvals, structured follow-up questions,
-or conversation rewind. Image attachments are passed as local file paths so the CLI can inspect
-them with its tools.
-
 [registry]: https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json
 [plans]: https://antigravity.google/docs/plans
