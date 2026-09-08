@@ -80,6 +80,7 @@ describe("DesktopPreReadyPlatform", () => {
       `prepares a ${previousEntry ? "stale" : "missing"} Linux desktop entry before startup yields`,
       () => {
         vi.stubEnv("VITE_DEV_SERVER_URL", "");
+        vi.stubEnv("T3CODE_DESKTOP_DEV_BUILD", "");
         vi.stubEnv("XDG_DATA_HOME", "/xdg");
         vi.stubEnv("APPIMAGE", "/Applications/current.AppImage");
         getSwitchValueMock.mockReturnValue("");
@@ -110,6 +111,30 @@ describe("DesktopPreReadyPlatform", () => {
       },
     );
   }
+
+  it.effect("brands the early Linux desktop entry as a dev build when the marker is set", () => {
+    vi.stubEnv("VITE_DEV_SERVER_URL", "");
+    vi.stubEnv("T3CODE_DESKTOP_DEV_BUILD", "1");
+    vi.stubEnv("XDG_DATA_HOME", "/xdg");
+    vi.stubEnv("APPIMAGE", "/Applications/current.AppImage");
+    getSwitchValueMock.mockReturnValue("");
+    let desktopEntry: string | undefined;
+    writeFileSyncMock.mockImplementation((path: string, contents: string) => {
+      if (path === "/xdg/applications/com.t3tools.T3Code.desktop") desktopEntry = contents;
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        yield* Layer.build(
+          DesktopPreReadyPlatform.layer.pipe(
+            Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
+          ),
+        );
+
+        assert.include(desktopEntry ?? "", "Name=T3 Code (Dev)");
+      }),
+    ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
+  });
 
   it.effect("keeps startup available when the early desktop entry cannot be written", () => {
     getSwitchValueMock.mockReturnValue("");

@@ -31,6 +31,16 @@ function readCommandLineSwitchValue(
   return value.length > 0 ? value : null;
 }
 
+// Branding needs the dev-build marker before Electron is ready, so DesktopConfig
+// (an Effect config layer) is not available yet. Read the same env var it reads,
+// accepting the same literals Config.boolean does.
+const DEV_BUILD_TRUE_VALUES = new Set(["true", "yes", "on", "1", "y"]);
+
+function readDevBuildBrandingFromEnv(env: NodeJS.ProcessEnv): boolean {
+  const value = env.T3CODE_DESKTOP_DEV_BUILD?.trim();
+  return value !== undefined && DEV_BUILD_TRUE_VALUES.has(value);
+}
+
 export const resolveEarlyLinuxElectronOptionsFromProcess =
   (): DesktopEarlyElectronStartup.EarlyLinuxElectronOptions =>
     DesktopEarlyElectronStartup.resolveEarlyLinuxElectronOptions({
@@ -73,6 +83,7 @@ export const make = Effect.gen(function* () {
           renderUrlHandlerDesktopEntry({
             displayName: resolveDesktopAppBranding({
               isDevelopment: linux.isDevelopment,
+              isDevBuild: readDevBuildBrandingFromEnv(process.env),
               appVersion: Electron.app.getVersion(),
             }).displayName,
             execTarget: process.env.APPIMAGE?.trim() || process.execPath,
