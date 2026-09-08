@@ -139,6 +139,24 @@ HTTP listener via `markHttpListening`; publish ready; fork the heartbeat; then e
 output or open the browser. Command readiness precedes the listener, so a socket that opens can
 already dispatch.
 
+The Electron shell acquires `DesktopPreReadyPlatform.layer` synchronously before asynchronous
+services. On Linux this sets the desktop-entry identity and global-shortcut portal flags before
+Chromium initializes its portal connection. Setting the identity later in `DesktopAppIdentity`
+is too late: Chromium caches the first registration, including failures. The identity must match
+the installed entry managed by `DesktopLinuxUrlHandler`. Pre-ready setup also refreshes that entry's
+`Exec` path before portal registration: AppImage updates can remove the previous executable, which
+makes the old entry invalid even though its filename is correct. The later URL handler avoids
+rewriting an identical entry while the portal may be reading it. On Wayland, Electron's synchronous
+shortcut-registration result only confirms submission; it does not confirm desktop consent or
+an active binding.
+
+Native modules never load in the Electron main process on the startup path, and the two the
+snapshot feature keeps are isolated: `@crowecawcaw/xa11y` runs only in forked Node-mode children
+(`SnapShotAccessibilityWorker`, `RegionSnapShotWorker`) and a worker thread, and `ffi-rs` loads
+lazily inside `WindowsForeground.ts` for a handful of Win32 calls. macOS window lookup shells out
+to `osascript` instead of a native addon. A crash or stall in any of these must not take the app
+down, so new native capability goes in a child with a deadline, not an `import` in main.
+
 ## Related
 
 - [Workspace layout](./workspace-layout.md), [Glossary](./glossary.md)
@@ -147,6 +165,7 @@ already dispatch.
 - [Resource telemetry](./resource-telemetry.md)
 - [Product analytics](./product-analytics.md)
 - [Scripts](./scripts.md), [CI gates](./ci.md)
+- [Development runbook](../operations/development.md) for setup and checks
 
 [rpc]: ../../packages/contracts/src/rpc.ts
 [contracts]: ../../packages/contracts/src/orchestration.ts

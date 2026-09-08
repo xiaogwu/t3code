@@ -969,6 +969,7 @@ const launchTerminalProcess = Effect.fn("externalLauncher.launchTerminalProcess"
   );
 });
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
