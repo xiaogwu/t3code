@@ -24,7 +24,7 @@ export const LaunchExternalTerminalInput = Schema.Struct({
 });
 export type LaunchExternalTerminalInput = typeof LaunchExternalTerminalInput.Type;
 
-export class ExternalTerminalCwdNotFoundError extends Schema.TaggedErrorClass<ExternalTerminalCwdNotFoundError>()(
+export class ExternalTerminalCwdNotFoundError extends Schema.TaggedError<ExternalTerminalCwdNotFoundError>()(
   "ExternalTerminalCwdNotFoundError",
   { cwd: Schema.String },
 ) {
@@ -33,7 +33,7 @@ export class ExternalTerminalCwdNotFoundError extends Schema.TaggedErrorClass<Ex
   }
 }
 
-export class ExternalTerminalCwdNotDirectoryError extends Schema.TaggedErrorClass<ExternalTerminalCwdNotDirectoryError>()(
+export class ExternalTerminalCwdNotDirectoryError extends Schema.TaggedError<ExternalTerminalCwdNotDirectoryError>()(
   "ExternalTerminalCwdNotDirectoryError",
   { cwd: Schema.String },
 ) {
@@ -42,7 +42,7 @@ export class ExternalTerminalCwdNotDirectoryError extends Schema.TaggedErrorClas
   }
 }
 
-export class ExternalTerminalCwdStatError extends Schema.TaggedErrorClass<ExternalTerminalCwdStatError>()(
+export class ExternalTerminalCwdStatError extends Schema.TaggedError<ExternalTerminalCwdStatError>()(
   "ExternalTerminalCwdStatError",
   { cwd: Schema.String, cause: Schema.Defect() },
 ) {
@@ -51,7 +51,7 @@ export class ExternalTerminalCwdStatError extends Schema.TaggedErrorClass<Extern
   }
 }
 
-export class ExternalTerminalUnsupportedError extends Schema.TaggedErrorClass<ExternalTerminalUnsupportedError>()(
+export class ExternalTerminalUnsupportedError extends Schema.TaggedError<ExternalTerminalUnsupportedError>()(
   "ExternalTerminalUnsupportedError",
   { terminal: ExternalTerminalId },
 ) {
@@ -60,7 +60,7 @@ export class ExternalTerminalUnsupportedError extends Schema.TaggedErrorClass<Ex
   }
 }
 
-export class ExternalTerminalCommandNotFoundError extends Schema.TaggedErrorClass<ExternalTerminalCommandNotFoundError>()(
+export class ExternalTerminalCommandNotFoundError extends Schema.TaggedError<ExternalTerminalCommandNotFoundError>()(
   "ExternalTerminalCommandNotFoundError",
   { terminal: ExternalTerminalId, command: Schema.String },
 ) {
@@ -75,7 +75,7 @@ const ExternalTerminalSpawnFields = {
   cause: Schema.Defect(),
 };
 
-export class ExternalTerminalSpawnError extends Schema.TaggedErrorClass<ExternalTerminalSpawnError>()(
+export class ExternalTerminalSpawnError extends Schema.TaggedError<ExternalTerminalSpawnError>()(
   "ExternalTerminalSpawnError",
   { ...ExternalTerminalSpawnFields, cwd: Schema.String, terminal: ExternalTerminalId },
 ) {

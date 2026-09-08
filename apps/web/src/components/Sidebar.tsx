@@ -39,6 +39,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
+  CircleCheckIcon,
   ClockIcon,
   FolderIcon,
   FolderPlusIcon,

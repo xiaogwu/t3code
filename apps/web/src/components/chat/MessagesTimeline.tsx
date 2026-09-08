@@ -396,7 +396,7 @@ interface MessagesTimelineProps {
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   anchorMessageId: MessageId | null;
   highlightedMessageId: MessageId | null;
-  onAnchorReady: (messageId: MessageId, anchorIndex: number, endSpaceSize: number) => void;
+  onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   contentInsetEndAdjustment: number;
   /**
    * Whether the timeline should keep pinning to the live edge as content
@@ -777,7 +777,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleAnchorReady = useCallback(
     (info: { anchorIndex: number | undefined; size: number }) => {
       if (anchorMessageId !== null && info.anchorIndex !== undefined) {
-        onAnchorReady(anchorMessageId, info.anchorIndex, info.size);
+        onAnchorReady(anchorMessageId, info.anchorIndex);
       }
     },
     [anchorMessageId, onAnchorReady],
