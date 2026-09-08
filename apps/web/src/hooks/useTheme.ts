@@ -100,13 +100,6 @@ function themeHalvesSignature(halves: ThemeHalves | null): string {
   return `${halves?.light ?? ""}|${halves?.dark ?? ""}`;
 }
 
-function isOnboardingThemeActive(): boolean {
-  return (
-    typeof document !== "undefined" &&
-    document.documentElement.dataset?.onboardingSurface !== undefined
-  );
-}
-
 const THEME_COLOR_META_NAME = "theme-color";
 const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data-dynamic-theme-color="true"]`;
 
@@ -302,19 +295,15 @@ function resolveBrowserChromeSurface(): HTMLElement {
 
 export function syncBrowserChromeTheme() {
   if (typeof document === "undefined" || typeof getComputedStyle === "undefined") return;
-  const onboardingActive = isOnboardingThemeActive();
   const rootStyles = getComputedStyle(document.documentElement);
-  const themeChromeColor =
-    !onboardingActive && document.documentElement.dataset.themeId
-      ? normalizeThemeColor(rootStyles.getPropertyValue("--app-chrome-background"))
-      : null;
+  const themeChromeColor = document.documentElement.dataset.themeId
+    ? normalizeThemeColor(rootStyles.getPropertyValue("--app-chrome-background"))
+    : null;
   const surfaceColor = normalizeThemeColor(
     getComputedStyle(resolveBrowserChromeSurface()).backgroundColor,
   );
   const fallbackColor = normalizeThemeColor(getComputedStyle(document.body).backgroundColor);
-  const backgroundColor = onboardingActive
-    ? "#000"
-    : (themeChromeColor ?? surfaceColor ?? fallbackColor);
+  const backgroundColor = themeChromeColor ?? surfaceColor ?? fallbackColor;
   if (!backgroundColor) return;
 
   document.documentElement.style.backgroundColor = backgroundColor;
@@ -335,13 +324,8 @@ export function syncBrowserChromeTheme() {
 
 function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview = true } = {}) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
-  const onboardingActive = isOnboardingThemeActive();
   // Keep the editor's draft visible until an explicit refresh restores the selection.
-  if (
-    preservePreview &&
-    !onboardingActive &&
-    document.documentElement.dataset?.themeId === THEME_PREVIEW_ID
-  ) {
+  if (preservePreview && document.documentElement.dataset?.themeId === THEME_PREVIEW_ID) {
     return;
   }
   const appearanceMode = readAppearanceModePreference(theme);
@@ -362,13 +346,7 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     lastAppliedTheme.appearanceMode === appearanceMode &&
     themeHalvesSignature(lastAppliedTheme.themeHalves) === themeHalvesSignature(themeHalves)
   ) {
-    if (onboardingActive) {
-      document.documentElement.classList.add("dark");
-      syncBrowserChromeTheme();
-      syncDesktopTheme("dark", false, "dark");
-    } else {
-      syncDesktopTheme(theme, followSystem, appearanceMode);
-    }
+    syncDesktopTheme(theme, followSystem, appearanceMode);
     syncDesktopDockIcon(
       resolveThemeHalf(theme, themeHalves, resolvedAppearance),
       resolvedAppearance,
@@ -380,19 +358,11 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     document.documentElement.classList.add("no-transitions");
   }
   const resolvedTheme = resolveThemeHalf(theme, themeHalves, resolvedAppearance);
-  if (onboardingActive) {
-    document.documentElement.classList.add("dark");
-  } else {
-    applyThemePalette(resolvedTheme, resolvedAppearance);
-    document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
-  }
+  applyThemePalette(resolvedTheme, resolvedAppearance);
+  document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
   syncBrowserChromeTheme();
-  if (onboardingActive) {
-    syncDesktopTheme("dark", false, "dark");
-  } else {
-    syncDesktopTheme(theme, followSystem, appearanceMode);
-  }
+  syncDesktopTheme(theme, followSystem, appearanceMode);
   syncDesktopDockIcon(resolvedTheme, resolvedAppearance);
   if (suppressTransitions) {
     // Force a reflow so the no-transitions class takes effect before removal
@@ -430,28 +400,6 @@ export function syncDesktopDockIcon(theme: Theme, appearance: ThemeAppearance): 
     });
     if (lastDesktopDockIconTheme === signature) lastDesktopDockIconTheme = null;
   });
-}
-
-/** Own the document-wide dark palette used by the first-run wizard and its portals. */
-export function mountOnboardingTheme(): () => void {
-  if (typeof document === "undefined" || typeof window === "undefined") return () => {};
-
-  const root = document.documentElement;
-  applyThemePalette("dark", "dark");
-  root.dataset.onboardingSurface = "";
-  root.classList.add("dark");
-  syncBrowserChromeTheme();
-  syncDesktopTheme("dark", false, "dark");
-  emitChange();
-
-  return () => {
-    delete root.dataset.onboardingSurface;
-    root.style.backgroundColor = "";
-    document.body.style.backgroundColor = "";
-    lastAppliedTheme = null;
-    applyTheme(getStored(), { suppressTransitions: true, preservePreview: false });
-    emitChange();
-  };
 }
 
 export async function syncDesktopThemePreference(
@@ -515,9 +463,13 @@ function getSnapshot(): ThemeSnapshot {
   const systemDark = followSystem ? getSystemDark() : false;
   const themeHalves = readStoredThemeHalves();
 
-  const resolvedTheme = isOnboardingThemeActive()
-    ? "dark"
-    : resolveThemeAppearance(theme, systemDark, followSystem, appearanceMode, themeHalves);
+  const resolvedTheme = resolveThemeAppearance(
+    theme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+  );
   if (
     lastSnapshot &&
     lastSnapshot.theme === theme &&
