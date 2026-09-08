@@ -189,7 +189,6 @@ const THREAD_ACTIVITY_SOUND_MODE_LABELS: Record<ThreadActivitySoundMode, string>
   always: "Always",
 };
 
-
 const DIFF_LAYOUT_LABELS: Record<DiffLayout, string> = {
   stacked: "Stacked",
   split: "Split",
