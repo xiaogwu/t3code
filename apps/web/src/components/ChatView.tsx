@@ -4772,6 +4772,11 @@ export default function ChatView(props: ChatViewProps) {
   // outgrew the reserved blank space, so the anchored view is identical to
   // ordinary end-following and the anchor can be released.
   const timelineAnchorEndSpaceCollapsedRef = useRef(false);
+  // Whether the armed anchor yields to tool activity in its turn. Set per send
+  // from resolveTimelineSendScrollBehavior; a thread's opening anchor releases,
+  // a follow-up's holds. Defaults to releasing so any anchor armed outside the
+  // send path keeps the upstream behavior.
+  const timelineAnchorReleasesOnToolActivityRef = useRef(true);
   const anchorUserScrollGenerationRef = useRef(0);
   const liveFollowUserScrollGenerationRef = useRef<number | null>(0);
   // Hold ids outside the reveal effect below: clearReveal() inside that effect
@@ -4882,7 +4887,9 @@ export default function ChatView(props: ChatViewProps) {
     if (timelineScrollModeRef.current !== "anchoring-new-turn") {
       return;
     }
-
+    if (!timelineAnchorReleasesOnToolActivityRef.current) {
+      return;
+    }
     if (
       shouldReleaseTimelineAnchorForToolActivity({
         anchorMessageId: timelineAnchorMessageId,
@@ -7105,6 +7112,9 @@ export default function ChatView(props: ChatViewProps) {
     const sendScrollBehavior = resolveTimelineSendScrollBehavior({
       replyToMessageId: replyToMessageIdForSend,
       hasBlockReply: replyToForSend !== null,
+      threadHasStarted:
+        activeThread.latestTurn !== null ||
+        timelineMessages.some((message) => message.role === "user"),
     });
     if (sendScrollBehavior.anchorNewTurn) {
       // Normal sends return to the live edge. The new row becomes the anchored
@@ -7116,6 +7126,7 @@ export default function ChatView(props: ChatViewProps) {
       pendingTimelineAnchorRef.current = messageIdForSend;
       activeTimelineAnchorIndexRef.current = null;
       timelineAnchorEndSpaceCollapsedRef.current = false;
+      timelineAnchorReleasesOnToolActivityRef.current = sendScrollBehavior.releaseOnToolActivity;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       setTimelineAnchor({
