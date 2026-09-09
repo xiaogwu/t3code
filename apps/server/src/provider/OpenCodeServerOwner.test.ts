@@ -291,3 +291,68 @@ it.effect("releases an interrupted borrower and closes after the idle TTL", () =
     ).pipe(Effect.provideService(OpenCodeRuntime, testRuntime.runtime));
   }).pipe(Effect.provide(TestClock.layer())),
 );
+
+/**
+ * Text generation borrows the server this owner spawns, so a prelaunch command
+ * has to reach the spawn. The agent path runs prelaunch in OpenCodeAdapter, and
+ * when that was the only call site, commit-message and PR-content generation ran
+ * against a server that never saw the user's prelaunch environment.
+ */
+const makeSpawnInputCapturingRuntime = Effect.gen(function* () {
+  const spawnInputs = yield* Ref.make<ReadonlyArray<Record<string, unknown>>>([]);
+  const runtime: OpenCodeRuntimeShape = {
+    startOpenCodeServerProcess: (input) =>
+      Effect.gen(function* () {
+        yield* Ref.update(spawnInputs, (seen) => [...seen, input as Record<string, unknown>]);
+        return {
+          url: "http://127.0.0.1:1",
+          version: "1.14.19",
+          isRunning: Effect.succeed(true),
+          exitCode: Effect.never,
+        };
+      }),
+    connectToOpenCodeServer: unusedRuntimeMethod,
+    runOpenCodeCommand: unusedRuntimeMethod,
+    createOpenCodeSdkClient: () => ({}) as never,
+    loadOpenCodeInventory: unusedRuntimeMethod,
+    loadOpenCodeSkills: unusedRuntimeMethod,
+    loadInventoryFromCli: unusedRuntimeMethod,
+    loadSkillsFromCli: unusedRuntimeMethod,
+  };
+  return { runtime, spawnInputs };
+});
+
+it.effect("forwards the prelaunch command to the spawned server", () =>
+  Effect.gen(function* () {
+    const testRuntime = yield* makeSpawnInputCapturingRuntime;
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const owner = yield* OpenCodeServerOwner.make({
+          binaryPath: "opencode",
+          directory: "/project",
+          prelaunch: { command: "mise activate" },
+        });
+        yield* owner.withServer((server) => Effect.succeed(server.url));
+      }),
+    ).pipe(Effect.provideService(OpenCodeRuntime, testRuntime.runtime));
+    const [spawn] = yield* Ref.get(testRuntime.spawnInputs);
+    expect(spawn?.prelaunch).toEqual({ command: "mise activate" });
+  }),
+);
+
+it.effect("omits prelaunch when no command is configured", () =>
+  Effect.gen(function* () {
+    const testRuntime = yield* makeSpawnInputCapturingRuntime;
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const owner = yield* OpenCodeServerOwner.make({
+          binaryPath: "opencode",
+          directory: "/project",
+        });
+        yield* owner.withServer((server) => Effect.succeed(server.url));
+      }),
+    ).pipe(Effect.provideService(OpenCodeRuntime, testRuntime.runtime));
+    const [spawn] = yield* Ref.get(testRuntime.spawnInputs);
+    expect(spawn).not.toHaveProperty("prelaunch");
+  }),
+);

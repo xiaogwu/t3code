@@ -32,6 +32,11 @@ export const make = Effect.fn("OpenCodeServerOwner.make")(function* (input: {
   readonly directory: string;
   readonly serverPassword?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  // The owner spawns the server that text generation borrows, so it needs the
+  // prelaunch command too. The agent path runs it in OpenCodeAdapter; without
+  // it here, commit-message and PR-content generation silently run against a
+  // server that never got the user's prelaunch environment.
+  readonly prelaunch?: OpenCodeRuntime.OpenCodePrelaunch | null;
 }) {
   const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
   const ownerScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
@@ -106,6 +111,7 @@ export const make = Effect.fn("OpenCodeServerOwner.make")(function* (input: {
                     ? { serverPassword: input.serverPassword }
                     : {}),
                   ...(input.environment ? { environment: input.environment } : {}),
+                  ...(input.prelaunch ? { prelaunch: input.prelaunch } : {}),
                 })
                 .pipe(Effect.provideService(Scope.Scope, serverScope)),
             ),
