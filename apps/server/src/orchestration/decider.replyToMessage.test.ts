@@ -50,6 +50,7 @@ function makeReadModel(messages: ReadonlyArray<OrchestrationMessage>): Orchestra
         settledAt: null,
         snoozedUntil: null,
         snoozedAt: null,
+        pullRequests: [],
         deletedAt: null,
         messages,
         proposedPlans: [],

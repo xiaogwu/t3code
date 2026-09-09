@@ -1,3 +1,4 @@
+import { GitPullRequestIcon } from "lucide-react";
 import {
   type AssistantCitation,
   type AssistantThreadBookmark,
@@ -2709,6 +2710,11 @@ function toolGroupSummaryIconName(
   kind: Extract<TimelineRow, { kind: "work-toggle" }>["summaryKind"],
 ): WorkEntryIconName {
   switch (kind) {
+    case "pull-request":
+    case "link-pr":
+    case "unlink-pr":
+    case "list-prs":
+      return "pull-request";
     case "read":
       return "eye";
     case "edit":
@@ -3285,6 +3291,7 @@ type WorkEntryIconName =
   | "search"
   | "square-pen"
   | "terminal"
+  | "pull-request"
   | "t3-code"
   | "wrench"
   | "x"
@@ -3489,6 +3496,8 @@ function ToolActivityImageIcon(props: {
 
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
   switch (name) {
+    case "pull-request":
+      return <GitPullRequestIcon className={className} aria-hidden />;
     case "bot":
       return <BotIcon className={className} aria-hidden />;
     case "brain":
@@ -3793,13 +3802,12 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           workspaceRoot,
         })
       : null;
-  const commandMatchesVisibleLabel = workEntry.command?.trim() === previewText.trim();
   const canExpand =
     (showFailedIndicator && previewText.trim().length > 0) ||
     (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) ||
     Boolean(
-      (!commandMatchesVisibleLabel &&
-        (workEntryRawCommand(workEntry) || workEntry.command?.trim())) ||
+      workEntryRawCommand(workEntry) ||
+      workEntry.command?.trim() ||
       workEntry.detail?.trim() ||
       workEntry.changedFiles?.length ||
       viewedImage,
@@ -3880,9 +3888,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
               <span
                 className={cn(
                   "min-w-0 flex-1",
-                  expanded || (commandMatchesVisibleLabel && !canExpand)
-                    ? "whitespace-pre-wrap break-words select-text"
-                    : "truncate",
+                  expanded ? "whitespace-pre-wrap break-words select-text" : "truncate",
                   headingClass,
                 )}
                 onClick={expanded ? stopRowToggle : undefined}

@@ -59,6 +59,7 @@ function makeReadModel(input: {
         pinnedAt: null,
         pinOrderKey: null,
         bookmarks: input.bookmarks ?? [],
+        pullRequests: [],
         deletedAt: null,
         messages: [],
         proposedPlans: [],
