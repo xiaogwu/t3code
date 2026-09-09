@@ -15,6 +15,10 @@ import { useComposerFocusState } from "./useComposerFocusState";
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
+  // LegendList always reports a numeric tail size (`let nextSize = 0` in
+  // updateAnchoredEndSpace), so the mock must too: a report without it would
+  // hide the timeline dropping the size on its way to ChatView.
+  const mockAnchoredEndSpaceSize = 320;
 
   const LegendList = (props: {
     data: Array<{ id: string }>;
@@ -26,7 +30,7 @@ vi.mock("@legendapp/list/react", async () => {
       anchorIndex: number;
       anchorMaxSize?: number;
       anchorOffset?: number;
-      onReady?: (info: { anchorIndex: number }) => void;
+      onReady?: (info: { anchorIndex: number; size: number }) => void;
     };
     contentInsetEndAdjustment?: number;
     className?: string;
@@ -41,7 +45,10 @@ vi.mock("@legendapp/list/react", async () => {
     ref?: Ref<LegendListRef>;
   }) => {
     if (props.anchoredEndSpace) {
-      props.anchoredEndSpace.onReady?.({ anchorIndex: props.anchoredEndSpace.anchorIndex });
+      props.anchoredEndSpace.onReady?.({
+        anchorIndex: props.anchoredEndSpace.anchorIndex,
+        size: mockAnchoredEndSpaceSize,
+      });
     }
     return (
       <div
@@ -791,7 +798,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("h-28 w-52 max-w-full");
     expect(markup).not.toContain("col-span-2");
     expect(onAnchorReady).toHaveBeenCalledOnce();
-    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
+    // 320 mirrors mockAnchoredEndSpaceSize above: ChatView releases the anchor
+    // on a zero size, so the reported size has to reach it unchanged.
+    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0, 320);
   });
 
   it("does not render window details before the preview URL resolves", () => {

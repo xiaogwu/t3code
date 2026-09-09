@@ -396,7 +396,12 @@ interface MessagesTimelineProps {
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   anchorMessageId: MessageId | null;
   highlightedMessageId: MessageId | null;
-  onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
+  /**
+   * `endSpaceSize` is the blank space still reserved below the anchored turn.
+   * Zero means the response has outgrown it, so the anchored view is now
+   * identical to ordinary end-following and ChatView can release the anchor.
+   */
+  onAnchorReady: (messageId: MessageId, anchorIndex: number, endSpaceSize: number) => void;
   contentInsetEndAdjustment: number;
   /**
    * Whether the timeline should keep pinning to the live edge as content
@@ -777,7 +782,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleAnchorReady = useCallback(
     (info: { anchorIndex: number | undefined; size: number }) => {
       if (anchorMessageId !== null && info.anchorIndex !== undefined) {
-        onAnchorReady(anchorMessageId, info.anchorIndex);
+        onAnchorReady(anchorMessageId, info.anchorIndex, info.size);
       }
     },
     [anchorMessageId, onAnchorReady],
