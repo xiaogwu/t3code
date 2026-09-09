@@ -394,6 +394,7 @@ import {
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
   shouldDockDraftHeroForSubmission,
+  observeThreadCompletionReadability,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
@@ -2007,8 +2008,9 @@ export default function ChatView(props: ChatViewProps) {
   // stamped at the turn's completion time — not now/updatedAt — so it clears
   // exactly the completion the user is looking at: a wake or completion that
   // lands later still gets its signal (markThreadVisited never moves the
-  // timestamp backwards).
-  useEffect(() => {
+  // timestamp backwards). A selected route is not necessarily being read,
+  // though: keep a completion unread while the page is hidden or unfocused.
+  const acknowledgeActiveThreadCompletion = useCallback(() => {
     const completedAt = serverThread?.latestTurn?.completedAt;
     if (!serverThread?.id || !completedAt) return;
     markThreadVisited(
@@ -2021,6 +2023,20 @@ export default function ChatView(props: ChatViewProps) {
     serverThread?.id,
     serverThread?.latestTurn?.completedAt,
   ]);
+  useEffect(() => {
+    return observeThreadCompletionReadability(
+      acknowledgeActiveThreadCompletion,
+      () => document.visibilityState === "visible" && document.hasFocus(),
+      (listener) => {
+        window.addEventListener("focus", listener);
+        return () => window.removeEventListener("focus", listener);
+      },
+      (listener) => {
+        document.addEventListener("visibilitychange", listener);
+        return () => document.removeEventListener("visibilitychange", listener);
+      },
+    );
+  }, [acknowledgeActiveThreadCompletion]);
   useEffect(() => {
     setMountedTerminalThreadKeys((currentThreadIds) => {
       const nextThreadIds = reconcileMountedTerminalThreadIds({
