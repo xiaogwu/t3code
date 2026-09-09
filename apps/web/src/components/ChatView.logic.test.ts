@@ -64,6 +64,7 @@ import {
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
+  observeThreadCompletionReadability,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldOpenProactivePullRequest,
   shouldRetargetThreadPullRequestPanel,
@@ -1516,6 +1517,65 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
       worktreePath: null,
       startFromOrigin: true,
     });
+  });
+});
+
+describe("observeThreadCompletionReadability", () => {
+  function makeSubscription() {
+    let listener: (() => void) | null = null;
+    const subscribe = (nextListener: () => void) => {
+      listener = nextListener;
+      return () => {
+        listener = null;
+      };
+    };
+    return {
+      subscribe,
+      emit: () => listener?.(),
+    };
+  }
+
+  it("acknowledges a foreground completion immediately", () => {
+    const focus = makeSubscription();
+    const visibility = makeSubscription();
+    let readable = true;
+    let acknowledgements = 0;
+
+    observeThreadCompletionReadability(
+      () => acknowledgements++,
+      () => readable,
+      focus.subscribe,
+      visibility.subscribe,
+    );
+
+    expect(acknowledgements).toBe(1);
+  });
+
+  it("keeps a hidden or unfocused completion unread until readability returns", () => {
+    const focus = makeSubscription();
+    const visibility = makeSubscription();
+    let pageIsVisible = false;
+    let windowHasFocus = true;
+    let acknowledgements = 0;
+    const unsubscribe = observeThreadCompletionReadability(
+      () => acknowledgements++,
+      () => pageIsVisible && windowHasFocus,
+      focus.subscribe,
+      visibility.subscribe,
+    );
+
+    expect(acknowledgements).toBe(0);
+    pageIsVisible = true;
+    windowHasFocus = false;
+    focus.emit();
+    expect(acknowledgements).toBe(0);
+    windowHasFocus = true;
+    visibility.emit();
+    expect(acknowledgements).toBe(1);
+    unsubscribe();
+    visibility.emit();
+    focus.emit();
+    expect(acknowledgements).toBe(1);
   });
 });
 

@@ -64,6 +64,25 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
+export function observeThreadCompletionReadability(
+  acknowledge: () => void,
+  isReadable: () => boolean,
+  subscribeToFocus: (listener: () => void) => () => void,
+  subscribeToVisibility: (listener: () => void) => () => void,
+): () => void {
+  const acknowledgeIfReadable = () => {
+    if (isReadable()) acknowledge();
+  };
+  const unsubscribeFromFocus = subscribeToFocus(acknowledgeIfReadable);
+  const unsubscribeFromVisibility = subscribeToVisibility(acknowledgeIfReadable);
+  acknowledgeIfReadable();
+
+  return () => {
+    unsubscribeFromFocus();
+    unsubscribeFromVisibility();
+  };
+}
+
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
 export function agentControlledBrowserCloseConfirmation(
