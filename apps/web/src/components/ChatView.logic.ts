@@ -39,6 +39,7 @@ import {
 } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
+import type { ReactNode } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 import {
@@ -51,6 +52,7 @@ import type { ComposerSubmissionIntent } from "../composer-logic";
 import type { TimelineEntry } from "../session-logic";
 import type { DesktopPreviewOverlay } from "../previewStateStore";
 import type { RightPanelSurface } from "../rightPanelStore";
+import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import {
   NO_PROVIDER_MODEL_SELECTION,
   resolveSelectableProviderInstanceEntry,
@@ -798,6 +800,24 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(
     thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),
   );
+}
+
+// Send stays enabled during compaction (queued server-side and drained in
+// order once it finishes), so this only informs — it never blocks sending.
+export function compactingComposerBannerItem(input: {
+  readonly isCompacting: boolean;
+  readonly icon: ReactNode;
+}): ComposerBannerStackItem | null {
+  if (!input.isCompacting) {
+    return null;
+  }
+  return {
+    id: "compacting-context",
+    variant: "info",
+    priority: "activity",
+    icon: input.icon,
+    title: "Compacting context — messages you send now will be sent when it finishes.",
+  };
 }
 
 // Imported history has no session until its first prompt. Resolve its instance

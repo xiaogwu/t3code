@@ -6,6 +6,7 @@ import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../Sideb
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
 
 interface PendingActionState {
@@ -27,6 +28,8 @@ interface ComposerPrimaryActionsProps {
   isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
+  /** Context compaction is running; send stays enabled but its tooltip explains the delay. */
+  isCompacting?: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   /** Enter-to-send is disabled on mobile viewports, where stop would otherwise
@@ -70,6 +73,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isConnecting,
   isEnvironmentUnavailable,
   isPreparingWorktree,
+  isCompacting = false,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
   showSendWhileRunning = false,
@@ -247,7 +251,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 ? "Preparing worktree"
                 : isSendBusy
                   ? "Sending"
-                  : "Send message"
+                  : isCompacting
+                    ? "Sends after compacting"
+                    : "Send message"
       }
     >
       {stageBackdropVariant ? (
@@ -271,14 +277,24 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     </button>
   );
 
+  const sendButtonNode =
+    isCompacting && !isSendBusy && !isConnecting ? (
+      <Tooltip>
+        <TooltipTrigger render={sendButton} />
+        <TooltipPopup side="top">Sends after compacting</TooltipPopup>
+      </Tooltip>
+    ) : (
+      sendButton
+    );
+
   if (!isRunning) {
-    return sendButton;
+    return sendButtonNode;
   }
 
   return (
     <>
       {renderStopGenerationButton(false)}
-      {showSendWhileRunning && hasSendableContent ? sendButton : null}
+      {showSendWhileRunning && hasSendableContent ? sendButtonNode : null}
     </>
   );
 });

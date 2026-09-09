@@ -34,6 +34,7 @@ import {
   buildLoadingThreadFromShell,
   buildRunningThreadTurnInterruptInput,
   buildThreadTurnInterruptInput,
+  compactingComposerBannerItem,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   deriveLockedProvider,
@@ -924,6 +925,22 @@ describe("buildThreadTurnInterruptInput", () => {
         }),
       ),
     ).toEqual({ threadId });
+  });
+});
+
+describe("compactingComposerBannerItem", () => {
+  it("returns null when compaction is not running", () => {
+    expect(compactingComposerBannerItem({ isCompacting: false, icon: "icon" })).toBeNull();
+  });
+
+  it("surfaces an informational banner while compaction is running", () => {
+    const item = compactingComposerBannerItem({ isCompacting: true, icon: "icon" });
+    expect(item).toMatchObject({
+      variant: "info",
+      priority: "activity",
+      icon: "icon",
+      title: "Compacting context — messages you send now will be sent when it finishes.",
+    });
   });
 });
 
