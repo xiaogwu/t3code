@@ -1865,10 +1865,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      // The dev marker has to ride alongside upstream's capture usage
+      // description, not replace it: without the description macOS cannot
+      // prompt for screen recording, so the window-capture shortcut dies in
+      // dev builds only.
       assert.deepStrictEqual((dev.mac as Record<string, unknown>).extendInfo, {
+        NSScreenCaptureUsageDescription:
+          "T3 Code captures the active window when you use the window capture shortcut.",
         LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1", T3CODE_DISABLE_AUTO_UPDATE: "1" },
       });
-      assert.notProperty(nightly.mac as Record<string, unknown>, "extendInfo");
+      assert.deepStrictEqual((nightly.mac as Record<string, unknown>).extendInfo, {
+        NSScreenCaptureUsageDescription:
+          "T3 Code captures the active window when you use the window capture shortcut.",
+      });
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 

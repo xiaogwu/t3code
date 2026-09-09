@@ -2779,9 +2779,32 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      // Composed in one place because the dev marker below has to extend this
+      // key rather than replace it: a spread of a second `extendInfo` would
+      // clobber the capture usage description and leave a dev build unable to
+      // prompt for screen recording.
+      //
+      // --dev only swaps icons and web brand assets, which leaves the packaged
+      // runtime with no way to know it is a dev build: the version still parses
+      // as a nightly, so branding resolves to Nightly. LSEnvironment is the one
+      // Info.plist key LaunchServices turns into a process env var, so a
+      // Finder/Dock/`open` launch hands the marker to the main process.
+      //
+      // T3CODE_DISABLE_AUTO_UPDATE is not optional here: a dev build keeps a
+      // real nightly version so it stays on the nightly channel, so the updater
+      // treats the next official nightly as an upgrade and replaces the bundle
+      // in place, silently reverting every local change.
       extendInfo: {
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
+        ...(dev
+          ? {
+              LSEnvironment: {
+                T3CODE_DESKTOP_DEV_BUILD: "1",
+                T3CODE_DISABLE_AUTO_UPDATE: "1",
+              },
+            }
+          : {}),
       },
       protocols: [
         {
@@ -2794,26 +2817,6 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
             provisioningProfile: macPasskeySigning.provisioningProfilePath,
-          }
-        : {}),
-      // --dev only swaps icons and web brand assets, which leaves the packaged
-      // runtime with no way to know it is a dev build: the version still parses
-      // as a nightly, so branding resolves to Nightly. LSEnvironment is the one
-      // Info.plist key LaunchServices turns into a process env var, so a
-      // Finder/Dock/`open` launch hands the marker to the main process.
-      //
-      // T3CODE_DISABLE_AUTO_UPDATE is not optional here: a dev build keeps a
-      // real nightly version so it stays on the nightly channel, so the updater
-      // treats the next official nightly as an upgrade and replaces the bundle
-      // in place, silently reverting every local change.
-      ...(dev
-        ? {
-            extendInfo: {
-              LSEnvironment: {
-                T3CODE_DESKTOP_DEV_BUILD: "1",
-                T3CODE_DISABLE_AUTO_UPDATE: "1",
-              },
-            },
           }
         : {}),
     };
