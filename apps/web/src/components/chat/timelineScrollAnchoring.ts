@@ -14,20 +14,32 @@ export interface TimelineSendScrollBehavior {
   readonly mode: TimelineScrollMode;
   readonly liveFollowEnabled: boolean;
   readonly anchorNewTurn: boolean;
+  /**
+   * Whether tool activity in the new turn drops the anchor and returns to
+   * following the end. A thread's opening send keeps upstream's behavior, where
+   * releasing avoids leaving the reserved end space blank behind a tool call. A
+   * follow-up send holds its anchor instead: anchoring one exists so the reply
+   * can be read from its start, and a coding agent's first tool call usually
+   * lands a second or two after the send.
+   */
+  readonly releaseOnToolActivity: boolean;
 }
 
 export function resolveTimelineSendScrollBehavior({
   replyToMessageId,
   hasBlockReply,
+  threadHasStarted,
 }: {
   readonly replyToMessageId: string | null;
   readonly hasBlockReply: boolean;
+  readonly threadHasStarted: boolean;
 }): TimelineSendScrollBehavior {
   if (replyToMessageId !== null || hasBlockReply) {
     return {
       mode: "free-scrolling",
       liveFollowEnabled: false,
       anchorNewTurn: false,
+      releaseOnToolActivity: false,
     };
   }
 
@@ -35,6 +47,7 @@ export function resolveTimelineSendScrollBehavior({
     mode: "anchoring-new-turn",
     liveFollowEnabled: true,
     anchorNewTurn: true,
+    releaseOnToolActivity: !threadHasStarted,
   };
 }
 

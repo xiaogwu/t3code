@@ -58,16 +58,33 @@ describe("timelineContentOverflowsViewport", () => {
 });
 
 describe("timeline scroll anchoring", () => {
-  it("anchors normal sends and keeps following their streamed output", () => {
+  it("anchors a thread's opening send and lets tool activity release it", () => {
     expect(
       resolveTimelineSendScrollBehavior({
         replyToMessageId: null,
         hasBlockReply: false,
+        threadHasStarted: false,
       }),
     ).toEqual({
       mode: "anchoring-new-turn",
       liveFollowEnabled: true,
       anchorNewTurn: true,
+      releaseOnToolActivity: true,
+    });
+  });
+
+  it("holds a follow-up send's anchor through its tool activity", () => {
+    expect(
+      resolveTimelineSendScrollBehavior({
+        replyToMessageId: null,
+        hasBlockReply: false,
+        threadHasStarted: true,
+      }),
+    ).toEqual({
+      mode: "anchoring-new-turn",
+      liveFollowEnabled: true,
+      anchorNewTurn: true,
+      releaseOnToolActivity: false,
     });
   });
 
@@ -76,11 +93,13 @@ describe("timeline scroll anchoring", () => {
       resolveTimelineSendScrollBehavior({
         replyToMessageId: "assistant:message-1",
         hasBlockReply: false,
+        threadHasStarted: true,
       }),
     ).toEqual({
       mode: "free-scrolling",
       liveFollowEnabled: false,
       anchorNewTurn: false,
+      releaseOnToolActivity: false,
     });
   });
 
@@ -89,11 +108,13 @@ describe("timeline scroll anchoring", () => {
       resolveTimelineSendScrollBehavior({
         replyToMessageId: "assistant:message-1",
         hasBlockReply: true,
+        threadHasStarted: true,
       }),
     ).toEqual({
       mode: "free-scrolling",
       liveFollowEnabled: false,
       anchorNewTurn: false,
+      releaseOnToolActivity: false,
     });
   });
 

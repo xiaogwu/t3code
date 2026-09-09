@@ -7,6 +7,13 @@ export interface ChatListAnchoredEndSpace {
 
 export interface ChatListAnchorOptions {
   readonly anchorOffset?: number;
+  /**
+   * Which eligible row is allowed to anchor. "first-eligible" reserves end
+   * space only for a list's opening eligible row, so a follow-up submission
+   * cannot push itself to the top. "latest" matches the anchor wherever it
+   * sits, for a surface that deliberately anchors every new turn.
+   */
+  readonly match?: "first-eligible" | "latest";
 }
 
 export function resolveChatListAnchoredEndSpace<Item, AnchorId>(
@@ -16,6 +23,19 @@ export function resolveChatListAnchoredEndSpace<Item, AnchorId>(
   options: ChatListAnchorOptions = {},
 ): ChatListAnchoredEndSpace | undefined {
   if (anchorId === null) {
+    return undefined;
+  }
+
+  const anchorOffset = options.anchorOffset ?? CHAT_LIST_ANCHOR_OFFSET;
+
+  if (options.match === "latest") {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item !== undefined && getAnchorId(item) === anchorId) {
+        return { anchorIndex: index, anchorOffset };
+      }
+    }
+
     return undefined;
   }
 
@@ -30,12 +50,7 @@ export function resolveChatListAnchoredEndSpace<Item, AnchorId>(
       continue;
     }
 
-    return itemAnchorId === anchorId
-      ? {
-          anchorIndex: index,
-          anchorOffset: options.anchorOffset ?? CHAT_LIST_ANCHOR_OFFSET,
-        }
-      : undefined;
+    return itemAnchorId === anchorId ? { anchorIndex: index, anchorOffset } : undefined;
   }
 
   return undefined;

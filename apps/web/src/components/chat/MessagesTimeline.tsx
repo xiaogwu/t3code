@@ -792,7 +792,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       rows,
       anchorMessageId,
       (row) => (row.kind === "message" && row.message.role === "user" ? row.message.id : null),
-      { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET },
+      // Every new turn anchors here, not just a thread's opening message, so the
+      // anchor has to be matched wherever it sits in the history.
+      { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET, match: "latest" },
     );
     return config ? { ...config, onReady: handleAnchorReady } : undefined;
   }, [anchorMessageId, handleAnchorReady, rows]);

@@ -815,7 +815,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("h-28 w-52 max-w-full");
   });
 
-  it("does not reserve end space for a follow-up user message", () => {
+  it("reserves end space for a follow-up user message", () => {
     const onAnchorReady = vi.fn();
     const firstEntry = buildUserTimelineEntry("First prompt.");
     const secondEntry = {
@@ -835,9 +835,11 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).not.toContain("data-anchor-index=");
-    expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
-    expect(onAnchorReady).not.toHaveBeenCalled();
+    // Anchoring every new turn, not only a thread's opening prompt, means the
+    // anchor is matched past the earlier user row rather than stopping there.
+    expect(markup).toContain('data-anchor-index="1"');
+    expect(markup).toContain('data-anchor-offset="24"');
+    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1, 320);
   });
 
   it("gives browser documents separate preview and download controls", () => {
