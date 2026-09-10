@@ -450,6 +450,44 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("projects delegated MCP updates into one latest-status work-log card", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "delegated-queued",
+        kind: "delegated-thread",
+        summary: "Delegated thread queued",
+        sequence: 1,
+        payload: {
+          childThreadId: "child-1",
+          taskKey: "task-1",
+          prompt: "Implement the feature",
+          status: "queued",
+        },
+      }),
+      makeActivity({
+        id: "delegated-completed",
+        kind: "delegated-thread",
+        summary: "Delegated thread completed",
+        sequence: 2,
+        payload: {
+          childThreadId: "child-1",
+          status: "completed",
+          resultPreview: "Implemented and verified the feature.",
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "delegated-queued",
+      delegatedThread: {
+        childThreadId: "child-1",
+        status: "completed",
+        resultPreview: "Implemented and verified the feature.",
+      },
+    });
+  });
+
   it("keeps the latest task progress without emitting plan-update log entries", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),

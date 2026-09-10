@@ -375,6 +375,43 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (command.parentThreadId !== undefined && command.parentThreadId !== null) {
+        const parent = readModel.threads.find((thread) => thread.id === command.parentThreadId);
+        if (!parent) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `parent thread ${command.parentThreadId} does not exist`,
+          });
+        }
+        if (parent.parentThreadId !== undefined && parent.parentThreadId !== null) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "delegated threads cannot create another delegated thread",
+          });
+        }
+        const siblingCount = readModel.threads.filter(
+          (thread) => thread.parentThreadId === command.parentThreadId,
+        ).length;
+        if (siblingCount >= 4) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "a parent thread may create at most four delegated threads",
+          });
+        }
+        if (
+          command.spawnKey != null &&
+          readModel.threads.some(
+            (thread) =>
+              thread.parentThreadId === command.parentThreadId &&
+              thread.spawnKey === command.spawnKey,
+          )
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `spawn key ${command.spawnKey} is already in use by this parent thread`,
+          });
+        }
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -393,6 +430,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          ...(command.parentThreadId !== undefined
+            ? { parentThreadId: command.parentThreadId }
+            : {}),
+          ...(command.parentTurnId !== undefined ? { parentTurnId: command.parentTurnId } : {}),
+          ...(command.spawnKey != null ? { spawnKey: command.spawnKey } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

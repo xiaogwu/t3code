@@ -8,9 +8,11 @@ import {
   type ScopedThreadRef,
   type ServerProviderSkill,
   type ThreadBookmarkId,
+  type ThreadId,
   type ToolActivityIcon,
   type TurnId,
 } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import {
@@ -24,6 +26,7 @@ import {
   emptyAgentPanelModel,
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { DelegatedThreadStatus, DelegatedThreadWorkLog } from "../../session-logic";
 
 const EMPTY_AGENT_PANEL_MODEL = emptyAgentPanelModel();
 const NOOP_OPEN_AGENTS = () => {};
@@ -241,6 +244,8 @@ interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
   onOpenAgents: () => void;
+  delegatedThreadShells: ReadonlyMap<string, EnvironmentThreadShell>;
+  onOpenDelegatedThread: (threadId: ThreadId) => void;
 }
 
 interface TimelineRowActivityState {
@@ -370,6 +375,8 @@ interface MessagesTimelineProps {
   ) => void;
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
+  delegatedThreadShells?: ReadonlyMap<string, EnvironmentThreadShell>;
+  onOpenDelegatedThread?: (threadId: ThreadId) => void;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -442,6 +449,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnStartedAt,
   agentPanelModel = EMPTY_AGENT_PANEL_MODEL,
   onOpenAgents = NOOP_OPEN_AGENTS,
+  delegatedThreadShells = new Map(),
+  onOpenDelegatedThread = () => {},
   listRef,
   timelineEntries,
   latestTurn,
@@ -1071,6 +1080,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workGroupViewState,
       agentPanelModel,
       onOpenAgents,
+      delegatedThreadShells,
+      onOpenDelegatedThread,
     }),
     [
       readyCitationRequest,
@@ -1098,6 +1109,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workGroupViewState,
       agentPanelModel,
       onOpenAgents,
+      delegatedThreadShells,
+      onOpenDelegatedThread,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -3750,6 +3763,78 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   );
 });
 
+function delegatedThreadStatus(
+  work: DelegatedThreadWorkLog,
+  shell: EnvironmentThreadShell | undefined,
+): DelegatedThreadStatus {
+  if (!shell) return work.status;
+  if (shell.session?.status === "error" || shell.latestTurn?.state === "error") return "failed";
+  if (shell.settledOverride === "settled") return "settled";
+  if (shell.hasPendingApprovals || shell.hasPendingUserInput) return "waiting";
+  if (shell.session?.status === "starting" || shell.session?.status === "running") return "running";
+  if (shell.latestTurn?.state === "running") return "running";
+  if (shell.latestTurn?.state === "completed") return "completed";
+  return work.status;
+}
+
+const delegatedStatusLabel: Record<DelegatedThreadStatus, string> = {
+  queued: "Queued",
+  running: "Running",
+  waiting: "Waiting",
+  failed: "Failed",
+  completed: "Completed",
+  settled: "Settled",
+  deleted: "Deleted",
+};
+
+const DelegatedThreadCard = memo(function DelegatedThreadCard(props: {
+  workEntry: TimelineWorkEntry;
+}) {
+  const { delegatedThreadShells, onOpenDelegatedThread } = use(TimelineRowCtx);
+  const work = props.workEntry.delegatedThread;
+  if (!work) return null;
+  const shell = delegatedThreadShells.get(String(work.childThreadId));
+  const status = delegatedThreadStatus(work, shell);
+  const title = shell?.title ?? work.title ?? "Delegated thread";
+  const preview = work.resultPreview?.trim();
+  const canOpen = shell !== undefined;
+  return (
+    <div className="flex w-full items-start gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-2 text-left">
+      <span
+        aria-hidden
+        className={cn(
+          "mt-1.5 size-1.5 shrink-0 rounded-full",
+          status === "failed"
+            ? "bg-destructive"
+            : status === "completed" || status === "settled"
+              ? "bg-success"
+              : "bg-info",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+          <span className="shrink-0 text-[.7rem] text-muted-foreground">
+            {delegatedStatusLabel[status]}
+          </span>
+        </div>
+        {preview ? (
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{preview}</p>
+        ) : null}
+      </div>
+      {canOpen ? (
+        <button
+          type="button"
+          className="shrink-0 text-xs text-info-foreground hover:underline"
+          onClick={() => onOpenDelegatedThread(work.childThreadId)}
+        >
+          Open thread ▸
+        </button>
+      ) : null}
+    </div>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
@@ -3761,6 +3846,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   // Before any hooks: spawn CTA rows render their own component.
   if (workEntry.agentSpawn) {
     return <AgentSpawnCtaRow workEntry={workEntry} />;
+  }
+  if (workEntry.delegatedThread) {
+    return <DelegatedThreadCard workEntry={workEntry} />;
   }
   return (
     <PlainWorkEntryRow

@@ -129,8 +129,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
+        // Thread delegation is scoped to this credential's environment and
+        // originating thread by the toolkit handlers. It is safe to advertise
+        // alongside the existing thread-local pull-request capability.
         capabilities: new Set<McpInvocationContext.McpCapability>([
           "pull-requests",
+          "threads",
           ...request.capabilities,
         ]),
         issuedAt,

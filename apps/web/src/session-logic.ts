@@ -98,6 +98,23 @@ export {
 export type WorkLogToolLifecycleStatus =
   import("@t3tools/client-runtime/work-log/presentation").WorkLogToolLifecycleStatus;
 
+export type DelegatedThreadStatus =
+  | "queued"
+  | "running"
+  | "waiting"
+  | "failed"
+  | "completed"
+  | "settled"
+  | "deleted";
+
+export interface DelegatedThreadWorkLog {
+  childThreadId: ThreadId;
+  status: DelegatedThreadStatus;
+  title?: string;
+  projectId?: string;
+  resultPreview?: string;
+}
+
 export interface WorkLogEntry {
   questionAnswer?: UserInputAttachmentAnswerPayload;
   id: string;
@@ -138,6 +155,8 @@ export interface WorkLogEntry {
     workflowId: string | null;
     agentTaskIds: ReadonlyArray<string>;
   };
+  /** Persisted MCP delegation activity projected into the existing work log. */
+  delegatedThread?: DelegatedThreadWorkLog;
 }
 
 const workLogCollapseKey = Symbol();
@@ -597,6 +616,11 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           : activity.tone,
     sourceActivityKind: activity.kind,
   };
+  const delegatedThread = extractDelegatedThread(activity);
+  if (delegatedThread) {
+    entry.delegatedThread = delegatedThread;
+    entry.label = delegatedThread.title ?? activity.summary;
+  }
   if (activity.kind === "user-input.answer-submitted") {
     const answer = decodeQuestionAttachmentAnswer(payload);
     if (Option.isSome(answer)) entry.questionAnswer = answer.value;
@@ -686,6 +710,35 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   return entry;
 }
 
+function extractDelegatedThread(
+  activity: OrchestrationThreadActivity,
+): DelegatedThreadWorkLog | undefined {
+  if (activity.kind !== "delegated-thread") return undefined;
+  const payload = asRecord(activity.payload);
+  const childThreadId = asTrimmedString(payload?.childThreadId);
+  if (!childThreadId) return undefined;
+  const statusValue = asTrimmedString(payload?.status);
+  const status: DelegatedThreadStatus =
+    statusValue === "running" ||
+    statusValue === "waiting" ||
+    statusValue === "failed" ||
+    statusValue === "completed" ||
+    statusValue === "settled" ||
+    statusValue === "deleted"
+      ? statusValue
+      : "queued";
+  const title = asTrimmedString(payload?.title) ?? asTrimmedString(payload?.prompt);
+  const projectId = asTrimmedString(payload?.projectId);
+  const resultPreview = asTrimmedString(payload?.resultPreview);
+  return {
+    childThreadId: childThreadId as ThreadId,
+    status,
+    ...(title ? { title } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(resultPreview ? { resultPreview } : {}),
+  };
+}
+
 /**
  * Spawn-group key for a subagent lifecycle row. Workflow members and their
  * coordinator share the coordinator's group; direct spawns batch per turn.
@@ -739,7 +792,30 @@ function collapseDerivedWorkLogEntries(
   // rows (live-test finding, thread 7ac7ef05).
   const groupKeyByTaskId = new Map<string, string>();
   const toolLifecycleRowIndex = new Map<string, number>();
+  const delegatedThreadRowIndex = new Map<string, number>();
   for (const entry of entries) {
+    const delegated = entry.delegatedThread;
+    if (delegated) {
+      const existingIndex = delegatedThreadRowIndex.get(String(delegated.childThreadId));
+      if (existingIndex !== undefined) {
+        const existing = collapsed[existingIndex]!;
+        collapsed[existingIndex] = {
+          ...existing,
+          ...entry,
+          id: existing.id,
+          createdAt: existing.createdAt,
+          turnId: existing.turnId ?? null,
+          delegatedThread: {
+            ...existing.delegatedThread,
+            ...delegated,
+          },
+        };
+        continue;
+      }
+      delegatedThreadRowIndex.set(String(delegated.childThreadId), collapsed.length);
+      collapsed.push(entry);
+      continue;
+    }
     const isTaskRow =
       entry.taskId !== undefined &&
       !entry.isBackgroundTask &&
