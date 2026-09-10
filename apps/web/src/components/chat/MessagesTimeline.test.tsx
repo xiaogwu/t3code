@@ -3,6 +3,7 @@ import {
   CheckpointRef,
   EnvironmentId,
   MessageId,
+  ThreadId,
   TurnId,
 } from "@t3tools/contracts";
 import { act, createRef, useLayoutEffect, type ReactNode, type Ref } from "react";
@@ -281,6 +282,37 @@ function buildSnapShotTimelineEntry(previewUrl?: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("renders a delegated thread card with its persisted status and result preview", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "delegated-card",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "delegated-card",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Implement the feature",
+              tone: "info",
+              delegatedThread: {
+                childThreadId: ThreadId.make("child-1"),
+                status: "completed",
+                title: "Implement the feature",
+                resultPreview: "Implemented and verified the feature.",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Implement the feature");
+    expect(markup).toContain("Completed");
+    expect(markup).toContain("Implemented and verified the feature.");
+  });
+
   it("renders previous and next controls with the minimap", () => {
     const first = buildUserTimelineEntry("First turn");
     const secondBase = buildUserTimelineEntry("Second turn");

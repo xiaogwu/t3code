@@ -73,6 +73,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { TitlePolicyReactorLive } from "./orchestration/Layers/TitlePolicyReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
+import { ThreadTurnBootstrapLive } from "./orchestration/Services/ThreadTurnBootstrap.ts";
 import * as ThreadSettlementReactor from "./orchestration/ThreadSettlementReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import * as ThreadPullRequestReactor from "./orchestration/ThreadPullRequestReactor.ts";
@@ -766,6 +767,13 @@ const makeServerLayer = Layer.unwrap(
       ).pipe(Effect.asVoid),
     }).pipe(Layer.provideMerge(RuntimeDependenciesLive), Layer.provide(launcherLayer));
 
+    // Compose the shared bootstrap service into the existing runtime graph so
+    // it consumes the same engine, VCS, deletion reactor, setup runner, and
+    // startup queue instances as the rest of the server.
+    const runtimeServicesWithThreadBootstrapLive = ThreadTurnBootstrapLive.pipe(
+      Layer.provideMerge(runtimeServicesLive),
+    );
+
     const routesLayer = HttpRouter.serve(makeRoutesLayer.pipe(Layer.provide(launcherLayer)), {
       disableLogger: !config.logWebSocketEvents,
       routerConfig: HTTP_ROUTER_CONFIG,
@@ -779,7 +787,7 @@ const makeServerLayer = Layer.unwrap(
     );
 
     return serverApplicationLayer.pipe(
-      Layer.provideMerge(runtimeServicesLive),
+      Layer.provideMerge(runtimeServicesWithThreadBootstrapLive),
       Layer.provide(activationLayer),
       Layer.provideMerge(serverRelayBrokerTracingLayer),
       Layer.provideMerge(HttpServerLive),

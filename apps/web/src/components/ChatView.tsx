@@ -327,6 +327,7 @@ import {
   useThread,
   useThreadRefs,
   useThreadShell,
+  useThreadShells,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -1751,6 +1752,7 @@ export default function ChatView(props: ChatViewProps) {
   const storeSetActiveTerminal = useTerminalUiStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((s) => s.closeTerminal);
   const serverThreadRefs = useThreadRefs();
+  const serverThreadShells = useThreadShells();
   const serverThreadKeys = useMemo(() => serverThreadRefs.map(scopedThreadKey), [serverThreadRefs]);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftThreadKeys = useMemo(
@@ -2680,6 +2682,24 @@ export default function ChatView(props: ChatViewProps) {
     [threadActivities],
   );
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
+  const delegatedThreadShells = useMemo(
+    () =>
+      new Map(
+        serverThreadShells
+          .filter((shell) => shell.environmentId === environmentId)
+          .map((shell) => [String(shell.id), shell] as const),
+      ),
+    [environmentId, serverThreadShells],
+  );
+  const onOpenDelegatedThread = useCallback(
+    (childThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams({ environmentId, threadId: childThreadId }),
+      });
+    },
+    [environmentId, navigate],
+  );
   // Native subagent fold: memoized by activity-list identity, shared by the
   // Agents surface, live strip, and workflow cards. v2Projection is null
   // until orchestration-v2 lands (source precedence lives in the derive).
@@ -8682,6 +8702,8 @@ export default function ChatView(props: ChatViewProps) {
                 onToggleThreadBookmark={toggleThreadBookmark}
                 agentPanelModel={agentPanelModel}
                 onOpenAgents={addAgentsSurface}
+                delegatedThreadShells={delegatedThreadShells}
+                onOpenDelegatedThread={onOpenDelegatedThread}
                 key={activeThread.id}
                 isWorking={isWorking}
                 isPreparingWorktree={isPreparingWorktree}

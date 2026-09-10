@@ -425,6 +425,11 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            ...(payload.parentThreadId !== undefined
+              ? { parentThreadId: payload.parentThreadId }
+              : {}),
+            ...(payload.parentTurnId !== undefined ? { parentTurnId: payload.parentTurnId } : {}),
+            ...(payload.spawnKey != null ? { spawnKey: payload.spawnKey } : {}),
             pullRequests: [],
             branchPullRequest: null,
             latestTurn: null,
