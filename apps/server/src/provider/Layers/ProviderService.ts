@@ -895,12 +895,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     ),
   );
 
+  const agentThreadSettleEnabled = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentThreadSettle),
+    Effect.catch((cause) =>
+      Effect.logWarning(
+        "Could not read server settings; withholding agent thread settle for this session.",
+        { cause },
+      ).pipe(Effect.as(false)),
+    ),
+  );
+
   const agentAccessCapabilities = Effect.fn("ProviderService.agentAccessCapabilities")(function* (
     threadId: ThreadId,
   ) {
     const capabilities = new Set<McpInvocationContext.McpCapability>(["pull-requests"]);
     if (yield* agentBrowserAccessEnabled(threadId)) capabilities.add("preview");
     if (yield* agentDeviceAccessEnabled) capabilities.add("device");
+    if (yield* agentThreadSettleEnabled) capabilities.add("thread-settle");
     return capabilities;
   });
 

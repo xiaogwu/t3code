@@ -5864,6 +5864,37 @@ export default function ChatView(props: ChatViewProps) {
       setUnsettlingThreadKey((current) => (current === threadKey ? null : current));
     }
   }, [activeThreadRef, unsettleThreadMutation]);
+  // An armed agent settle is the one thread state the user can veto before it
+  // happens, so the way out lives next to the notice announcing it.
+  const cancelAgentSettleMutation = useAtomCommand(threadEnvironment.cancelAgentSettle, {
+    reportFailure: false,
+  });
+  const [cancellingAgentSettleKey, setCancellingAgentSettleKey] = useState<string | null>(null);
+  const isCancellingAgentSettle =
+    cancellingAgentSettleKey !== null && cancellingAgentSettleKey === activeThreadKey;
+  const handleCancelAgentSettle = useCallback(async () => {
+    if (!activeThreadRef) return;
+    const threadKey = scopedThreadKey(activeThreadRef);
+    setCancellingAgentSettleKey(threadKey);
+    try {
+      const result = await cancelAgentSettleMutation({
+        environmentId: activeThreadRef.environmentId,
+        input: { threadId: activeThreadRef.threadId },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to keep thread open",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    } finally {
+      setCancellingAgentSettleKey((current) => (current === threadKey ? null : current));
+    }
+  }, [activeThreadRef, cancelAgentSettleMutation]);
   const unsnoozeThreadMutation = useAtomCommand(threadEnvironment.unsnooze, {
     reportFailure: false,
   });
@@ -6141,6 +6172,42 @@ export default function ChatView(props: ChatViewProps) {
     isUnsnoozing,
     isUnsettling,
   ]);
+  // An agent that armed a settle has effectively announced it is done, which
+  // the user may disagree with while the turn is still running. The reason it
+  // gave is the whole basis for that judgement, so it is the description.
+  const agentSettleBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+    if (!supportsSettlement || activeThreadShell?.agentSettleRequestedAt == null) {
+      return null;
+    }
+    // The arm survives in the read model until the settle lands; once it has,
+    // the settled banner says everything this one would.
+    if (activeThreadShell.settledOverride === "settled") {
+      return null;
+    }
+    return {
+      id: `agent-settle:${activeThread?.id ?? "unknown"}`,
+      variant: "info",
+      icon: <CheckCircle2Icon />,
+      title: "Settling after this turn",
+      description: activeThreadShell.agentSettleReason ?? "The agent marked this work finished",
+      actions: (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={isCancellingAgentSettle}
+          onClick={() => void handleCancelAgentSettle()}
+        >
+          {isCancellingAgentSettle ? "Keeping..." : "Keep open"}
+        </Button>
+      ),
+    };
+  }, [
+    activeThread?.id,
+    activeThreadShell,
+    handleCancelAgentSettle,
+    isCancellingAgentSettle,
+    supportsSettlement,
+  ]);
   // Session-scoped dismissals, one key per (thread, snapshot). A set rather
   // than a single slot so dismissing the banner on one thread does not
   // resurface it on another thread dismissed earlier.
@@ -6280,6 +6347,7 @@ export default function ChatView(props: ChatViewProps) {
     const compactingItems = compactingBannerItem === null ? [] : [compactingBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
+    const agentSettleItems = agentSettleBannerItem === null ? [] : [agentSettleBannerItem];
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
@@ -6292,6 +6360,7 @@ export default function ChatView(props: ChatViewProps) {
         ...compactingItems,
         ...wokeThreadItems,
         ...parkedThreadItems,
+        ...agentSettleItems,
       ];
     }
     return [
@@ -6341,9 +6410,11 @@ export default function ChatView(props: ChatViewProps) {
         },
       },
       ...parkedThreadItems,
+      ...agentSettleItems,
     ];
   }, [
     activeBranchMismatchKey,
+    agentSettleBannerItem,
     backgroundLivenessBannerItem,
     compactingBannerItem,
     feedbackBannerItems,

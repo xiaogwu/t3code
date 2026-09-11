@@ -238,6 +238,104 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  describe("agent settle arm", () => {
+    const armedAt = "2026-04-01T05:00:00.000Z";
+    const updatedAt = "2026-04-01T06:00:00.000Z";
+    const armedThread: OrchestrationThread = {
+      ...baseThread,
+      agentSettleTurnId: TurnId.make("turn-1"),
+      agentSettleRequestedAt: armedAt,
+      agentSettleReason: "Shipped the fix",
+    };
+    const eventFrame = {
+      ...baseEventFields,
+      sequence: 7,
+      occurredAt: updatedAt,
+      aggregateKind: "thread",
+      aggregateId: ThreadId.make("thread-1"),
+    } as const;
+
+    it("records the turn, stamp, and reason the agent gave", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...eventFrame,
+        occurredAt: armedAt,
+        type: "thread.agent-settle-requested",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make("turn-1"),
+          requestedAt: armedAt,
+          reason: "Shipped the fix",
+          updatedAt: armedAt,
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.agentSettleTurnId).toBe("turn-1");
+        expect(result.thread.agentSettleRequestedAt).toBe(armedAt);
+        expect(result.thread.agentSettleReason).toBe("Shipped the fix");
+      }
+    });
+
+    it.each([
+      ["thread.agent-settle-cancelled", { threadId: ThreadId.make("thread-1"), updatedAt }],
+      ["thread.settled", { threadId: ThreadId.make("thread-1"), settledAt: updatedAt, updatedAt }],
+      ["thread.unsettled", { threadId: ThreadId.make("thread-1"), reason: "user", updatedAt }],
+      // New work is new work: the previous turn's arm must not settle it.
+      [
+        "thread.turn-start-requested",
+        {
+          threadId: ThreadId.make("thread-1"),
+          messageId: MessageId.make("msg-1"),
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: updatedAt,
+        },
+      ],
+    ] as const)("clears the arm on %s", (type, payload) => {
+      const result = applyThreadDetailEvent(armedThread, {
+        ...eventFrame,
+        type,
+        payload,
+      } as any);
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.agentSettleTurnId).toBeNull();
+        expect(result.thread.agentSettleRequestedAt).toBeNull();
+        expect(result.thread.agentSettleReason).toBeNull();
+      }
+    });
+
+    it.each([
+      ["error", null],
+      // A clean stop is what the arm is waiting for, so it survives.
+      ["ready", "turn-1"],
+    ] as const)("on a %s session the arm becomes %s", (status, agentSettleTurnId) => {
+      const result = applyThreadDetailEvent(armedThread, {
+        ...eventFrame,
+        type: "thread.session-set",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status,
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt,
+          },
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.agentSettleTurnId ?? null).toBe(agentSettleTurnId);
+      }
+    });
+  });
+
   describe("thread.pinned / thread.unpinned", () => {
     it("sets pinnedAt", () => {
       const pinnedAt = "2026-04-01T05:00:00.000Z";

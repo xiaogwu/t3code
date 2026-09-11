@@ -2114,6 +2114,8 @@ export function GeneralSettingsPanel() {
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const supportsAutoSettlement =
     useAtomValue(primaryServerConfigAtom)?.environment.capabilities.threadAutoSettlement === true;
+  const supportsAgentThreadSettle =
+    useAtomValue(primaryServerConfigAtom)?.environment.capabilities.agentThreadSettle === true;
   const diagnosticsDescription = formatDiagnosticsDescription({
     localTracingEnabled: observability?.localTracingEnabled ?? false,
     otlpTracesEnabled: observability?.otlpTracesEnabled ?? false,
@@ -2320,6 +2322,24 @@ export function GeneralSettingsPanel() {
               />
             ) : null}
           </>
+        ) : null}
+        {/* No reset action: the switch is off by default, so turning it off is
+            the reset. */}
+        {supportsAgentThreadSettle ? (
+          <SettingsRow
+            serverScoped
+            {...searchableSetting("agent-thread-settle")}
+            description="Agents may mark their own thread finished when their turn lands. It never settles a thread that errored or is waiting on you."
+            control={
+              <Switch
+                checked={settings.enableAgentThreadSettle}
+                onCheckedChange={(checked) =>
+                  updateSettings({ enableAgentThreadSettle: Boolean(checked) })
+                }
+                aria-label="Let agents settle their thread"
+              />
+            }
+          />
         ) : null}
       </SettingsSection>
 

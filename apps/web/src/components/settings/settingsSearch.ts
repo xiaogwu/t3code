@@ -33,6 +33,7 @@ export interface SettingsSearchItem {
   readonly localBackendManagementOnly?: boolean;
   readonly wslAvailableOnly?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
+  readonly requiresAgentThreadSettle?: boolean;
 }
 
 export interface SettingsSearchAvailability {
@@ -42,6 +43,7 @@ export interface SettingsSearchAvailability {
   readonly canManageLocalBackend: boolean;
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
+  readonly hasAgentThreadSettle: boolean;
 }
 
 /**
@@ -189,6 +191,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "auto-settle-inactive-threads",
     searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
+  },
+  {
+    id: "agent-thread-settle",
+    title: "Let agents settle their thread",
+    to: "/settings/general",
+    searchTerms: ["mcp tool settle_thread finished done inbox permission"],
+    requiresAgentThreadSettle: true,
   },
   {
     id: "external-terminal",
@@ -645,7 +654,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.providerSettingsOnly || availability.hasProviderSettingsEnvironment) &&
       (!item.localBackendManagementOnly || availability.canManageLocalBackend) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
-      (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement),
+      (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
+      (!item.requiresAgentThreadSettle || availability.hasAgentThreadSettle),
   );
 }
 

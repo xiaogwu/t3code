@@ -1,11 +1,14 @@
 import {
+  AGENT_SETTLE_REASON_MAX_LENGTH,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type ModelSelection,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationSession,
   type OrchestrationShellSnapshot,
   type OrchestrationThread,
   type OrchestrationThreadShell,
@@ -36,6 +39,20 @@ const PROJECT_ID = ProjectId.make("project-1");
 const PARENT_ID = ThreadId.make("parent-1");
 const MODEL: ModelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
 const NOW = "2026-08-01T00:00:00.000Z";
+const TURN_ID = TurnId.make("turn-1");
+
+/** Settling is its own grant, so the settle cases opt into it explicitly. */
+const SETTLE_CAPABILITIES = ["threads", "thread-settle"] as const;
+
+const runningSession: OrchestrationSession = {
+  threadId: PARENT_ID,
+  status: "running",
+  providerName: "Codex",
+  runtimeMode: "full-access",
+  activeTurnId: TURN_ID,
+  lastError: null,
+  updatedAt: NOW,
+};
 
 function makeShell(
   id: ThreadId,
@@ -76,12 +93,14 @@ const parentDetail = (): OrchestrationThread =>
     bookmarks: [],
   }) as unknown as OrchestrationThread;
 
-const invocation = (): McpInvocationContext.McpInvocationScope => ({
+const invocation = (
+  capabilities: ReadonlyArray<McpInvocationContext.McpCapability> = ["threads"],
+): McpInvocationContext.McpInvocationScope => ({
   environmentId: ENVIRONMENT_ID,
   threadId: PARENT_ID,
   providerSessionId: "provider-session-1",
   providerInstanceId: ProviderInstanceId.make("codex"),
-  capabilities: new Set(["threads"]),
+  capabilities: new Set(capabilities),
   issuedAt: 1,
 });
 
@@ -93,9 +112,11 @@ const testLayer = Layer.mergeAll(
 const makeHarness = Effect.fn("makeThreadsToolkitHarness")(function* (options?: {
   readonly initialChildren?: ReadonlyArray<OrchestrationThreadShell>;
   readonly stream?: Stream.Stream<OrchestrationEvent>;
+  readonly parent?: Partial<OrchestrationThreadShell>;
+  readonly capabilities?: ReadonlyArray<McpInvocationContext.McpCapability>;
 }) {
   const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
-    makeShell(PARENT_ID),
+    makeShell(PARENT_ID, options?.parent ?? {}),
     ...(options?.initialChildren ?? []),
   ]);
   const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
@@ -180,7 +201,10 @@ const makeHarness = Effect.fn("makeThreadsToolkitHarness")(function* (options?: 
       Effect.map(
         (chunks) => chunks.at(-1)!.result as Tool.Success<(typeof ThreadsToolkit.tools)[Name]>,
       ),
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation()),
+      Effect.provideService(
+        McpInvocationContext.McpInvocationContext,
+        invocation(options?.capabilities),
+      ),
       Effect.provide(allDependencies),
     );
   return { call, commands, threads };
@@ -269,6 +293,90 @@ describe("thread toolkit handlers", () => {
         .call("wait_for_thread", { threadId: childId, timeoutMs: 5 })
         .pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "ThreadWaitTimedOutError", threadId: childId });
+    }),
+  );
+
+  it.effect("refuses to settle without the thread-settle grant", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const error = yield* harness.call("settle_thread", {}).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "McpCapabilityUnavailableError",
+        capability: "thread-settle",
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("arms the turn the session is running and truncates the reason", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: SETTLE_CAPABILITIES,
+        parent: { session: runningSession },
+      });
+      const reason = "done ".repeat(60);
+
+      const result = yield* harness.call("settle_thread", { reason: `  ${reason}` });
+
+      expect(result).toMatchObject({ threadId: PARENT_ID, outcome: "settling" });
+      const dispatched = (yield* Ref.get(harness.commands)).filter(
+        (command) => command.type === "thread.agent-settle.request",
+      );
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0]).toMatchObject({
+        threadId: PARENT_ID,
+        // The caller never names the turn; the live session does.
+        turnId: TURN_ID,
+        reason: reason.trim().slice(0, AGENT_SETTLE_REASON_MAX_LENGTH),
+      });
+    }),
+  );
+
+  it.effect("keys the command so a repeat is dedup'd and a new reason re-arms", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: SETTLE_CAPABILITIES,
+        parent: { session: runningSession },
+      });
+      yield* harness.call("settle_thread", { reason: "Shipped the fix" });
+      yield* harness.call("settle_thread", { reason: "Shipped the fix" });
+      yield* harness.call("settle_thread", { reason: "Actually shipped it" });
+
+      // The engine dedups on commandId, so the ids are what decides whether a
+      // second call is swallowed or lands as a fresh arm.
+      const ids = (yield* Ref.get(harness.commands))
+        .filter((command) => command.type === "thread.agent-settle.request")
+        .map((command) => command.commandId);
+      expect(ids[0]).toBe(ids[1]);
+      expect(ids[2]).not.toBe(ids[0]);
+    }),
+  );
+
+  it.effect("asks for an immediate settle when no turn is running", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: SETTLE_CAPABILITIES });
+
+      const result = yield* harness.call("settle_thread", {});
+
+      // The mocked projection never applies the command, so the outcome only
+      // reflects the read: nothing armed and nothing settled.
+      expect(result.outcome).toBe("not-settled");
+      expect(
+        (yield* Ref.get(harness.commands)).find(
+          (command) => command.type === "thread.agent-settle.request",
+        ),
+      ).toMatchObject({ turnId: null, reason: null });
+    }),
+  );
+
+  it.effect("reports a thread that the settle already landed on", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: SETTLE_CAPABILITIES,
+        parent: { settledOverride: "settled", settledAt: NOW },
+      });
+
+      expect(yield* harness.call("settle_thread", {})).toMatchObject({ outcome: "settled" });
     }),
   );
 });

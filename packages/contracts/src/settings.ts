@@ -1046,6 +1046,13 @@ export const ServerSettings = Schema.Struct({
    */
   enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * Whether an agent may settle its own thread when its turn lands. Gates the
+   * `settle_thread` MCP tool. Per-environment like `enableAgentDeviceAccess`:
+   * letting agents clear the inbox is a trust decision about this machine's
+   * agents, not a preference to sync between clients.
+   */
+  enableAgentThreadSettle: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
    * not also grant providers control of simulators and emulators.
@@ -1337,6 +1344,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
+  enableAgentThreadSettle: Schema.optionalKey(Schema.Boolean),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

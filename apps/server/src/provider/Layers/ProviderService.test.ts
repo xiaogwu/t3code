@@ -4800,13 +4800,23 @@ describe("agent browser access", () => {
   const projectId = ProjectId.make("project-browser-access");
 
   const startSessionWith = (
-    access: boolean | { readonly browser: boolean; readonly device: boolean },
+    access:
+      | boolean
+      | {
+          readonly browser: boolean;
+          readonly device: boolean;
+          readonly settle?: boolean;
+        },
     threadId: ThreadId,
     projectOverride?: boolean,
   ) =>
     Effect.gen(function* () {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
       const enableAgentDeviceAccess = typeof access === "boolean" ? access : access.device;
+      // Settling is only reachable through the object form: the boolean
+      // shorthand predates it and means "browser and device".
+      const enableAgentThreadSettle =
+        typeof access === "boolean" ? false : (access.settle ?? false);
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
@@ -4880,6 +4890,7 @@ describe("agent browser access", () => {
           ServerSettings.ServerSettingsService.layerTest({
             enableAgentBrowserAccess,
             enableAgentDeviceAccess,
+            enableAgentThreadSettle,
             projectAgentBrowserAccessOverrides:
               projectOverride === undefined ? {} : { [projectId]: projectOverride },
           }),
@@ -4963,6 +4974,26 @@ describe("agent browser access", () => {
       const threadId = asThreadId("thread-project-browser-on");
       const issued = yield* startSessionWith({ browser: false, device: false }, threadId, true);
       assert.deepEqual(issued, [{ threadId, capabilities: ["preview", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  // The settle grant is what makes `settle_thread` callable, and it is a
+  // separate trust decision from the browser and device grants.
+  it.effect("carries thread-settle only when agents may settle their own thread", () =>
+    Effect.gen(function* () {
+      const offThreadId = asThreadId("thread-settle-off");
+      const onThreadId = asThreadId("thread-settle-on");
+
+      const off = yield* startSessionWith({ browser: false, device: false }, offThreadId);
+      const on = yield* startSessionWith(
+        { browser: false, device: false, settle: true },
+        onThreadId,
+      );
+
+      assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(on, [
+        { threadId: onThreadId, capabilities: ["pull-requests", "thread-settle"] },
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

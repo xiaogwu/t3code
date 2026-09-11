@@ -97,6 +97,11 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadSettlement: Schema.optionalKey(Schema.Boolean),
   /** Server evaluates merge and inactivity settlement without a client. */
   threadAutoSettlement: Schema.optionalKey(Schema.Boolean),
+  /** Server understands thread.agent-settle.request / .cancel, so an agent can
+      settle its own thread. Absent on older servers, where the setting that
+      gates it does not exist either -- so clients hide the toggle rather than
+      write a key the server would drop. */
+  agentThreadSettle: Schema.optionalKey(Schema.Boolean),
   /** Server persists the opt-in for continuing interrupted threads after restarts. */
   threadRestartContinuation: Schema.optionalKey(Schema.Boolean),
   /** Server understands thread.snooze / thread.unsnooze commands. Same

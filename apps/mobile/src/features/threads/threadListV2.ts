@@ -36,11 +36,11 @@ export { snoozeWakeLabel };
  * Thread List v2 model, ported from the web sidebar v2
  * (apps/web/src/components/Sidebar.logic.ts + SidebarV2.tsx).
  *
- * Four visual states, three colors: color is reserved for "act now"
- * (approval), "in motion" (working), and "broken" (failed). Ready is the
- * unlabeled resting state.
+ * Color is reserved for "act now" (approval), "in motion" (working), "about to
+ * leave the inbox" (settling), and "broken" (failed). Ready is the unlabeled
+ * resting state.
  */
-export type ThreadListV2Status = "approval" | "input" | "working" | "failed" | "ready";
+export type ThreadListV2Status = "approval" | "input" | "settling" | "working" | "failed" | "ready";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
 
 export function resolveThreadListV2SnoozeMenuSelection(input: {
@@ -139,13 +139,21 @@ export function resolveThreadListV2Enabled(input: {
 }
 
 export function resolveThreadListV2Status(
-  thread: Pick<EnvironmentThreadShell, "hasPendingApprovals" | "hasPendingUserInput" | "session">,
+  thread: Pick<
+    EnvironmentThreadShell,
+    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "agentSettleRequestedAt"
+  >,
 ): ThreadListV2Status {
   if (thread.hasPendingApprovals) {
     return "approval";
   }
   if (thread.hasPendingUserInput) {
     return "input";
+  }
+  // An armed settle outranks Working: the row is about to leave the inbox,
+  // which is news, while Working is the state the list deliberately recedes.
+  if (thread.agentSettleRequestedAt != null) {
+    return "settling";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
