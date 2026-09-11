@@ -33,6 +33,23 @@ const decodeEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const EventMetadataFromJsonString = Schema.fromJsonString(OrchestrationEventMetadata);
 
+// The event types this build understands. A store written by a newer or forked
+// build can hold types outside this set; the range reads below exclude them in
+// SQL so one such row cannot fail an entire page and take the server down with
+// it.
+//
+// The filter is in SQL rather than after the fetch on purpose: both readers
+// derive their pagination stop from the shape of the returned page (an empty
+// page, or one shorter than READ_PAGE_SIZE). Dropping rows in TypeScript could
+// hand them a short page while more rows remain, ending a replay early and
+// silently truncating the read model — a worse failure than the one being
+// fixed. Filtering in SQL keeps LIMIT counting only rows that can decode, so
+// both loops stay correct untouched.
+//
+// A row whose type IS known but whose payload no longer decodes still fails
+// loudly. That is a bug, not version skew, and the two must not blur together.
+const KNOWN_EVENT_TYPES = OrchestrationEventType.literals;
+
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
@@ -196,6 +213,7 @@ const makeEventStore = Effect.gen(function* () {
           metadata_json AS "metadata"
         FROM orchestration_events
         WHERE sequence > ${request.sequenceExclusive}
+          AND ${sql.in("event_type", KNOWN_EVENT_TYPES)}
         ORDER BY sequence ASC
         LIMIT ${request.limit}
       `,
@@ -223,11 +241,15 @@ const makeEventStore = Effect.gen(function* () {
           AND stream_id = ${request.aggregateId}
           AND sequence > ${request.fromSequenceExclusive}
           AND sequence <= ${request.toSequenceInclusive}
+          AND ${sql.in("event_type", KNOWN_EVENT_TYPES)}
         ORDER BY sequence ASC
         LIMIT ${request.limit}
       `,
   });
 
+  // Deliberately counts every row, including types this build cannot decode:
+  // this feeds the replay budget, and an over-estimated budget is safe while an
+  // under-estimated one is not.
   const readAggregateReplayStats = SqlSchema.findOne({
     Request: AggregateReplayRequestSchema,
     Result: AggregateReplayStatsRowSchema,
@@ -249,6 +271,19 @@ const makeEventStore = Effect.gen(function* () {
           ORDER BY sequence ASC
           LIMIT ${request.limit}
         )
+      `,
+  });
+
+  const readUnknownEventTypeCounts = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ type: Schema.String, count: Schema.Number }),
+    execute: () =>
+      sql`
+        SELECT event_type AS "type", COUNT(*) AS "count"
+        FROM orchestration_events
+        WHERE NOT (${sql.in("event_type", KNOWN_EVENT_TYPES)})
+        GROUP BY event_type
+        ORDER BY event_type ASC
       `,
   });
 
@@ -410,6 +445,23 @@ const makeEventStore = Effect.gen(function* () {
       ),
       Effect.map((row) => ({ ...row, hasCreateEvent: row.hasCreateEvent !== 0 })),
     );
+
+  // Say once, at startup, that the store holds events this build skips. Without
+  // it the only symptom is a feature silently missing from the read model, and
+  // the cause has to be reconstructed by hand from the log. Never allowed to
+  // fail construction: nothing orders migrations before this layer, so on a
+  // fresh database the table may not exist yet.
+  yield* readUnknownEventTypeCounts().pipe(
+    Effect.flatMap((rows) =>
+      rows.length === 0
+        ? Effect.void
+        : Effect.logWarning("orchestration.event-store.unknown-event-types", {
+            types: rows.map((row) => `${row.type} (${row.count})`),
+            total: rows.reduce((sum, row) => sum + row.count, 0),
+          }),
+    ),
+    Effect.ignore,
+  );
 
   return {
     append,
