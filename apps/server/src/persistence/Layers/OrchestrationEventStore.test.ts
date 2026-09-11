@@ -11,6 +11,7 @@ import {
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -45,6 +46,29 @@ function messageEvent(threadId: ThreadId, id: string): Omit<OrchestrationEvent, 
     },
   };
 }
+
+// A type no build in this repo knows, standing in for one written by a newer or
+// forked build.
+const UNKNOWN_EVENT_TYPE = "thread.from-the-future";
+
+const insertUnknownTypeRows = (threadId: ThreadId, count: number) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* Effect.forEach(
+      Array.from({ length: count }, (_, index) => index),
+      (index) => sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at,
+          actor_kind, payload_json, metadata_json
+        ) VALUES (
+          ${`future-${threadId}-${index}`}, 'thread', ${threadId}, ${1_000 + index},
+          ${UNKNOWN_EVENT_TYPE}, '2026-01-01T00:00:00.000Z', 'server',
+          '{"note":"written by a build we do not have"}', '{}'
+        )
+      `,
+      { discard: true },
+    );
+  });
 
 const layer = it.layer(
   OrchestrationEventStoreLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -315,6 +339,75 @@ layer("OrchestrationEventStore", (it) => {
       assert.deepEqual(yield* Stream.runCollect(store.readFromSequence(0, -1)), []);
     }),
   );
+
+  it.effect("skips event types this build does not know, and leaves them stored", () =>
+    Effect.gen(function* () {
+      const store = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("unknown-type-thread");
+      const first = yield* store.append(messageEvent(threadId, "known-before-unknown"));
+      yield* insertUnknownTypeRows(threadId, 1);
+      const second = yield* store.append(messageEvent(threadId, "known-after-unknown"));
+
+      const replayed = yield* Stream.runCollect(store.readFromSequence(first.sequence - 1, 100));
+      assert.deepEqual(
+        replayed.map((event) => event.eventId),
+        [first.eventId, second.eventId],
+      );
+      const scoped = yield* Stream.runCollect(
+        store.readAggregateRange({
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          fromSequenceExclusive: 0,
+          toSequenceInclusive: second.sequence,
+        }),
+      );
+      assert.deepEqual(
+        scoped.map((event) => event.eventId),
+        [first.eventId, second.eventId],
+      );
+
+      // Skipping is a read-side concern. The row stays in the log so a build that
+      // does know the type still sees it.
+      const remaining = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS "count" FROM orchestration_events
+        WHERE event_type = ${UNKNOWN_EVENT_TYPE}
+      `;
+      assert.equal(remaining[0]?.count, 1);
+    }),
+  );
+
+  it.effect("reads past more unknown rows than one page holds", () =>
+    Effect.gen(function* () {
+      const store = yield* OrchestrationEventStore;
+      const threadId = ThreadId.make("unknown-type-page-thread");
+      const first = yield* store.append(messageEvent(threadId, "known-before-page-of-unknown"));
+      // More than READ_PAGE_SIZE (500). Filtering these out after the fetch would
+      // hand both paginators a short page while known rows remain, and the trailing
+      // event would silently vanish from the replay.
+      yield* insertUnknownTypeRows(threadId, 600);
+      const second = yield* store.append(messageEvent(threadId, "known-after-page-of-unknown"));
+
+      const replayed = yield* Stream.runCollect(store.readFromSequence(first.sequence - 1, 2_000));
+      assert.deepEqual(
+        replayed.map((event) => event.eventId),
+        [first.eventId, second.eventId],
+      );
+      const scoped = yield* Stream.runCollect(
+        store.readAggregateRange({
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          fromSequenceExclusive: 0,
+          toSequenceInclusive: second.sequence,
+          limit: 2_000,
+        }),
+      );
+      assert.deepEqual(
+        scoped.map((event) => event.eventId),
+        [first.eventId, second.eventId],
+      );
+    }),
+  );
 });
 
 for (const reader of ["all", "aggregate"] as const) {
@@ -357,3 +450,45 @@ for (const reader of ["all", "aggregate"] as const) {
     ),
   );
 }
+
+function captureUnknownTypeWarnings() {
+  const captured: unknown[] = [];
+  const logger = Logger.make(({ message }) => {
+    captured.push(message);
+  });
+  return {
+    layer: Layer.mergeAll(
+      SqlitePersistenceMemory,
+      Logger.layer([logger], { mergeWithExisting: false }),
+    ),
+    warnings: () =>
+      captured.filter(
+        (message) =>
+          Array.isArray(message) && message[0] === "orchestration.event-store.unknown-event-types",
+      ),
+  };
+}
+
+it.effect("warns once at construction when the store holds unknown event types", () => {
+  const capture = captureUnknownTypeWarnings();
+  return Effect.gen(function* () {
+    yield* insertUnknownTypeRows(ThreadId.make("warned-thread"), 2);
+    yield* Effect.provide(OrchestrationEventStore, OrchestrationEventStoreLive);
+    assert.deepEqual(capture.warnings(), [
+      [
+        "orchestration.event-store.unknown-event-types",
+        { types: [`${UNKNOWN_EVENT_TYPE} (2)`], total: 2 },
+      ],
+    ]);
+  }).pipe(Effect.provide(capture.layer));
+});
+
+it.effect("stays quiet at construction when every stored event type is known", () => {
+  const capture = captureUnknownTypeWarnings();
+  return Effect.gen(function* () {
+    const store = yield* Effect.provide(OrchestrationEventStore, OrchestrationEventStoreLive);
+    yield* store.append(messageEvent(ThreadId.make("quiet-thread"), "quiet"));
+    yield* Effect.provide(OrchestrationEventStore, OrchestrationEventStoreLive);
+    assert.deepEqual(capture.warnings(), []);
+  }).pipe(Effect.provide(capture.layer));
+});
