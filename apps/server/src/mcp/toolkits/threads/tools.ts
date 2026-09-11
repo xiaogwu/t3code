@@ -100,6 +100,28 @@ export type ListChildThreadsResult = typeof ListChildThreadsResult.Type;
 export type SendThreadMessageInput = typeof SendThreadMessageInput.Type;
 export type WaitForThreadInput = typeof WaitForThreadInput.Type;
 
+export const SettleThreadInput = Schema.Struct({
+  reason: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "One short line on why the work is finished. Shown on the thread while it settles. Truncated past 200 characters.",
+    }),
+  ),
+});
+export type SettleThreadInput = typeof SettleThreadInput.Type;
+
+export const SettleThreadResult = Schema.Struct({
+  threadId: ThreadId,
+  /**
+   * `settling` is the normal answer: the request is recorded and the thread
+   * settles when this turn's checkpoint lands. `settled` means there was no
+   * turn left to wait for. `not-settled` means the thread stayed in the inbox.
+   */
+  outcome: Schema.Literals(["settling", "settled", "not-settled"]),
+  detail: Schema.String,
+});
+export type SettleThreadResult = typeof SettleThreadResult.Type;
+
 export class ThreadDelegationFailedError extends Schema.TaggedError<ThreadDelegationFailedError>()(
   "ThreadDelegationFailedError",
   { message: Schema.String },
@@ -150,6 +172,20 @@ export const ThreadToolError = Schema.Union([
   ThreadWaitTimedOutError,
 ]);
 export type ThreadToolError = typeof ThreadToolError.Type;
+
+const SettleThreadTool = Tool.make("settle_thread", {
+  description:
+    "Mark this thread as finished. The thread leaves the inbox once the current turn's checkpoint lands, so call it as the last thing you do when the work is genuinely complete. It does not settle a thread whose turn errored or that is waiting on the user.",
+  parameters: SettleThreadInput,
+  success: SettleThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Settle this thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
 
 const StartThreadTool = Tool.make("start_thread", {
   description:
@@ -219,6 +255,7 @@ const WaitForThreadTool = Tool.make("wait_for_thread", {
   .annotate(Tool.OpenWorld, false);
 
 export const ThreadsToolkit = Toolkit.make(
+  SettleThreadTool,
   StartThreadTool,
   ListChildThreadsTool,
   GetThreadStatusTool,

@@ -61,6 +61,7 @@ const STATUS_LABEL_BY_STATUS: Partial<
 > = {
   approval: { label: "Approval", className: "text-warning-foreground" },
   input: { label: "Input", className: "text-foreground-secondary" },
+  settling: { label: "Settling", className: "text-adaptive-emerald-600-400" },
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };

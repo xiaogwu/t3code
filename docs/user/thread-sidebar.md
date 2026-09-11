@@ -91,6 +91,13 @@ offline environments and older servers keep their previous values. If connected
 environments disagree, **Apply to all** copies your current settings to those named
 in the warning. Changing a rule does not reopen already settled threads.
 
+**Let agents settle their thread**, also in **Settings → General**, lets an agent
+mark its own thread finished when it believes the work is done. The thread settles
+once the current turn finishes, and until then a notice on the composer shows the
+reason the agent gave with a **Keep open** button that cancels it. An agent cannot
+settle a thread whose turn ended with an error or that is waiting on you; the
+timeline says why instead.
+
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your

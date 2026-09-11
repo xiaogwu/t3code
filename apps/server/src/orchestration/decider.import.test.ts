@@ -235,7 +235,7 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
         readModel,
       });
 
-      expect(result).toMatchObject({ type: "thread.settled" });
+      expect(Array.isArray(result) ? result : [result]).toMatchObject([{ type: "thread.settled" }]);
     }),
   );
 

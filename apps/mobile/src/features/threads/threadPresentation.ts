@@ -5,6 +5,7 @@ import { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 export type ThreadStatusKind =
   | "pending-approval"
   | "awaiting-input"
+  | "settling"
   | "working"
   | "connecting"
   | "error"
@@ -58,6 +59,20 @@ export function resolveThreadStatus(
       textClassName: "text-foreground-secondary",
       iconColor: "#5e5ce6",
       iconBackground: "rgba(94,92,230,0.22)",
+      pulse: false,
+    };
+  }
+
+  // An armed settle outranks Working: the row is about to leave the inbox,
+  // which is news, while Working is the state the list deliberately recedes.
+  if (thread.agentSettleRequestedAt != null) {
+    return {
+      kind: "settling",
+      label: "Settling",
+      pillClassName: "bg-primary/10",
+      textClassName: "text-adaptive-emerald-600-400",
+      iconColor: "#30d158",
+      iconBackground: "rgba(48,209,88,0.22)",
       pulse: false,
     };
   }

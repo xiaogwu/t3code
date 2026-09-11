@@ -532,7 +532,8 @@ export interface ThreadStatusPill {
     | "Unread"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Settling";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -542,8 +543,9 @@ export interface ThreadStatusPill {
 // then active work, then the actionable plan prompt, then passive
 // monitoring. A Monitoring sibling must never hide a Plan Ready thread.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 7,
-  "Awaiting Input": 6,
+  "Pending Approval": 8,
+  "Awaiting Input": 7,
+  Settling: 6,
   Working: 5,
   Connecting: 5,
   "Plan Ready": 4,
@@ -561,6 +563,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
   | "backgroundLiveness"
+  | "agentSettleRequestedAt"
 > & {
   isManuallyUnread?: boolean | undefined;
   lastVisitedAt?: string | undefined;
@@ -1069,6 +1072,18 @@ export function resolveThreadStatusPill(input: {
       label: "Awaiting Input",
       colorClass: "text-indigo-600 dark:text-indigo-300/90",
       dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      pulse: false,
+    };
+  }
+
+  // An armed settle outranks Working: the row is about to leave the inbox,
+  // which is news, while Working is the state the sidebar deliberately
+  // recedes. The thread header carries the detail and the way to cancel.
+  if (thread.agentSettleRequestedAt != null) {
+    return {
+      label: "Settling",
+      colorClass: "text-teal-600 dark:text-teal-300/90",
+      dotClass: "bg-teal-500 dark:bg-teal-300/90",
       pulse: false,
     };
   }

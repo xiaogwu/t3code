@@ -374,7 +374,9 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
       expect(projected.threads[0]?.settledOverride).toBe("settled");
       expect(projected.threads[0]?.messages).toEqual([]);
       const repeated = yield* decideOrchestrationCommand({ command, readModel: projected });
-      expect(repeated).toMatchObject({ type: "thread.settled" });
+      // A repeat re-emits the settle alone; the questions are already resolved.
+      const repeatedEvents = Array.isArray(repeated) ? repeated : [repeated];
+      expect(repeatedEvents.map((event) => event.type)).toEqual(["thread.settled"]);
     }),
   );
 

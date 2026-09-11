@@ -10,6 +10,7 @@ import {
 import {
   type AddThreadBookmarkInput,
   type ArchiveThreadInput,
+  type CancelAgentSettleInput,
   type CreateThreadInput,
   type DeleteThreadInput,
   type InterruptThreadTurnInput,
@@ -58,6 +59,7 @@ import {
   unlinkThreadPullRequest,
   unpinThread,
   unsettleThread,
+  cancelAgentSettle,
   unsnoozeThread,
   updateThreadMetadata,
 } from "../operations/commands.ts";
@@ -135,6 +137,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     unsettle: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:unsettle",
       execute: (input: UnsettleThreadInput) => unsettleThread(input),
+      scheduler,
+      concurrency,
+    }),
+    cancelAgentSettle: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:cancel-agent-settle",
+      execute: (input: CancelAgentSettleInput) => cancelAgentSettle(input),
       scheduler,
       concurrency,
     }),

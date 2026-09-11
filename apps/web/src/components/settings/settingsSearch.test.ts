@@ -148,6 +148,7 @@ describe("searchSettings", () => {
       canManageLocalBackend: false,
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: false,
+      hasAgentThreadSettle: false,
     });
 
     const gatedIds = new Set<string>([
@@ -164,6 +165,7 @@ describe("searchSettings", () => {
       "auto-settle-inactive-threads",
       "auto-settle-merged-threads",
       "days-before-auto-settle",
+      "agent-thread-settle",
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
@@ -176,6 +178,7 @@ describe("searchSettings", () => {
       canManageLocalBackend: false,
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: true,
+      hasAgentThreadSettle: false,
     });
 
     expect(searchSettings("auto-settle", available).map((item) => item.id)).toEqual([
@@ -183,6 +186,30 @@ describe("searchSettings", () => {
       "auto-settle-merged-threads",
       "days-before-auto-settle",
     ]);
+  });
+
+  it("shows agent thread settling only on servers that support it", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasPrimaryEnvironment: false,
+      hasProviderSettingsEnvironment: false,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+    };
+
+    expect(
+      searchSettings(
+        "settle their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadSettle: true }),
+      ).map((item) => item.id),
+    ).toEqual(["agent-thread-settle"]);
+    expect(
+      searchSettings(
+        "settle their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadSettle: false }),
+      ),
+    ).toEqual([]);
   });
 
   it("keeps catalog result ids unique", () => {

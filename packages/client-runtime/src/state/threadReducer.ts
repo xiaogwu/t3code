@@ -79,6 +79,13 @@ const activityIdIndex = new WeakMap<
   Set<OrchestrationThreadActivity["id"]>
 >();
 
+/** The three agent-settle fields only ever move together: armed, or not. */
+const CLEARED_AGENT_SETTLE = {
+  agentSettleTurnId: null,
+  agentSettleRequestedAt: null,
+  agentSettleReason: null,
+} as const;
+
 /**
  * Matches the validity rule in `deriveLatestContextWindowSnapshot` (and the
  * server's snapshot-side `dropStaleContextWindowActivities`): rows without a
@@ -139,6 +146,7 @@ export function applyThreadDetailEvent(
           settledAt: null,
           unsettledAt: null,
           activeOrderKey: null,
+          ...CLEARED_AGENT_SETTLE,
           snoozedUntil: null,
           snoozedAt: null,
           deletedAt: null,
@@ -180,6 +188,7 @@ export function applyThreadDetailEvent(
           settledAt: event.payload.settledAt,
           unsettledAt: null,
           activeOrderKey: null,
+          ...CLEARED_AGENT_SETTLE,
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -197,6 +206,29 @@ export function applyThreadDetailEvent(
             thread.settledOverride === "active"
               ? (thread.unsettledAt ?? null)
               : event.payload.updatedAt,
+          ...CLEARED_AGENT_SETTLE,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-settle-requested":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          agentSettleTurnId: event.payload.turnId,
+          agentSettleRequestedAt: event.payload.requestedAt,
+          agentSettleReason: event.payload.reason,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.agent-settle-cancelled":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          ...CLEARED_AGENT_SETTLE,
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -380,6 +412,9 @@ export function applyThreadDetailEvent(
             : {}),
           runtimeMode: event.payload.runtimeMode,
           interactionMode: event.payload.interactionMode,
+          // New work is new work: an arm from the previous turn must not
+          // settle it. This is the only thing that clears a stranded arm.
+          ...CLEARED_AGENT_SETTLE,
           updatedAt: event.occurredAt,
         },
       };
@@ -562,6 +597,8 @@ export function applyThreadDetailEvent(
           ...thread,
           session: event.payload.session,
           latestTurn,
+          // An errored turn keeps the thread in the inbox: drop the arm.
+          ...(event.payload.session.status === "error" ? CLEARED_AGENT_SETTLE : {}),
           updatedAt: event.occurredAt,
         },
       };

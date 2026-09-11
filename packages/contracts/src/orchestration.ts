@@ -705,6 +705,13 @@ export const ThreadPullRequestLink = Schema.Struct({
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
+// Why the agent asked to settle, shown on the thread's status chip. Bounded
+// because it is persisted on every arm event and carried in every thread
+// snapshot; the MCP handler truncates rather than rejecting an over-long one.
+export const AgentSettleReason = TrimmedNonEmptyString.check(Schema.isMaxLength(200));
+export type AgentSettleReason = typeof AgentSettleReason.Type;
+export const AGENT_SETTLE_REASON_MAX_LENGTH = 200;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -739,6 +746,14 @@ export const OrchestrationThread = Schema.Struct({
   // instead of sinking back to its creation-order slot. Cleared on settle.
   // Optional so payloads from pre-stamp servers still decode.
   unsettledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // Armed by an agent asking to settle its own thread when the turn lands.
+  // agentSettleTurnId binds the arm to one turn so a later turn cannot inherit
+  // it; null means "settle as soon as the guards allow". All three are cleared
+  // together on settle, unsettle, cancel, a new turn, and a turn that errored.
+  // Optional so payloads from pre-agent-settle servers still decode.
+  agentSettleTurnId: Schema.optional(Schema.NullOr(TurnId)),
+  agentSettleRequestedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  agentSettleReason: Schema.optional(Schema.NullOr(AgentSettleReason)),
   // Snooze is an overlay on the active lifecycle, not a fourth destination:
   // a snoozed thread stays "active" in the model and is only suppressed from
   // the inbox until snoozedUntil passes (or the thread raises its hand).
@@ -845,6 +860,11 @@ export const OrchestrationThreadShell = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   // See OrchestrationThread.unsettledAt: last re-entry into the active list.
   unsettledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // See OrchestrationThread.agentSettleTurnId. On the shell because the
+  // sidebar renders a "Settling" badge from it.
+  agentSettleTurnId: Schema.optional(Schema.NullOr(TurnId)),
+  agentSettleRequestedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  agentSettleReason: Schema.optional(Schema.NullOr(AgentSettleReason)),
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -1125,6 +1145,25 @@ const ThreadUnsettleCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+// An agent asking for its own thread to settle once the turn lands. The settle
+// itself cannot happen here: thread.settle is rejected while the session is
+// starting or running, which is exactly when an in-turn agent calls. Server or
+// provider actor only — the turn id comes from the live session, not a client.
+const ThreadAgentSettleRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-settle.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Null when no turn is active, which settles immediately if the guards pass.
+  turnId: Schema.NullOr(TurnId),
+  reason: Schema.NullOr(AgentSettleReason),
+});
+
+const ThreadAgentSettleCancelCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-settle.cancel"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
 const ThreadSnoozeCommand = Schema.Struct({
   type: Schema.Literal("thread.snooze"),
   commandId: CommandId,
@@ -1390,6 +1429,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadAgentSettleCancelCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadPinCommand,
@@ -1424,6 +1464,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadAgentSettleCancelCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadPinCommand,
@@ -1574,6 +1615,7 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
 
 const InternalOrchestrationCommand = Schema.Union([
   ThreadAutoSettleCommand,
+  ThreadAgentSettleRequestCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
   ThreadSessionSetCommand,
@@ -1607,6 +1649,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unarchived",
   "thread.settled",
   "thread.unsettled",
+  "thread.agent-settle-requested",
+  "thread.agent-settle-cancelled",
   "thread.snoozed",
   "thread.unsnoozed",
   "thread.pinned",
@@ -1715,6 +1759,21 @@ export const ThreadSettledPayload = Schema.Struct({
 export const ThreadUnsettledPayload = Schema.Struct({
   threadId: ThreadId,
   reason: Schema.Literals(["user", "activity"]),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentSettleRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  // The turn the arm is bound to. A later turn must not inherit it, which is
+  // why the projector clears the arm on thread.turn-start-requested.
+  turnId: Schema.NullOr(TurnId),
+  requestedAt: IsoDateTime,
+  reason: Schema.NullOr(AgentSettleReason),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAgentSettleCancelledPayload = Schema.Struct({
+  threadId: ThreadId,
   updatedAt: IsoDateTime,
 });
 
@@ -2000,6 +2059,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unsettled"),
     payload: ThreadUnsettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-settle-requested"),
+    payload: ThreadAgentSettleRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-settle-cancelled"),
+    payload: ThreadAgentSettleCancelledPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

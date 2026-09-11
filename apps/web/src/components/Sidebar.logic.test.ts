@@ -2095,6 +2095,26 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
 
+  it("shows settling over working while the armed turn finishes", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...baseThread, agentSettleRequestedAt: "2026-03-09T10:01:00.000Z" },
+      }),
+    ).toMatchObject({ label: "Settling", pulse: false });
+  });
+
+  it("keeps an unanswered question ahead of an armed settle", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingUserInput: true,
+          agentSettleRequestedAt: "2026-03-09T10:01:00.000Z",
+        },
+      }),
+    ).toMatchObject({ label: "Awaiting Input" });
+  });
+
   it("falls back to working when the thread is actively running without blockers", () => {
     expect(
       resolveThreadStatusPill({
@@ -2224,6 +2244,25 @@ describe("resolveProjectStatusIndicator", () => {
         },
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+  });
+
+  it("rolls a settling thread up over a working sibling", () => {
+    expect(
+      resolveProjectStatusIndicator([
+        {
+          label: "Working",
+          colorClass: "text-sky-600",
+          dotClass: "bg-sky-500",
+          pulse: true,
+        },
+        {
+          label: "Settling",
+          colorClass: "text-teal-600",
+          dotClass: "bg-teal-500",
+          pulse: false,
+        },
+      ]),
+    ).toMatchObject({ label: "Settling", dotClass: "bg-teal-500" });
   });
 });
 

@@ -12,6 +12,8 @@ import {
   type OrchestrationThread,
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
+  type ThreadId,
+  type TurnId,
   type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
 import {
@@ -171,6 +173,253 @@ type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
+
+type ThreadSettleBlockedReason = "session-active" | "pending-request" | "queued-turn";
+
+type ThreadSettleDecision =
+  | { readonly outcome: "settled"; readonly events: ReadonlyArray<PlannedOrchestrationEvent> }
+  | { readonly outcome: "blocked"; readonly reason: ThreadSettleBlockedReason };
+
+/**
+ * The one place that decides whether a thread may settle and what settling
+ * emits. Every caller goes through it — the settle commands, and the agent
+ * settle arm the provider fires when its turn lands — so eligibility cannot
+ * drift between them. Returns a blocked marker instead of failing, because
+ * a blocked user command is an error while a blocked arm is not.
+ */
+const planThreadSettle = Effect.fn("planThreadSettle")(function* ({
+  thread,
+  commandId,
+  occurredAt,
+  settledAt,
+  dismissesUserInput,
+}: {
+  readonly thread: OrchestrationThread;
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly occurredAt: string;
+  readonly settledAt: string;
+  readonly dismissesUserInput: boolean;
+}): Effect.fn.Return<ThreadSettleDecision, PlatformError.PlatformError, Crypto.Crypto> {
+  // The server owns settle eligibility. A stale command must not settle
+  // a thread whose session is coming alive or working.
+  if (thread.session?.status === "starting" || thread.session?.status === "running") {
+    return { outcome: "blocked", reason: "session-active" } as const;
+  }
+  const pendingRequests = openRequests(thread);
+  // Manual settlement dismisses async questions without answering them.
+  // Native callbacks and approvals still need a response or interruption.
+  if (
+    Array.from(pendingRequests.values()).some(
+      (activity) =>
+        !dismissesUserInput ||
+        activity.kind !== "user-input.requested" ||
+        !Predicate.isObject(activity.payload) ||
+        activity.payload.responseMode !== "message",
+    )
+  ) {
+    return { outcome: "blocked", reason: "pending-request" } as const;
+  }
+  // Settling inside the adoption window would hide just-requested work.
+  if (hasQueuedTurnStartForThread(thread, occurredAt)) {
+    return { outcome: "blocked", reason: "queued-turn" } as const;
+  }
+  // Settling an already-settled thread re-emits with the original
+  // settledAt: the engine rejects zero-event commands, and bulk-settle /
+  // double-click must stay silent no-ops rather than surface errors.
+  const alreadySettled = thread.settledOverride === "settled" && thread.settledAt !== null;
+  const settledEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      occurredAt,
+      commandId,
+    })),
+    type: "thread.settled" as const,
+    payload: {
+      threadId: thread.id,
+      settledAt: alreadySettled ? thread.settledAt : settledAt,
+      // A re-emission is a projected no-op: keep the existing updatedAt
+      // so duplicate settles neither rewind nor churn ordering. A fresh
+      // settle stamps the command time.
+      updatedAt: alreadySettled ? thread.updatedAt : occurredAt,
+    },
+  };
+  // Settling is "I'm done with this": clear states that would keep the
+  // row pinned or snoozed instead of showing the new settled state.
+  const companionEvents: Array<PlannedOrchestrationEvent> = [];
+  for (const [requestId, request] of pendingRequests) {
+    companionEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.activity-appended",
+      payload: {
+        threadId: thread.id,
+        activity: {
+          id: EventId.make(`settle:${commandId}:${requestId}`),
+          kind: "user-input.resolved",
+          summary: "User input dismissed",
+          tone: "info",
+          turnId: request.turnId,
+          createdAt: occurredAt,
+          payload: { requestId, responseMode: "message" },
+        },
+      },
+    });
+  }
+  if (thread.pinnedAt != null) {
+    companionEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.unpinned" as const,
+      payload: {
+        threadId: thread.id,
+        updatedAt: occurredAt,
+      },
+    });
+  }
+  if (thread.snoozedUntil != null) {
+    companionEvents.push({
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: thread.id,
+        occurredAt,
+        commandId,
+      })),
+      type: "thread.unsnoozed",
+      payload: {
+        threadId: thread.id,
+        reason: "user",
+        updatedAt: occurredAt,
+      },
+    });
+  }
+  return { outcome: "settled", events: [settledEvent, ...companionEvents] } as const;
+});
+
+/** Why an agent's settle arm did not settle the thread. */
+type AgentSettleSkipReason = ThreadSettleBlockedReason | "turn-error";
+
+const AGENT_SETTLE_SKIPPED_SUMMARY: Record<AgentSettleSkipReason, string> = {
+  "session-active": "Agent asked to settle, but the thread is working again",
+  "pending-request": "Agent asked to settle, but the thread is waiting on you",
+  "queued-turn": "Agent asked to settle, but new work is queued",
+  "turn-error": "Agent asked to settle, but the turn ended with an error",
+};
+
+/**
+ * An agent-settle arm that cannot be honoured says so in the timeline. The
+ * silent alternative is worse: the engine rejects zero-event commands, and a
+ * dropped arm with no trace looks like the tool did nothing.
+ */
+const agentSettleSkippedActivity = Effect.fn("agentSettleSkippedActivity")(function* ({
+  threadId,
+  commandId,
+  turnId,
+  occurredAt,
+  reason,
+}: {
+  readonly threadId: ThreadId;
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly turnId: TurnId | null;
+  readonly occurredAt: string;
+  readonly reason: AgentSettleSkipReason;
+}): Effect.fn.Return<PlannedOrchestrationEvent, PlatformError.PlatformError, Crypto.Crypto> {
+  return {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: threadId,
+      occurredAt,
+      commandId,
+    })),
+    type: "thread.activity-appended" as const,
+    payload: {
+      threadId,
+      activity: {
+        id: EventId.make(`agent-settle-skipped:${commandId}`),
+        kind: "thread.agent-settle-skipped",
+        summary: AGENT_SETTLE_SKIPPED_SUMMARY[reason],
+        tone: "info" as const,
+        turnId,
+        createdAt: occurredAt,
+        payload: { reason },
+      },
+    },
+  };
+});
+
+/**
+ * What an armed thread does when its turn stops: settle, or drop the arm with
+ * a visible reason. Shared by the turn-diff trigger and the session-status
+ * fallback so the two cannot disagree about eligibility.
+ *
+ * `keepArmWhenSessionActive` is how the two triggers differ. A diff can land
+ * while the session is still marked running, and that arm must survive to be
+ * honoured by the next status write; a status write that is itself idle has no
+ * later trigger to wait for.
+ */
+const resolveAgentSettleArm = Effect.fn("resolveAgentSettleArm")(function* ({
+  thread,
+  commandId,
+  occurredAt,
+  keepArmWhenSessionActive,
+}: {
+  readonly thread: OrchestrationThread;
+  readonly commandId: OrchestrationCommand["commandId"];
+  readonly occurredAt: string;
+  readonly keepArmWhenSessionActive: boolean;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  PlatformError.PlatformError,
+  Crypto.Crypto
+> {
+  const decision = yield* planThreadSettle({
+    thread,
+    commandId,
+    occurredAt,
+    settledAt: occurredAt,
+    // An agent declaring itself done while a question of its own is still
+    // unanswered contradicts itself, so ANY open request blocks the arm — the
+    // dismissal a user's manual settle performs is not the agent's to make.
+    dismissesUserInput: false,
+  });
+  if (decision.outcome === "settled") {
+    return decision.events;
+  }
+  if (decision.reason === "session-active" && keepArmWhenSessionActive) {
+    return [];
+  }
+  const cancelledEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: thread.id,
+      occurredAt,
+      commandId,
+    })),
+    type: "thread.agent-settle-cancelled",
+    payload: {
+      threadId: thread.id,
+      updatedAt: occurredAt,
+    },
+  };
+  return [
+    cancelledEvent,
+    yield* agentSettleSkippedActivity({
+      threadId: thread.id,
+      commandId,
+      turnId: thread.agentSettleTurnId ?? null,
+      occurredAt,
+      reason: decision.reason,
+    }),
+  ];
+});
 
 const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
@@ -523,113 +772,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      // The server owns settle eligibility. A stale command must not settle
-      // a thread whose session is coming alive or working.
-      if (thread.session?.status === "starting" || thread.session?.status === "running") {
-        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
-      }
-      const pendingRequests = openRequests(thread);
-      // Manual settlement dismisses async questions without answering them.
-      // Native callbacks and approvals still need a response or interruption.
-      if (
-        Array.from(pendingRequests.values()).some(
-          (activity) =>
-            command.type === "thread.auto-settle" ||
-            activity.kind !== "user-input.requested" ||
-            !Predicate.isObject(activity.payload) ||
-            activity.payload.responseMode !== "message",
-        )
-      ) {
-        return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
-      }
       const occurredAt = yield* nowIso;
-      // Settling inside the adoption window would hide just-requested work.
-      if (hasQueuedTurnStartForThread(thread, occurredAt)) {
+      const decision = yield* planThreadSettle({
+        thread,
+        commandId: command.commandId,
+        occurredAt,
+        settledAt: command.type === "thread.auto-settle" ? command.settledAt : occurredAt,
+        // Manual settlement dismisses async questions without answering them.
+        dismissesUserInput: command.type === "thread.settle",
+      });
+      if (decision.outcome === "blocked") {
         return yield* new OrchestrationThreadSettleBlockedError({ threadId: command.threadId });
       }
-      // Settling an already-settled thread re-emits with the original
-      // settledAt: the engine rejects zero-event commands, and bulk-settle /
-      // double-click must stay silent no-ops rather than surface errors.
-      const alreadySettled = thread.settledOverride === "settled" && thread.settledAt !== null;
-      const settledEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.settled" as const,
-        payload: {
-          threadId: command.threadId,
-          settledAt: alreadySettled
-            ? thread.settledAt
-            : command.type === "thread.auto-settle"
-              ? command.settledAt
-              : occurredAt,
-          // A re-emission is a projected no-op: keep the existing updatedAt
-          // so duplicate settles neither rewind nor churn ordering. A fresh
-          // settle stamps the command time.
-          updatedAt: alreadySettled ? thread.updatedAt : occurredAt,
-        },
-      };
-      // Settling is "I'm done with this": clear states that would keep the
-      // row pinned or snoozed instead of showing the new settled state.
-      const companionEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      for (const [requestId, request] of pendingRequests) {
-        companionEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.activity-appended",
-          payload: {
-            threadId: command.threadId,
-            activity: {
-              id: EventId.make(`settle:${command.commandId}:${requestId}`),
-              kind: "user-input.resolved",
-              summary: "User input dismissed",
-              tone: "info",
-              turnId: request.turnId,
-              createdAt: occurredAt,
-              payload: { requestId, responseMode: "message" },
-            },
-          },
-        });
-      }
-      if (thread.pinnedAt != null) {
-        companionEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unpinned" as const,
-          payload: {
-            threadId: command.threadId,
-            updatedAt: occurredAt,
-          },
-        });
-      }
-      if (thread.snoozedUntil != null) {
-        companionEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.unsnoozed",
-          payload: {
-            threadId: command.threadId,
-            reason: "user",
-            updatedAt: occurredAt,
-          },
-        });
-      }
-      return companionEvents.length > 0 ? [settledEvent, ...companionEvents] : settledEvent;
+      return decision.events;
     }
 
     case "thread.unsettle": {
@@ -655,6 +810,80 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           reason: command.reason,
           updatedAt: alreadyPinnedActive ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "thread.agent-settle.request": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      if (command.turnId !== null) {
+        // The turn is still running, so settling now is impossible by design.
+        // Record the arm; the turn's own completion decides eligibility.
+        return {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.agent-settle-requested",
+          payload: {
+            threadId: command.threadId,
+            turnId: command.turnId,
+            requestedAt: occurredAt,
+            reason: command.reason,
+            updatedAt: occurredAt,
+          },
+        };
+      }
+      // No turn to wait for. Settle straight away, because nothing later would
+      // ever fire an arm that is not bound to a turn.
+      const decision = yield* planThreadSettle({
+        thread,
+        commandId: command.commandId,
+        occurredAt,
+        settledAt: occurredAt,
+        // Same rule as the armed path: an unanswered request keeps the thread
+        // in the inbox rather than letting the agent dismiss it.
+        dismissesUserInput: false,
+      });
+      if (decision.outcome === "settled") {
+        return decision.events;
+      }
+      return yield* agentSettleSkippedActivity({
+        threadId: command.threadId,
+        commandId: command.commandId,
+        turnId: null,
+        occurredAt,
+        reason: decision.reason,
+      });
+    }
+
+    case "thread.agent-settle.cancel": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.agent-settle-cancelled",
+        payload: {
+          threadId: command.threadId,
+          // Cancelling a thread that is not armed is a projected no-op: keep
+          // the existing updatedAt so a stale click does not churn ordering.
+          updatedAt: thread.agentSettleRequestedAt == null ? thread.updatedAt : occurredAt,
         },
       };
     }
@@ -1900,6 +2129,43 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // as snoozed, without spending the return ticket.
       const isSessionActivity =
         command.session.status === "starting" || command.session.status === "running";
+      if (thread.agentSettleRequestedAt != null && !isSessionActivity) {
+        // The agent armed a settle and its session has stopped working. An
+        // errored turn is the one case that keeps the thread in the inbox: the
+        // user asked for "settle when you are done", not "hide the failure".
+        // The projector drops the arm on error, so only say why here.
+        if (command.session.status === "error") {
+          return [
+            sessionSetEvent,
+            yield* agentSettleSkippedActivity({
+              threadId: command.threadId,
+              commandId: command.commandId,
+              turnId: thread.agentSettleTurnId ?? null,
+              occurredAt: command.createdAt,
+              reason: "turn-error",
+            }),
+          ];
+        }
+        // Fallback trigger: the diff for the armed turn already landed while
+        // this status write was still in flight, so thread.turn.diff.complete
+        // saw a running session and left the arm for us. Decide against the
+        // session this command is about to install, not the stale one.
+        const armedTurnId = thread.agentSettleTurnId ?? null;
+        const armedTurnHasCheckpoint =
+          armedTurnId !== null &&
+          thread.checkpoints.some((checkpoint) => checkpoint.turnId === armedTurnId);
+        if (armedTurnHasCheckpoint) {
+          const armEvents = yield* resolveAgentSettleArm({
+            thread: { ...thread, session: command.session },
+            commandId: command.commandId,
+            occurredAt: command.createdAt,
+            keepArmWhenSessionActive: false,
+          });
+          if (armEvents.length > 0) {
+            return [sessionSetEvent, ...armEvents];
+          }
+        }
+      }
       // Real activity resets ANY override (settled wakes, active unpins).
       if (thread.settledOverride === null || !isSessionActivity) {
         return sessionSetEvent;
@@ -2082,12 +2348,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.diff.complete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      return {
+      const diffEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -2106,6 +2372,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           completedAt: command.completedAt,
         },
       };
+      // The turn the agent armed has now landed its checkpoint, so this is the
+      // moment to settle: the settle rides in the same batch as the diff, and
+      // no client ever renders "turn done, not settled yet".
+      if ((thread.agentSettleTurnId ?? null) !== command.turnId) {
+        return diffEvent;
+      }
+      const armEvents = yield* resolveAgentSettleArm({
+        thread,
+        commandId: command.commandId,
+        occurredAt: command.createdAt,
+        keepArmWhenSessionActive: true,
+      });
+      return armEvents.length > 0 ? [diffEvent, ...armEvents] : diffEvent;
     }
 
     case "thread.revert.complete": {

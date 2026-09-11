@@ -118,6 +118,13 @@ interface AttachmentSideEffects {
   readonly prunedThreadRelativePaths: Map<string, Set<string>>;
 }
 
+// The three agent-settle columns only ever move together: armed, or not.
+const CLEARED_AGENT_SETTLE_ROW = {
+  agentSettleTurnId: null,
+  agentSettleRequestedAt: null,
+  agentSettleReason: null,
+} as const;
+
 const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsForProjection")(
   (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
@@ -635,6 +642,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             settledOverride: null,
             settledAt: null,
             unsettledAt: null,
+            agentSettleTurnId: null,
+            agentSettleRequestedAt: null,
+            agentSettleReason: null,
             snoozedUntil: null,
             snoozedAt: null,
             pinnedAt: null,
@@ -695,6 +705,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             settledAt: event.payload.settledAt,
             unsettledAt: null,
             activeOrderKey: null,
+            ...CLEARED_AGENT_SETTLE_ROW,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -718,7 +729,57 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               existingRow.value.settledOverride === "active"
                 ? existingRow.value.unsettledAt
                 : event.payload.updatedAt,
+            ...CLEARED_AGENT_SETTLE_ROW,
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-settle-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            agentSettleTurnId: event.payload.turnId,
+            agentSettleRequestedAt: event.payload.requestedAt,
+            agentSettleReason: event.payload.reason,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.agent-settle-cancelled": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            ...CLEARED_AGENT_SETTLE_ROW,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // New work cancels an arm from the previous turn. Also the only thing
+        // that clears a stranded arm — there is no timer.
+        case "thread.turn-start-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow) || existingRow.value.agentSettleRequestedAt === null) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            ...CLEARED_AGENT_SETTLE_ROW,
+            updatedAt: event.occurredAt,
           });
           return;
         }
@@ -1054,6 +1115,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             // activeTurnId describes current work; a terminal session must not erase history.
             latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
+            // An errored turn keeps the thread in the inbox: drop the arm.
+            ...(event.payload.session.status === "error" ? CLEARED_AGENT_SETTLE_ROW : {}),
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);

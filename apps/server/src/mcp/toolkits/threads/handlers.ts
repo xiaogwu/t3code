@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 import {
+  AGENT_SETTLE_REASON_MAX_LENGTH,
   CommandId,
   EventId,
   MessageId,
@@ -30,6 +31,8 @@ import { WorkspacePaths } from "../../../workspace/WorkspacePaths.ts";
 import {
   type ListChildThreadsInput,
   type SendThreadMessageInput,
+  type SettleThreadInput,
+  type SettleThreadResult,
   type StartThreadInput,
   ThreadDelegationFailedError,
   ThreadNotFoundError,
@@ -52,7 +55,7 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
 const childIdFor = (parentThreadId: string, taskKey: string): ThreadId =>
   ThreadId.make(
-    `agent-child-${createHash("sha256").update(`${parentThreadId}:${taskKey}`).digest("hex")}`,
+    `agent-child-${NodeCrypto.createHash("sha256").update(`${parentThreadId}:${taskKey}`).digest("hex")}`,
   );
 
 const commandIdFor = (name: string, childId: ThreadId): CommandId =>
@@ -401,7 +404,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const child = yield* requireChild(input.threadId);
       if (child === undefined) return yield* new ThreadNotFoundError({ threadId: input.threadId });
-      const suffix = `followup-${createHash("sha256").update(input.prompt).digest("hex").slice(0, 12)}`;
+      const suffix = `followup-${NodeCrypto.createHash("sha256").update(input.prompt).digest("hex").slice(0, 12)}`;
       yield* dispatchTurn(input.threadId, input.prompt, input.attachments ?? [], suffix).pipe(
         Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
       );
@@ -412,6 +415,65 @@ const make = Effect.gen(function* () {
         prompt: input.prompt,
       });
       return yield* getStatus(input.threadId);
+    });
+
+  const settleThread = (input: SettleThreadInput) =>
+    Effect.gen(function* () {
+      // Deliberately not requireCapability(): thread delegation and settling
+      // one's own thread are separate grants, and the toolkit is registered
+      // whether or not either is enabled.
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-settle");
+      const before = yield* snapshots.getThreadShellById(scope.threadId).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
+      );
+      if (before === undefined) return yield* new ThreadNotFoundError({ threadId: scope.threadId });
+      // The turn the settle waits on comes from the live session, never from the
+      // caller: an agent cannot arm a turn other than the one it is running in.
+      const turnId = before.session?.activeTurnId ?? null;
+      const reason = input.reason?.trim().slice(0, AGENT_SETTLE_REASON_MAX_LENGTH) || null;
+      yield* engine
+        .dispatch({
+          type: "thread.agent-settle.request",
+          // Same turn and same reason is the same request; a changed reason
+          // re-arms rather than being swallowed by command dedup.
+          commandId: CommandId.make(
+            `mcp:threads:agent-settle:${scope.threadId}:${turnId ?? "idle"}:${NodeCrypto.createHash(
+              "sha256",
+            )
+              .update(reason ?? "")
+              .digest("hex")
+              .slice(0, 12)}`,
+          ),
+          threadId: scope.threadId,
+          turnId,
+          reason,
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      const after = yield* snapshots.getThreadShellById(scope.threadId).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
+      );
+      // The SQLite projection can lag the dispatch, so an armed turn wins over
+      // a read that has not caught up yet.
+      const outcome: SettleThreadResult["outcome"] =
+        after?.settledOverride === "settled"
+          ? "settled"
+          : after?.agentSettleRequestedAt != null || turnId !== null
+            ? "settling"
+            : "not-settled";
+      return {
+        threadId: scope.threadId,
+        outcome,
+        detail:
+          outcome === "settled"
+            ? "This thread is settled."
+            : outcome === "settling"
+              ? "This thread settles when the current turn finishes."
+              : "This thread stayed in the inbox; the timeline says why.",
+      };
     });
 
   const waitForThread = (input: WaitForThreadInput) =>
@@ -448,6 +510,7 @@ const make = Effect.gen(function* () {
     });
 
   return ThreadsToolkit.of({
+    settle_thread: settleThread,
     start_thread: startThread,
     list_child_threads: listChildren,
     get_thread_status: (input) => getStatus(input.threadId),

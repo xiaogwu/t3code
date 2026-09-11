@@ -31,6 +31,8 @@ import {
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
+  ThreadAgentSettleCancelledPayload,
+  ThreadAgentSettleRequestedPayload,
   ThreadArchivedPayload,
   ThreadBookmarkAddedPayload,
   ThreadBookmarkRemovedPayload,
@@ -54,9 +56,17 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  ThreadTurnStartRequestedPayload,
 } from "./Schemas.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
+
+// The three agent-settle fields only ever move together: armed, or not.
+const CLEARED_AGENT_SETTLE = {
+  agentSettleTurnId: null,
+  agentSettleRequestedAt: null,
+  agentSettleReason: null,
+} satisfies ThreadPatch;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
@@ -439,6 +449,9 @@ export function projectEvent(
             settledOverride: null,
             settledAt: null,
             unsettledAt: null,
+            agentSettleTurnId: null,
+            agentSettleRequestedAt: null,
+            agentSettleReason: null,
             activeOrderKey: null,
             snoozedUntil: null,
             snoozedAt: null,
@@ -503,6 +516,7 @@ export function projectEvent(
             settledAt: payload.settledAt,
             unsettledAt: null,
             activeOrderKey: null,
+            ...CLEARED_AGENT_SETTLE,
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -524,10 +538,61 @@ export function projectEvent(
                 existing?.settledOverride === "active"
                   ? (existing.unsettledAt ?? null)
                   : payload.updatedAt,
+              ...CLEARED_AGENT_SETTLE,
               updatedAt: payload.updatedAt,
             }),
           };
         }),
+      );
+
+    case "thread.agent-settle-requested":
+      return decodeForEvent(
+        ThreadAgentSettleRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            agentSettleTurnId: payload.turnId,
+            agentSettleRequestedAt: payload.requestedAt,
+            agentSettleReason: payload.reason,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.agent-settle-cancelled":
+      return decodeForEvent(
+        ThreadAgentSettleCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            ...CLEARED_AGENT_SETTLE,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    // A new turn is new work: an arm from the previous turn must not settle it.
+    // This is also the only thing that clears a stranded arm, which is why the
+    // feature needs no timer or expiry.
+    case "thread.turn-start-requested":
+      return decodeForEvent(
+        ThreadTurnStartRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, CLEARED_AGENT_SETTLE),
+        })),
       );
 
     case "thread.snoozed":
@@ -888,6 +953,9 @@ export function projectEvent(
         // Leaving the "running" session status is the turn-end signal: settle
         // a still-running latest turn so its duration reflects the whole turn.
         const settledTurnState = settledTurnStateForSessionStatus(session.status);
+        // "settle if there are no issues": an errored turn keeps the thread in
+        // the inbox. The decider appends the activity that says why.
+        const clearArmOnError = session.status === "error" ? CLEARED_AGENT_SETTLE : {};
         return {
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -923,6 +991,7 @@ export function projectEvent(
                       completedAt: session.updatedAt,
                     }
                   : thread.latestTurn,
+            ...clearArmOnError,
             updatedAt: event.occurredAt,
           }),
         };
