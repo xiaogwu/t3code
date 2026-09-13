@@ -885,6 +885,7 @@ export function projectEvent(
               ? { replyToMessageId: payload.replyToMessageId }
               : {}),
             ...(payload.replyTo !== undefined ? { replyTo: payload.replyTo } : {}),
+            ...(payload.context !== undefined ? { context: payload.context } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -915,6 +916,7 @@ export function projectEvent(
                       ? { replyToMessageId: message.replyToMessageId }
                       : {}),
                     ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
+                    ...(message.context !== undefined ? { context: message.context } : {}),
                   }
                 : entry,
             )

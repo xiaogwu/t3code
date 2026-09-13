@@ -60,3 +60,14 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Environment theme | A theme an environment publishes for clients to follow, stored under that environment's T3 home. The server watches the theme files and streams changes to connected clients. See [environment themes](../user/environment-theme.md).                                                                                                                                    |
 | Default theme     | The environment's selected theme, stored in `settings.json` with its set-generation. Web and desktop clients apply each new generation once, while mobile retains its own appearance setting. Selecting a published environment theme is how a desktop can ship T3 Code already matching its surrounding system. See [environment themes](../user/environment-theme.md). |
+
+## Composer context
+
+| Term                 | Meaning                                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Context record       | The typed payload behind a composer chip, keyed by `contextId` in `message.context.records`. It never holds bytes.                  |
+| Context reference    | One occurrence of a record in message text: `[label](t3-context://v1/<kind>/<contextId>)`. Several references can share one record. |
+| Attachment binding   | The link from an image or file record to its server-owned attachment. Its attachment ID can change without changing `contextId`.    |
+| Attachment inventory | The ordered image records shown as thumbnails above the prose, including images with no inline references.                          |
+
+See [composer context references](./composer-context-references.md) for the contract and lifecycle.
