@@ -217,6 +217,52 @@ export const make = Effect.gen(function* () {
             });
 
           const bootstrapProgram = Effect.gen(function* () {
+            const prepareWorktree = bootstrap?.prepareWorktree;
+            // Preflight before the thread exists: a non-repository directory or
+            // a base ref with no reachable commit falls back to the project
+            // checkout instead of failing the whole bootstrap.
+            let shouldPrepareWorktree = prepareWorktree
+              ? yield* git.isRepository(prepareWorktree.projectCwd)
+              : false;
+            let worktreeBaseRef: string | null = prepareWorktree?.baseBranch ?? null;
+
+            if (prepareWorktree && shouldPrepareWorktree) {
+              if (
+                prepareWorktree.startFromOrigin === true &&
+                (yield* git.remoteExists({
+                  cwd: prepareWorktree.projectCwd,
+                  remoteName: "origin",
+                }))
+              ) {
+                yield* git.fetchRemote({
+                  cwd: prepareWorktree.projectCwd,
+                  remoteName: "origin",
+                });
+                if (
+                  yield* git.remoteBranchExists({
+                    cwd: prepareWorktree.projectCwd,
+                    refName: prepareWorktree.baseBranch,
+                    remoteName: "origin",
+                  })
+                ) {
+                  worktreeBaseRef = yield* git
+                    .resolveRemoteTrackingCommit({
+                      cwd: prepareWorktree.projectCwd,
+                      refName: prepareWorktree.baseBranch,
+                      fallbackRemoteName: "origin",
+                    })
+                    .pipe(Effect.map((result) => result.commitSha));
+                }
+              }
+
+              const resolvedWorktreeBaseRef = worktreeBaseRef ?? prepareWorktree.baseBranch;
+              shouldPrepareWorktree = yield* git.hasCommit({
+                cwd: prepareWorktree.projectCwd,
+                refName: resolvedWorktreeBaseRef,
+              });
+              worktreeBaseRef = resolvedWorktreeBaseRef;
+            }
+
             if (bootstrap?.createThread) {
               const createCommandId = yield* commandId("bootstrap-thread-create");
               const created = yield* dispatch({
@@ -244,40 +290,12 @@ export const make = Effect.gen(function* () {
               yield* deletionReactor.drainThrough(created.sequence);
               createdThread = true;
             }
-            if (bootstrap?.prepareWorktree) {
-              let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
-              if (
-                bootstrap.prepareWorktree.startFromOrigin === true &&
-                (yield* git.remoteExists({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                }))
-              ) {
-                yield* git.fetchRemote({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                });
-                if (
-                  yield* git.remoteBranchExists({
-                    cwd: bootstrap.prepareWorktree.projectCwd,
-                    refName: bootstrap.prepareWorktree.baseBranch,
-                    remoteName: "origin",
-                  })
-                ) {
-                  worktreeBaseRef = yield* git
-                    .resolveRemoteTrackingCommit({
-                      cwd: bootstrap.prepareWorktree.projectCwd,
-                      refName: bootstrap.prepareWorktree.baseBranch,
-                      fallbackRemoteName: "origin",
-                    })
-                    .pipe(Effect.map((result) => result.commitSha));
-                }
-              }
+            if (prepareWorktree && shouldPrepareWorktree && worktreeBaseRef) {
               const worktree = yield* git.createWorktree({
-                cwd: bootstrap.prepareWorktree.projectCwd,
+                cwd: prepareWorktree.projectCwd,
                 refName: worktreeBaseRef,
-                newRefName: bootstrap.prepareWorktree.branch ?? `t3/agent/${command.threadId}`,
-                baseRefName: bootstrap.prepareWorktree.baseBranch,
+                newRefName: prepareWorktree.branch ?? `t3/agent/${command.threadId}`,
+                baseRefName: prepareWorktree.baseBranch,
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;

@@ -66,6 +66,10 @@ const makeDependencies = Effect.fn("makeThreadTurnBootstrapDependencies")(functi
       Ref.update(options.deletedSequences, (current) => [...current, sequence]),
   };
   const git = {
+    // Upstream preflights both before creating the thread; the stub answers
+    // "usable repository" so the worktree path stays under test.
+    isRepository: () => Effect.succeed(true),
+    hasCommit: () => Effect.succeed(true),
     remoteExists: () => Effect.succeed(false),
     createWorktree: () =>
       Effect.succeed({ worktree: { path: "/tmp/delegated", refName: "feature/delegated" } }),
