@@ -19,6 +19,10 @@ export function requestReplyTargetNavigation(target: ReplyNavigationTarget): boo
 export function subscribeToReplyTargetNavigation(
   navigate: (target: ReplyNavigationTarget) => boolean,
 ): () => void {
+  // Timeline tests mount the component under react-test-renderer, which has no
+  // DOM. Skip the subscription there rather than at each call site: without a
+  // window nothing can dispatch the event, so there is nothing to hear.
+  if (typeof window === "undefined") return () => {};
   const listener = (event: Event) => {
     const navigationEvent = event as CustomEvent<ReplyNavigationTarget>;
     if (navigate(navigationEvent.detail)) navigationEvent.preventDefault();
