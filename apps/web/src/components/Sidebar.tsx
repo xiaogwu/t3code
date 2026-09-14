@@ -123,7 +123,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { SidebarCompletedTime } from "./sidebar/SidebarCompletedTime";
@@ -238,7 +238,6 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { SidebarSortMenu } from "./sidebar/SidebarSortMenu";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -2420,7 +2419,6 @@ export default function Sidebar() {
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const sidebarV2ThreadSortOrder = useClientSettings((s) => s.sidebarV2ThreadSortOrder);
-  const updateSettings = useUpdateClientSettings();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
     settleThread,
@@ -4743,29 +4741,7 @@ export default function Sidebar() {
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
-      <SidebarChromeHeader
-        isElectron={isElectron}
-        newThread={{
-          disabled: projects.length === 0,
-          onClick: handleNewThreadClick,
-          tooltip:
-            projectGroups.length > 1 ? (
-              <span className="flex flex-col gap-0.5">
-                <span>
-                  {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-                </span>
-                <span className="text-muted-foreground">
-                  New thread in current project: Shift+click
-                  {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
-                </span>
-              </span>
-            ) : newThreadShortcutLabel ? (
-              `New thread (${newThreadShortcutLabel})`
-            ) : (
-              "New thread"
-            ),
-        }}
-      />
+      <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
         className={cn(
           "gap-0",
@@ -4783,11 +4759,8 @@ export default function Sidebar() {
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
-          <SidebarGroup className="relative z-[1] flex-row items-center gap-1 p-[var(--sidebar-content-inset)] pt-1">
-            {/* The sort menu is ours: upstream's header row owns search, scope
-                and the new-thread group, so the menu sits after it and the row
-                keeps the shrinking to the header. */}
-            <div className="min-w-0 flex-1">
+          <SidebarGroup className="relative z-[1] p-[var(--sidebar-content-inset)] pt-1">
+            <div className="min-w-0">
               <SidebarThreadHeader
                 searchFieldRef={headerSearchRef}
                 hasProjects={projectGroups.length > 0}
@@ -4947,14 +4920,6 @@ export default function Sidebar() {
                 searchResultCount={threadSearchResults.length}
                 activeSearchResultIndex={activeSearchResultIndex}
                 onClearSearch={clearThreadSearch}
-              />
-            </div>
-            <div className="shrink-0">
-              <SidebarSortMenu
-                threadSortOrder={sidebarV2ThreadSortOrder}
-                onThreadSortOrderChange={(nextSortOrder) => {
-                  updateSettings({ sidebarV2ThreadSortOrder: nextSortOrder });
-                }}
               />
             </div>
           </SidebarGroup>

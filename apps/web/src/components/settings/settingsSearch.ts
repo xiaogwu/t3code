@@ -221,6 +221,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["combine matching repositories environments sidebar"],
   },
   {
+    id: "thread-sorting",
+    title: "Sort threads",
+    to: "/settings/general",
+    searchTerms: ["sidebar order sort last user message created at"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",
