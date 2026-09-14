@@ -10,7 +10,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { McpProtocol, McpSchema, McpServer } from "effect/unstable/ai";
+import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -19,6 +19,10 @@ import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { DeviceScreenshotToolkit, DeviceStandardToolkit } from "./toolkits/device/tools.ts";
+import { PreviewSnapshotToolkit, PreviewStandardToolkit } from "./toolkits/preview/tools.ts";
+import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { ThreadsToolkit } from "./toolkits/threads/tools.ts";
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
 const threadId = ThreadId.make("thread-mcp-test");
@@ -766,3 +770,31 @@ it.effect("registers annotated tools and preserves authenticated request context
     }),
   ).pipe(Effect.provide(TestLayer)),
 );
+
+// Tool registration decodes every tool's parameter JSON Schema against
+// `McpSchema.ToolJsonSchema` and dies on failure, so one malformed parameter
+// schema takes the server down at startup instead of failing that one call.
+// `Schema.Struct({})` is the trap: it compiles to `anyOf: [object, array]`
+// with no top-level `type`. Use `Tool.EmptyParams` for a no-argument tool.
+it("declares MCP-registrable parameter schemas for every registered tool", () => {
+  const decodeToolJsonSchema = Schema.decodeUnknownSync(McpSchema.ToolJsonSchema);
+  const toolkits = [
+    ["preview", PreviewStandardToolkit],
+    ["preview-snapshot", PreviewSnapshotToolkit],
+    ["pull-requests", PullRequestsToolkit],
+    ["device", DeviceStandardToolkit],
+    ["device-screenshot", DeviceScreenshotToolkit],
+    ["threads", ThreadsToolkit],
+  ] as const;
+  const rejected: Array<string> = [];
+  for (const [label, toolkit] of toolkits) {
+    for (const tool of Object.values(toolkit.tools)) {
+      try {
+        decodeToolJsonSchema(Tool.getJsonSchema(tool));
+      } catch (cause) {
+        rejected.push(`${label}/${tool.name}: ${cause instanceof Error ? cause.message : cause}`);
+      }
+    }
+  }
+  expect(rejected).toEqual([]);
+});
