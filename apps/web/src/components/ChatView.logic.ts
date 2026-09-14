@@ -141,6 +141,9 @@ interface ProactivePanelObservation {
   targetKey: string | null | undefined;
   userActionTurnId: TurnId | null;
   userActionRevision: number;
+  /** True only when this observation is the same thread starting a new turn, so a
+      caller can lift a user's earlier panel dismissal without reacting to a thread switch. */
+  newTurn: boolean;
 }
 
 /** Capture user intent before loading or metadata writes can defer panel activation. */
@@ -158,6 +161,7 @@ export function observeProactivePanelUserChoice(
     userActionTurnId: input.runningTurnId ?? (sameThread ? previous.userActionTurnId : null),
     userActionRevision:
       !sameThread || newTurn ? input.userActionRevision : previous.userActionRevision,
+    newTurn,
   };
 }
 
