@@ -29,6 +29,7 @@ import {
   type WebAssetBrand,
 } from "./lib/brand-assets.ts";
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
+import { selectStageArtifacts, type StageArtifactEntry } from "./lib/build-artifacts.ts";
 import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
@@ -4055,14 +4056,28 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageEntries = yield* fs.readDirectory(stageDistDir);
   yield* fs.makeDirectory(options.outputDir, { recursive: true });
 
-  const copiedArtifacts: string[] = [];
+  // Distributable targets (dmg/zip/nsis/AppImage) land as files beside the
+  // unpacked app directory electron-builder built them from, so copying files
+  // only is what keeps release output from carrying a redundant half-gigabyte
+  // copy of the bundle. The `dir` target produces nothing but that directory,
+  // so it has to come along or the build leaves the caller empty-handed once
+  // the stage is cleaned up.
+  const stageArtifactEntries: StageArtifactEntry[] = [];
   for (const entry of stageEntries) {
-    const from = path.join(stageDistDir, entry);
-    const stat = yield* fs.stat(from).pipe(Effect.orElseSucceed(() => null));
-    if (!stat || stat.type !== "File") continue;
+    const stat = yield* fs
+      .stat(path.join(stageDistDir, entry))
+      .pipe(Effect.orElseSucceed(() => null));
+    if (stat) stageArtifactEntries.push({ name: entry, type: stat.type });
+  }
 
-    const to = path.join(options.outputDir, entry);
-    yield* fs.copyFile(from, to);
+  const copiedArtifacts: string[] = [];
+  for (const artifact of selectStageArtifacts({
+    entries: stageArtifactEntries,
+    target: options.target,
+  })) {
+    const from = path.join(stageDistDir, artifact.name);
+    const to = path.join(options.outputDir, artifact.name);
+    yield* artifact.type === "Directory" ? fs.copy(from, to) : fs.copyFile(from, to);
     copiedArtifacts.push(to);
   }
 
