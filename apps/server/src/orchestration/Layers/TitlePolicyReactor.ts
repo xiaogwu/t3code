@@ -85,6 +85,7 @@ const make = Effect.gen(function* () {
               ...policy.suggestions,
             ],
             modelSelection: settings.textGenerationModelSelection,
+            fallbackModelSelections: settings.textGenerationFallbackModelSelections,
           });
           if (evaluation.shouldRename && evaluation.confidence >= 0.6) {
             rename = {

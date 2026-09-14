@@ -26,7 +26,6 @@ import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -1046,6 +1045,7 @@ const make = Effect.gen(function* () {
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
         modelSelection,
+        fallbackModelSelections: settings.textGenerationFallbackModelSelections,
       });
       if (!generated) return;
 
@@ -1097,12 +1097,12 @@ const make = Effect.gen(function* () {
                   message: input.messageText,
                   ...(attachments.length > 0 ? { attachments } : {}),
                   modelSelection: settings.textGenerationModelSelection,
+                  fallbackModelSelections: settings.textGenerationFallbackModelSelections,
                 })
                 .pipe(
-                  Effect.retry({
-                    times: 2,
-                    schedule: Schedule.exponential("2 seconds"),
-                  }),
+                  // Retry now lives per-candidate inside TextGeneration.runWithFallback. Retrying
+                  // here too would multiply chain length by 3 and, with fallbacks configured,
+                  // stack up attempts each bounded by CODEX_TIMEOUT_MS (180s).
                   Effect.map((result) =>
                     matched === null
                       ? result
@@ -1187,6 +1187,7 @@ const make = Effect.gen(function* () {
               previousTitle,
               ...(attachments.length > 0 ? { attachments } : {}),
               modelSelection: settings.textGenerationModelSelection,
+              fallbackModelSelections: settings.textGenerationFallbackModelSelections,
             })
             .pipe(
               Effect.map((result) =>

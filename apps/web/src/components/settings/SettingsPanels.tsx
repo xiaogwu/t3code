@@ -1,12 +1,20 @@
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
-import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  ChevronRightIcon,
+  PlusIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EXTERNAL_TERMINALS,
   type BackgroundActivityProfile,
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   type DesktopUpdateChannel,
   ProviderDriverKind,
   type ProviderInstanceId,
@@ -501,6 +509,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationFallbackModelsDirty = !Equal.equals(
+    settings.textGenerationFallbackModelSelections,
+    DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+  );
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = useMemo(
@@ -607,6 +619,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
+      ...(isTextGenerationFallbackModelsDirty ? ["Text generation fallback models"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
@@ -614,6 +627,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       isTextGenerationModelDirty,
+      isTextGenerationFallbackModelsDirty,
       isBackgroundActivityDirty,
       settings.browserDefaultViewport,
       settings.browserDefaultZoomFactor,
@@ -770,6 +784,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      textGenerationFallbackModelSelections:
+        DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -2234,6 +2250,35 @@ export function GeneralSettingsPanel() {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationFallbackModelsDirty = !Equal.equals(
+    settings.textGenerationFallbackModelSelections,
+    DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+  );
+  // A new fallback slot defaults to an instance nothing else in the chain uses. Defaulting to the
+  // primary would look configured while doing nothing: the server dedupes an entry that repeats
+  // the selection before it.
+  const nextFallbackModelSelection = useMemo(() => {
+    const used = new Set<ProviderInstanceId>([
+      textGenInstanceId,
+      ...settings.textGenerationFallbackModelSelections.map((entry) => entry.instanceId),
+    ]);
+    const unused = textGenerationModelInstanceEntries.find(
+      (entry) => entry.enabled && entry.isAvailable && !used.has(entry.instanceId),
+    );
+    if (!unused) {
+      return createModelSelection(textGenInstanceId, textGenModel);
+    }
+    const model =
+      DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[unused.driverKind] ??
+      unused.models[0]?.slug ??
+      textGenModel;
+    return createModelSelection(unused.instanceId, model);
+  }, [
+    settings.textGenerationFallbackModelSelections,
+    textGenerationModelInstanceEntries,
+    textGenInstanceId,
+    textGenModel,
+  ]);
   const textGenerationModelDisabledReason = useScopedModelDisabledReason(
     settings,
     textGenerationModelInstanceEntries,
@@ -2244,6 +2289,9 @@ export function GeneralSettingsPanel() {
   const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
+  const mixedTextGenerationFallbackModels = useScopedSettingsMixed([
+    "textGenerationFallbackModelSelections",
+  ]);
   const backgroundActivityDescription =
     backgroundActivityProfileOption === "advanced"
       ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
@@ -3167,6 +3215,120 @@ export function GeneralSettingsPanel() {
                     }}
                   />
                 ) : null}
+              </div>
+            )
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["textGenerationFallbackModelSelections"]}
+          {...searchableSetting("text-generation-fallback-models")}
+          description="Tried in order when the text generation model fails, for example when its subscription limit is reached."
+          resetAction={
+            hasServerTargets && isTextGenerationFallbackModelsDirty ? (
+              <SettingResetButton
+                label="text generation fallback models"
+                onClick={() =>
+                  updateSettings({
+                    textGenerationFallbackModelSelections:
+                      DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            !hasServerTargets ? (
+              <span className="text-sm text-muted-foreground">
+                Connect an environment to choose its text generation model.
+              </span>
+            ) : !hasTextGenerationProvider ? (
+              <span className="text-sm text-muted-foreground">
+                No text generation providers available.
+              </span>
+            ) : (
+              <div className="flex flex-col items-end gap-1.5">
+                {settings.textGenerationFallbackModelSelections.map((fallback, index) => (
+                  <div
+                    key={`${fallback.instanceId}:${fallback.model}:${index}`}
+                    className="flex flex-wrap items-center justify-end gap-1.5"
+                  >
+                    <ProviderModelPicker
+                      activeInstanceId={fallback.instanceId}
+                      model={fallback.model}
+                      lockedProvider={null}
+                      instanceEntries={textGenerationModelInstanceEntries}
+                      modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                      triggerVariant="outline"
+                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                      {...(mixedTextGenerationFallbackModels ? { triggerLabel: "Mixed" } : {})}
+                      getModelDisabledReason={textGenerationModelDisabledReason}
+                      {...(environmentId
+                        ? {
+                            onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
+                              void navigate({
+                                to: "/settings/providers",
+                                search: { environmentId, instanceId },
+                              });
+                            },
+                          }
+                        : {})}
+                      onInstanceModelChange={(instanceId, model) => {
+                        const reason = textGenerationModelDisabledReason(instanceId, model);
+                        if (reason) {
+                          toastManager.add({
+                            type: "error",
+                            title: "Fallback model not saved",
+                            description: reason,
+                          });
+                          return;
+                        }
+                        updateSettings({
+                          textGenerationFallbackModelSelections:
+                            settings.textGenerationFallbackModelSelections.map(
+                              (entry, entryIndex) =>
+                                entryIndex === index
+                                  ? createModelSelection(instanceId, model)
+                                  : entry,
+                            ),
+                        });
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="icon-micro"
+                      variant="ghost-muted"
+                      className="[--control-icon-color:currentColor] hover:text-destructive"
+                      onClick={() =>
+                        updateSettings({
+                          textGenerationFallbackModelSelections:
+                            settings.textGenerationFallbackModelSelections.filter(
+                              (_, entryIndex) => entryIndex !== index,
+                            ),
+                        })
+                      }
+                      aria-label={`Remove fallback model ${index + 1}`}
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    updateSettings({
+                      textGenerationFallbackModelSelections: [
+                        ...settings.textGenerationFallbackModelSelections,
+                        nextFallbackModelSelection,
+                      ],
+                    })
+                  }
+                >
+                  <PlusIcon className="size-3" />
+                  Add fallback
+                </Button>
               </div>
             )
           }
