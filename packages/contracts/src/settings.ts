@@ -1135,6 +1135,12 @@ export const ServerSettings = Schema.Struct({
    */
   enableAgentThreadSettle: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * Whether agents may snooze their own thread. Gates the `snooze_thread` and
+   * `unsnooze_thread` MCP tools; the model resolves natural-language timing
+   * into the absolute timestamp supplied to the server.
+   */
+  enableAgentThreadSnooze: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
    * not also grant providers control of simulators and emulators.
@@ -1455,6 +1461,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentThreadSettle: Schema.optionalKey(Schema.Boolean),
+  enableAgentThreadSnooze: Schema.optionalKey(Schema.Boolean),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

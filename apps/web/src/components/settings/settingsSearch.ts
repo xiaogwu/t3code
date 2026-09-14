@@ -55,6 +55,7 @@ export interface SettingsSearchItem {
   readonly wslAvailableOnly?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
   readonly requiresAgentThreadSettle?: boolean;
+  readonly requiresAgentThreadSnooze?: boolean;
 }
 
 export interface SettingsSearchAvailability {
@@ -65,6 +66,7 @@ export interface SettingsSearchAvailability {
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
   readonly hasAgentThreadSettle: boolean;
+  readonly hasAgentThreadSnooze: boolean;
 }
 
 /**
@@ -257,6 +259,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     searchTerms: ["mcp tool settle_thread finished done inbox permission"],
     requiresAgentThreadSettle: true,
+  },
+  {
+    id: "agent-thread-snooze",
+    title: "Let agents snooze their thread",
+    to: "/settings/general",
+    searchTerms: ["mcp tool snooze_thread unsnooze_thread inbox permission duration"],
+    requiresAgentThreadSnooze: true,
   },
   {
     id: "external-terminal",
@@ -884,7 +893,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.localBackendManagementOnly || availability.canManageLocalBackend) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
-      (!item.requiresAgentThreadSettle || availability.hasAgentThreadSettle),
+      (!item.requiresAgentThreadSettle || availability.hasAgentThreadSettle) &&
+      (!item.requiresAgentThreadSnooze || availability.hasAgentThreadSnooze),
   );
 }
 

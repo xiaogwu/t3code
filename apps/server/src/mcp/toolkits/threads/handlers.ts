@@ -31,6 +31,8 @@ import { WorkspacePaths } from "../../../workspace/WorkspacePaths.ts";
 import {
   type ListChildThreadsInput,
   type SendThreadMessageInput,
+  type SnoozeThreadInput,
+  type SnoozeThreadResult,
   type SettleThreadInput,
   type SettleThreadResult,
   type StartThreadInput,
@@ -139,6 +141,8 @@ const make = Effect.gen(function* () {
       branch: thread.branch,
       worktreePath: thread.worktreePath,
       ...(resultPreview === undefined ? {} : { resultPreview }),
+      snoozedUntil: thread.snoozedUntil ?? null,
+      snoozedAt: thread.snoozedAt ?? null,
       alreadyStarted,
     };
   });
@@ -476,6 +480,52 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const snoozeThread = (input: SnoozeThreadInput) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-snooze");
+      const thread = yield* snapshots.getThreadShellById(scope.threadId).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
+      );
+      if (thread === undefined) return yield* new ThreadNotFoundError({ threadId: scope.threadId });
+      yield* engine
+        .dispatch({
+          type: "thread.snooze",
+          commandId: CommandId.make(`mcp:threads:snooze:${scope.threadId}:${input.snoozedUntil}`),
+          threadId: scope.threadId,
+          snoozedUntil: input.snoozedUntil,
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      return { threadId: scope.threadId, snoozedUntil: input.snoozedUntil };
+    });
+
+  const unsnoozeThread = () =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-snooze");
+      const thread = yield* snapshots.getThreadShellById(scope.threadId).pipe(
+        Effect.map(Option.getOrUndefined),
+        Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
+      );
+      if (thread === undefined) return yield* new ThreadNotFoundError({ threadId: scope.threadId });
+      yield* engine
+        .dispatch({
+          type: "thread.unsnooze",
+          // Each snooze cycle needs a distinct wake command. A stable id here
+          // would let event dedup swallow an unsnooze after a later re-snooze.
+          commandId: CommandId.make(
+            `mcp:threads:unsnooze:${scope.threadId}:${NodeCrypto.randomUUID()}`,
+          ),
+          threadId: scope.threadId,
+          reason: "user",
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      return { threadId: scope.threadId, snoozedUntil: null } satisfies SnoozeThreadResult;
+    });
+
   const waitForThread = (input: WaitForThreadInput) =>
     Effect.gen(function* () {
       const initial = yield* getStatus(input.threadId);
@@ -511,6 +561,8 @@ const make = Effect.gen(function* () {
 
   return ThreadsToolkit.of({
     settle_thread: settleThread,
+    snooze_thread: snoozeThread,
+    unsnooze_thread: unsnoozeThread,
     start_thread: startThread,
     list_child_threads: listChildren,
     get_thread_status: (input) => getStatus(input.threadId),

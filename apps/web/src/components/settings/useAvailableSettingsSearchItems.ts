@@ -47,6 +47,11 @@ export function useAvailableSettingsSearchItems() {
             environment.connection.phase === "connected" &&
             environment.serverConfig?.environment.capabilities.agentThreadSettle === true,
         ),
+        hasAgentThreadSnooze: environments.some(
+          (environment) =>
+            environment.connection.phase === "connected" &&
+            environment.serverConfig?.environment.capabilities.threadSnooze === true,
+        ),
       }),
     [canManageLocalBackend, desktopWsl.data, desktopWsl.error, environments],
   );

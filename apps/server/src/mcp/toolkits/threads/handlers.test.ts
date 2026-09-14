@@ -43,6 +43,7 @@ const TURN_ID = TurnId.make("turn-1");
 
 /** Settling is its own grant, so the settle cases opt into it explicitly. */
 const SETTLE_CAPABILITIES = ["threads", "thread-settle"] as const;
+const SNOOZE_CAPABILITIES = ["threads", "thread-snooze"] as const;
 
 const runningSession: OrchestrationSession = {
   threadId: PARENT_ID,
@@ -305,6 +306,98 @@ describe("thread toolkit handlers", () => {
         capability: "thread-settle",
       });
       expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses to snooze without the thread-snooze grant", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const error = yield* harness
+        .call("snooze_thread", { snoozedUntil: "2026-08-02T00:00:00.000Z" })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "McpCapabilityUnavailableError",
+        capability: "thread-snooze",
+      });
+      const unsnoozeError = yield* harness.call("unsnooze_thread", {}).pipe(Effect.flip);
+      expect(unsnoozeError).toMatchObject({
+        _tag: "McpCapabilityUnavailableError",
+        capability: "thread-snooze",
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("dispatches an absolute snooze timestamp for the invoking thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: SNOOZE_CAPABILITIES });
+      const snoozedUntil = "2026-08-02T00:00:00.000Z";
+
+      expect(yield* harness.call("snooze_thread", { snoozedUntil })).toEqual({
+        threadId: PARENT_ID,
+        snoozedUntil,
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([
+        expect.objectContaining({
+          type: "thread.snooze",
+          threadId: PARENT_ID,
+          snoozedUntil,
+        }),
+      ]);
+    }),
+  );
+
+  it.effect("dispatches a user unsnooze for the invoking thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: SNOOZE_CAPABILITIES });
+
+      expect(yield* harness.call("unsnooze_thread", {})).toEqual({
+        threadId: PARENT_ID,
+        snoozedUntil: null,
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([
+        expect.objectContaining({
+          type: "thread.unsnooze",
+          threadId: PARENT_ID,
+          reason: "user",
+        }),
+      ]);
+    }),
+  );
+
+  it.effect("uses a fresh command id for each unsnooze cycle", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: SNOOZE_CAPABILITIES });
+
+      yield* harness.call("unsnooze_thread", {});
+      yield* harness.call("unsnooze_thread", {});
+
+      const commandIds = (yield* Ref.get(harness.commands)).map((command) => command.commandId);
+      expect(commandIds).toHaveLength(2);
+      expect(commandIds[0]).not.toBe(commandIds[1]);
+    }),
+  );
+
+  it.effect("includes snooze state in thread references", () =>
+    Effect.gen(function* () {
+      const snoozedUntil = "2026-08-02T00:00:00.000Z";
+      const snoozedAt = "2026-08-01T00:00:00.000Z";
+      const harness = yield* makeHarness({
+        initialChildren: [
+          makeShell(ThreadId.make("snoozed-child"), {
+            parentThreadId: PARENT_ID,
+            snoozedUntil,
+            snoozedAt,
+          }),
+        ],
+      });
+
+      expect(yield* harness.call("list_child_threads", { includeTerminal: true })).toMatchObject({
+        threads: [{ snoozedUntil, snoozedAt }],
+      });
+      expect(
+        yield* harness.call("get_thread_status", { threadId: ThreadId.make("snoozed-child") }),
+      ).toMatchObject({ snoozedUntil, snoozedAt });
     }),
   );
 
