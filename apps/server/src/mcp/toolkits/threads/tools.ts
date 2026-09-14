@@ -221,7 +221,10 @@ const SnoozeThreadTool = Tool.make("snooze_thread", {
 const UnsnoozeThreadTool = Tool.make("unsnooze_thread", {
   description:
     "Wake this thread immediately by clearing its snooze. This does not stop or restart active work.",
-  parameters: Schema.Struct({}),
+  // `Schema.Struct({})` compiles to `anyOf: [object, array]` with no top-level
+  // `type`, which MCP tool registration rejects. `Tool.EmptyParams` is the
+  // no-argument shape that yields a plain `type: "object"` schema.
+  parameters: Tool.EmptyParams,
   success: SnoozeThreadResult,
   failure: ThreadToolError,
   dependencies,
