@@ -29,7 +29,11 @@ import {
   type WebAssetBrand,
 } from "./lib/brand-assets.ts";
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
-import { selectStageArtifacts, type StageArtifactEntry } from "./lib/build-artifacts.ts";
+import {
+  selectStageArtifacts,
+  copyStageArtifactTree,
+  type StageArtifactEntry,
+} from "./lib/build-artifacts.ts";
 import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
@@ -668,6 +672,19 @@ export class DesktopBuildNoArtifactsProducedError extends Schema.TaggedError<Des
 ) {
   override get message(): string {
     return `Build completed but no files were produced in ${this.distPath}`;
+  }
+}
+
+export class DesktopBuildArtifactCopyError extends Schema.TaggedError<DesktopBuildArtifactCopyError>()(
+  "DesktopBuildArtifactCopyError",
+  {
+    from: Schema.String,
+    to: Schema.String,
+    reason: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Could not copy build artifact ${this.from} to ${this.to}: ${this.reason}`;
   }
 }
 
@@ -4077,7 +4094,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   })) {
     const from = path.join(stageDistDir, artifact.name);
     const to = path.join(options.outputDir, artifact.name);
-    yield* artifact.type === "Directory" ? fs.copy(from, to) : fs.copyFile(from, to);
+    yield* artifact.type === "Directory"
+      ? Effect.tryPromise({
+          try: () => copyStageArtifactTree(from, to),
+          catch: (cause) => new DesktopBuildArtifactCopyError({ from, to, reason: String(cause) }),
+        })
+      : fs.copyFile(from, to);
     copiedArtifacts.push(to);
   }
 
