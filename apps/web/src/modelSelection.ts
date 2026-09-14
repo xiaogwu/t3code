@@ -369,6 +369,30 @@ export function withoutPlanAgentSelection(
   return createModelSelection(selection.instanceId, selection.model, options);
 }
 
+/**
+ * Element-wise {@link withoutPlanAgentSelection} for the ordered fallback
+ * list: a fallback pointing at the plan agent is exactly as invalid as a
+ * primary that does, but the list must be replaced wholesale (never merged
+ * element-by-element), so this always returns a full array when anything
+ * changed and the original reference otherwise.
+ */
+export function withoutPlanAgentSelections(
+  selections: ReadonlyArray<ModelSelection> | undefined,
+): ReadonlyArray<ModelSelection> | undefined {
+  if (!selections) {
+    return selections;
+  }
+  let changed = false;
+  const healed = selections.map((selection) => {
+    const healedSelection = withoutPlanAgentSelection(selection);
+    if (healedSelection !== selection) {
+      changed = true;
+    }
+    return healedSelection ?? selection;
+  });
+  return changed ? healed : selections;
+}
+
 // The dropdown hides the opencode "plan" agent while legacy plan mode is off,
 // but the persisted text-generation selections are only healed when the toggle
 // flips. Users who already have plan mode off and a stored "plan" selection
@@ -376,16 +400,21 @@ export function withoutPlanAgentSelection(
 export function resolvePlanAgentHealPatch(input: {
   readonly planModeEnabled: boolean;
   readonly textGenerationModelSelection: ModelSelection | null | undefined;
+  readonly textGenerationFallbackModelSelections: ReadonlyArray<ModelSelection> | undefined;
   readonly sourceControlWriterModelSelection: ModelSelection | null | undefined;
 }): ServerSettingsPatch | null {
   if (input.planModeEnabled) {
     return null;
   }
   const healedText = withoutPlanAgentSelection(input.textGenerationModelSelection);
+  const healedFallbacks = withoutPlanAgentSelections(input.textGenerationFallbackModelSelections);
   const healedSourceControl = withoutPlanAgentSelection(input.sourceControlWriterModelSelection);
   const patch: ServerSettingsPatch = {
     ...(healedText && healedText !== input.textGenerationModelSelection
       ? { textGenerationModelSelection: healedText }
+      : {}),
+    ...(healedFallbacks && healedFallbacks !== input.textGenerationFallbackModelSelections
+      ? { textGenerationFallbackModelSelections: healedFallbacks }
       : {}),
     ...(healedSourceControl && healedSourceControl !== input.sourceControlWriterModelSelection
       ? { sourceControlWriterModelSelection: healedSourceControl }

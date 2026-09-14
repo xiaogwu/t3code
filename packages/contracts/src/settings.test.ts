@@ -628,6 +628,20 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });
 
+  it("defaults text generation fallbacks to empty and round-trips a configured list", () => {
+    // A settings.json written before the key existed has to keep behaving exactly as it did.
+    expect(decodeServerSettings({}).textGenerationFallbackModelSelections).toEqual([]);
+
+    const fallbacks = [
+      { instanceId: "claude", model: "sonnet" },
+      { instanceId: "opencode", model: "openai/gpt-5", options: [{ id: "agent", value: "build" }] },
+    ];
+    expect(
+      decodeServerSettings({ textGenerationFallbackModelSelections: fallbacks })
+        .textGenerationFallbackModelSelections,
+    ).toEqual(fallbacks);
+  });
+
   it("decodes a fully empty config (legacy on-disk shape) without complaint", () => {
     const decoded = decodeServerSettings({});
     expect(decoded.providerInstances).toEqual({});

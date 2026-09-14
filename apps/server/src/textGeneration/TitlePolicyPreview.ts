@@ -14,6 +14,7 @@ import { composeTitle, expandTitleTemplate } from "./TitlePolicyResolver.ts";
 export const previewTitlePolicy = Effect.fn("previewTitlePolicy")(function* (
   policy: TitlePolicy,
   modelSelection: ModelSelection,
+  fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined,
 ) {
   const textGeneration = yield* TextGeneration.TextGeneration;
   const results: TitlePolicyPreviewResult[] = [];
@@ -40,6 +41,7 @@ export const previewTitlePolicy = Effect.fn("previewTitlePolicy")(function* (
                 ...policy.suggestions,
               ],
               modelSelection,
+              fallbackModelSelections,
             })
             .pipe(
               Effect.map((evaluation) =>

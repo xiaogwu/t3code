@@ -369,6 +369,34 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("replaces the text generation fallback list wholesale, including down to empty", () => {
+    const codex = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4-mini");
+    const claude = createModelSelection(ProviderInstanceId.make("claude"), "sonnet");
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationFallbackModelSelections: [codex, claude],
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        textGenerationFallbackModelSelections: [claude],
+      }).textGenerationFallbackModelSelections,
+    ).toEqual([claude]);
+
+    // Removing the last entry has to mean removing it: the order is user-authored, so an
+    // element-wise merge would make a fallback impossible to delete.
+    expect(
+      applyServerSettingsPatch(current, {
+        textGenerationFallbackModelSelections: [],
+      }).textGenerationFallbackModelSelections,
+    ).toEqual([]);
+
+    expect(applyServerSettingsPatch(current, {}).textGenerationFallbackModelSelections).toEqual([
+      codex,
+      claude,
+    ]);
+  });
+
   it("clears source control writer selection with null", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,

@@ -371,6 +371,11 @@ export function applyServerSettingsPatch(
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),
+    // Whole-array replace: the list is the user-authored fallback order, so
+    // removing an entry has to mean removing it.
+    ...(patch.textGenerationFallbackModelSelections !== undefined
+      ? { textGenerationFallbackModelSelections: patch.textGenerationFallbackModelSelections }
+      : {}),
     // Whole-struct replace: the policy is user-edited as one JSON document, not merged field-by-field.
     ...(titlePolicy !== undefined ? { titlePolicy } : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),

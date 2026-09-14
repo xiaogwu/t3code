@@ -1800,9 +1800,11 @@ const makeWsRpcLayer = (
             WS_METHODS.serverPreviewTitlePolicy,
             serverSettings.getSettings.pipe(
               Effect.flatMap((settings) =>
-                previewTitlePolicy(policy, settings.textGenerationModelSelection).pipe(
-                  Effect.provideService(TextGeneration.TextGeneration, textGeneration),
-                ),
+                previewTitlePolicy(
+                  policy,
+                  settings.textGenerationModelSelection,
+                  settings.textGenerationFallbackModelSelections,
+                ).pipe(Effect.provideService(TextGeneration.TextGeneration, textGeneration)),
               ),
             ),
             {

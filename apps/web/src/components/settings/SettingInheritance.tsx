@@ -33,6 +33,19 @@ const WRITING_STYLE_LABELS: Record<string, string> = {
 
 /** Human labels for the values the chain can show; falls back to a type summary. */
 function formatValue(key: keyof ServerSettings, value: unknown): string {
+  if (key === "textGenerationFallbackModelSelections") {
+    if (!Array.isArray(value) || value.length === 0) return "None";
+    return value
+      .map((selection) =>
+        typeof selection === "object" &&
+        selection !== null &&
+        "model" in selection &&
+        typeof selection.model === "string"
+          ? selection.model
+          : "Custom",
+      )
+      .join(", ");
+  }
   if (value === null || value === undefined) {
     return key === "pullRequestMergeMethod"
       ? "Last selected"

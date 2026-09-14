@@ -93,6 +93,8 @@ export type GitBranchPullRequest = NonNullable<VcsStatusResult["pr"]> & {
 
 interface SourceControlTextGenerationSettings {
   readonly modelSelection: ModelSelection;
+  /** Additional models to try, in order, if the primary selection fails. */
+  readonly fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined;
   readonly style: SourceControlWritingStyleSettings;
 }
 
@@ -1843,6 +1845,7 @@ export const make = Effect.gen(function* () {
           ...(input.includeBranch ? { includeBranch: true } : {}),
           ...(policy ? { policy } : {}),
           modelSelection: input.settings.modelSelection,
+          fallbackModelSelections: input.settings.fallbackModelSelections,
         })
         .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
 
@@ -2034,6 +2037,7 @@ export const make = Effect.gen(function* () {
       ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
       ...(policy ? { policy } : {}),
       modelSelection: settings.modelSelection,
+      fallbackModelSelections: settings.fallbackModelSelections,
     });
 
     const bodyFile = path.join(
@@ -2666,6 +2670,7 @@ export const make = Effect.gen(function* () {
             settings.sourceControlWriterModelSelection === null
               ? Effect.succeed({
                   modelSelection: settings.textGenerationModelSelection,
+                  fallbackModelSelections: settings.textGenerationFallbackModelSelections,
                   style: settings.sourceControlWritingStyle,
                 })
               : providerRegistry.getProviders.pipe(
@@ -2674,6 +2679,7 @@ export const make = Effect.gen(function* () {
                       settings,
                       providers,
                     ),
+                    fallbackModelSelections: settings.textGenerationFallbackModelSelections,
                     style: settings.sourceControlWritingStyle,
                   })),
                 ),

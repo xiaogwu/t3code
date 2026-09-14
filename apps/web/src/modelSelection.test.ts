@@ -17,6 +17,7 @@ import {
   resolveAppModelSelectionState,
   resolvePlanAgentHealPatch,
   withoutPlanAgentSelection,
+  withoutPlanAgentSelections,
 } from "./modelSelection";
 
 function provider(input: {
@@ -877,6 +878,7 @@ describe("resolvePlanAgentHealPatch", () => {
   const nullPatch = {
     planModeEnabled: true,
     textGenerationModelSelection: storedPlan,
+    textGenerationFallbackModelSelections: undefined,
     sourceControlWriterModelSelection: null,
   };
 
@@ -889,6 +891,7 @@ describe("resolvePlanAgentHealPatch", () => {
       resolvePlanAgentHealPatch({
         planModeEnabled: false,
         textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: undefined,
         sourceControlWriterModelSelection: null,
       }),
     ).toBeNull();
@@ -899,6 +902,7 @@ describe("resolvePlanAgentHealPatch", () => {
       resolvePlanAgentHealPatch({
         planModeEnabled: false,
         textGenerationModelSelection: storedPlan,
+        textGenerationFallbackModelSelections: undefined,
         sourceControlWriterModelSelection: null,
       }),
     ).toEqual({ textGenerationModelSelection: healed });
@@ -909,8 +913,100 @@ describe("resolvePlanAgentHealPatch", () => {
       resolvePlanAgentHealPatch({
         planModeEnabled: false,
         textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: undefined,
         sourceControlWriterModelSelection: storedPlan,
       }),
     ).toEqual({ sourceControlWriterModelSelection: healed });
+  });
+
+  it("returns null when the fallback list is empty or absent", () => {
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: [],
+        sourceControlWriterModelSelection: null,
+      }),
+    ).toBeNull();
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: undefined,
+        sourceControlWriterModelSelection: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("heals a fallback entry that uses the plan agent, leaving clean entries untouched", () => {
+    const otherInstance = ProviderInstanceId.make("codex");
+    const clean = createModelSelection(otherInstance, "gpt-5.6-sol");
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: [clean, storedPlan],
+        sourceControlWriterModelSelection: null,
+      }),
+    ).toEqual({ textGenerationFallbackModelSelections: [clean, healed] });
+  });
+
+  it("heals every plan-agent fallback entry in an ordered list", () => {
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: [storedPlan, storedPlan],
+        sourceControlWriterModelSelection: null,
+      }),
+    ).toEqual({ textGenerationFallbackModelSelections: [healed, healed] });
+  });
+
+  it("does not heal the fallback list when every entry is already clean", () => {
+    const otherInstance = ProviderInstanceId.make("codex");
+    const clean = createModelSelection(otherInstance, "gpt-5.6-sol");
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: healed,
+        textGenerationFallbackModelSelections: [clean, healed],
+        sourceControlWriterModelSelection: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("patches the primary selection and the fallback list together in one call", () => {
+    expect(
+      resolvePlanAgentHealPatch({
+        planModeEnabled: false,
+        textGenerationModelSelection: storedPlan,
+        textGenerationFallbackModelSelections: [storedPlan],
+        sourceControlWriterModelSelection: storedPlan,
+      }),
+    ).toEqual({
+      textGenerationModelSelection: healed,
+      textGenerationFallbackModelSelections: [healed],
+      sourceControlWriterModelSelection: healed,
+    });
+  });
+});
+
+describe("withoutPlanAgentSelections", () => {
+  const instance = ProviderInstanceId.make("opencode");
+  const model = "opencode/gpt-5.4";
+
+  it("returns the same reference when nothing needs healing", () => {
+    const clean = createModelSelection(instance, model, [{ id: "agent", value: "build" }]);
+    const selections = [clean];
+    expect(withoutPlanAgentSelections(selections)).toBe(selections);
+  });
+
+  it("returns undefined unchanged", () => {
+    expect(withoutPlanAgentSelections(undefined)).toBeUndefined();
+  });
+
+  it("returns an empty array unchanged", () => {
+    const selections: ReadonlyArray<ReturnType<typeof createModelSelection>> = [];
+    expect(withoutPlanAgentSelections(selections)).toBe(selections);
   });
 });

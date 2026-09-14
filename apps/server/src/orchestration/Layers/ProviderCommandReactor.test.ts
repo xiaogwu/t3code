@@ -1617,23 +1617,21 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
-  it("retries thread title generation after a transient failure", async () => {
+  // Retrying a failed generation is now TextGeneration.runWithFallback's job (see
+  // TextGeneration.test.ts): it retries each candidate model once and walks any configured
+  // fallbacks. The reactor itself no longer retries, so a single failure from the (mocked)
+  // TextGeneration service should leave the seeded title untouched with exactly one attempt.
+  it("does not retry thread title generation at the reactor level after a failure", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     const seededTitle = "Please investigate reconnect failures after restar...";
-    let attempts = 0;
     harness.generateThreadTitle.mockReturnValue(
-      Effect.suspend(() => {
-        attempts += 1;
-        return attempts === 1
-          ? Effect.fail(
-              new TextGenerationError({
-                operation: "generateThreadTitle",
-                detail: "Claude CLI request timed out.",
-              }),
-            )
-          : Effect.succeed({ title: "Generated title" });
-      }),
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateThreadTitle",
+          detail: "Claude CLI request timed out.",
+        }),
+      ),
     );
 
     await Effect.runPromise(
@@ -1668,17 +1666,11 @@ describe("ProviderCommandReactor", () => {
       message: "Please investigate reconnect failures after restarting the session.",
     });
 
-    await waitFor(async () => {
-      const readModel = await harness.readModel();
-      return (
-        readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.title ===
-        "Generated title"
-      );
-    });
+    await harness.drain();
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.title).toBe("Generated title");
-    expect(attempts).toBe(2);
+    expect(thread?.title).toBe(seededTitle);
+    expect(harness.generateThreadTitle.mock.calls.length).toBe(1);
   });
 
   it("regenerates a thread title from the current conversation", async () => {

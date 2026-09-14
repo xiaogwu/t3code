@@ -19,6 +19,9 @@ export function PlanAgentSelectionHeal() {
   const textGenerationModelSelection = usePrimarySettings(
     (settings) => settings.textGenerationModelSelection,
   );
+  const textGenerationFallbackModelSelections = usePrimarySettings(
+    (settings) => settings.textGenerationFallbackModelSelections,
+  );
   const sourceControlWriterModelSelection = usePrimarySettings(
     (settings) => settings.sourceControlWriterModelSelection,
   );
@@ -35,6 +38,7 @@ export function PlanAgentSelectionHeal() {
     const patch = resolvePlanAgentHealPatch({
       planModeEnabled,
       textGenerationModelSelection,
+      textGenerationFallbackModelSelections,
       sourceControlWriterModelSelection,
     });
     if (patch) {
@@ -44,6 +48,7 @@ export function PlanAgentSelectionHeal() {
     planModeEnabled,
     settingsHydrated,
     textGenerationModelSelection,
+    textGenerationFallbackModelSelections,
     sourceControlWriterModelSelection,
     updateSettings,
   ]);

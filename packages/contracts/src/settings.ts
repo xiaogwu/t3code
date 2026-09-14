@@ -1021,6 +1021,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentBrowserAccess",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
+  "textGenerationFallbackModelSelections",
   "sourceControlWriterModelSelection",
   "sourceControlWritingStyle",
   "pullRequestMergeMethod",
@@ -1046,6 +1047,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
+  textGenerationFallbackModelSelections: Schema.optionalKey(Schema.Array(ModelSelection)),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
@@ -1202,6 +1204,14 @@ export const ServerSettings = Schema.Struct({
         ],
       }),
     ),
+  ),
+  /**
+   * Tried in order when the primary text generation model fails, so one
+   * exhausted subscription does not silently disable thread titles, branch
+   * names, commit messages, and PR content all at once. Empty by default.
+   */
+  textGenerationFallbackModelSelections: Schema.Array(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   sourceControlWritingStyle: SourceControlWritingStyleSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1466,6 +1476,9 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  // Replaced wholesale, never merged element-by-element: the order is the
+  // fallback order the user authored.
+  textGenerationFallbackModelSelections: Schema.optionalKey(Schema.Array(ModelSelection)),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({
       mode: Schema.optionalKey(SourceControlWritingStyleMode),

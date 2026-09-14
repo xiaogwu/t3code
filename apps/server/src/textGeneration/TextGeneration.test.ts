@@ -1,11 +1,13 @@
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as PubSub from "effect/PubSub";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { describe, expect } from "vite-plus/test";
 
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderInstanceId, TextGenerationError } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 
 import type { ProviderInstance } from "../provider/ProviderDriver.ts";
@@ -100,7 +102,9 @@ describe("makeTextGenerationFromRegistry", () => {
     Effect.gen(function* () {
       const tg = TextGeneration.makeTextGenerationFromRegistry(makeStubRegistry([]));
 
-      const result = yield* tg
+      // The sole candidate still gets its one retry inside the runner before failing, so the
+      // clock must be advanced past that delay or the fiber would wait forever.
+      const child = yield* tg
         .generateBranchName({
           cwd: process.cwd(),
           message: "anything",
@@ -109,7 +113,9 @@ describe("makeTextGenerationFromRegistry", () => {
             "gpt-5",
           ),
         })
-        .pipe(Effect.result);
+        .pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
 
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
@@ -152,6 +158,313 @@ describe("makeTextGenerationFromRegistry", () => {
 
       expect(result.shouldRename).toBe(true);
       expect(result.suggestedTitle).toBe("Review sidebar cleanup");
+    }),
+  );
+});
+
+describe("makeTextGenerationFromRegistry fallback models", () => {
+  it.effect("falls back to the next candidate when the primary fails", () =>
+    Effect.gen(function* () {
+      const primaryId = ProviderInstanceId.make("codex_primary");
+      let primaryCalls = 0;
+      const primary = makeStubInstance(
+        primaryId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            primaryCalls++;
+            return Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "primary is out of quota",
+              }),
+            );
+          },
+        }),
+      );
+
+      const fallbackId = ProviderInstanceId.make("codex_fallback");
+      let fallbackCalls = 0;
+      const fallback = makeStubInstance(
+        fallbackId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            fallbackCalls++;
+            return Effect.succeed({ branch: "fallback-branch" });
+          },
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(
+        makeStubRegistry([primary, fallback]),
+      );
+
+      const child = yield* tg
+        .generateBranchName({
+          cwd: process.cwd(),
+          message: "Refactor the routing layer",
+          modelSelection: createModelSelection(primaryId, "gpt-5"),
+          fallbackModelSelections: [createModelSelection(fallbackId, "gpt-5")],
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
+
+      expect(result.branch).toBe("fallback-branch");
+      // Initial attempt plus the one retry the runner gives each candidate.
+      expect(primaryCalls).toBe(2);
+      expect(fallbackCalls).toBe(1);
+    }),
+  );
+
+  it.effect("fails naming every candidate once the whole chain is exhausted", () =>
+    Effect.gen(function* () {
+      const primaryId = ProviderInstanceId.make("codex_primary");
+      const primary = makeStubInstance(
+        primaryId,
+        makeStubTextGeneration({
+          generateBranchName: () =>
+            Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "primary is out of quota",
+              }),
+            ),
+        }),
+      );
+
+      const fallbackId = ProviderInstanceId.make("codex_fallback");
+      const fallback = makeStubInstance(
+        fallbackId,
+        makeStubTextGeneration({
+          generateBranchName: () =>
+            Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "fallback CLI crashed",
+              }),
+            ),
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(
+        makeStubRegistry([primary, fallback]),
+      );
+
+      const child = yield* tg
+        .generateBranchName({
+          cwd: process.cwd(),
+          message: "Refactor the routing layer",
+          modelSelection: createModelSelection(primaryId, "gpt-5"),
+          fallbackModelSelections: [createModelSelection(fallbackId, "gpt-5")],
+        })
+        .pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("TextGenerationError");
+        expect(result.failure.operation).toBe("generateBranchName");
+        expect(result.failure.detail).toContain(primaryId);
+        expect(result.failure.detail).toContain("primary is out of quota");
+        expect(result.failure.detail).toContain(fallbackId);
+        expect(result.failure.detail).toContain("fallback CLI crashed");
+      }
+    }),
+  );
+
+  it.effect("does not attempt a fallback that duplicates the primary selection", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_primary");
+      let calls = 0;
+      const instance = makeStubInstance(
+        instanceId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            calls++;
+            return Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "always fails",
+              }),
+            );
+          },
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(makeStubRegistry([instance]));
+
+      const child = yield* tg
+        .generateBranchName({
+          cwd: process.cwd(),
+          message: "Refactor the routing layer",
+          modelSelection: createModelSelection(instanceId, "gpt-5"),
+          // Same instance + model as the primary: should collapse to one candidate.
+          fallbackModelSelections: [createModelSelection(instanceId, "gpt-5")],
+        })
+        .pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
+
+      // Initial attempt plus one retry for the single deduped candidate, not two candidates'
+      // worth of attempts.
+      expect(calls).toBe(2);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.detail).toContain("All 1 candidate model(s) failed");
+      }
+    }),
+  );
+
+  it.effect("skips a fallback naming an unregistered instance instead of failing outright", () =>
+    Effect.gen(function* () {
+      const primaryId = ProviderInstanceId.make("codex_primary");
+      let primaryCalls = 0;
+      const primary = makeStubInstance(
+        primaryId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            primaryCalls++;
+            return Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "primary is out of quota",
+              }),
+            );
+          },
+        }),
+      );
+
+      const workingFallbackId = ProviderInstanceId.make("codex_fallback_working");
+      let workingFallbackCalls = 0;
+      const workingFallback = makeStubInstance(
+        workingFallbackId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            workingFallbackCalls++;
+            return Effect.succeed({ branch: "fallback-branch" });
+          },
+        }),
+      );
+
+      const unregisteredFallbackId = ProviderInstanceId.make("codex_fallback_missing");
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(
+        makeStubRegistry([primary, workingFallback]),
+      );
+
+      const child = yield* tg
+        .generateBranchName({
+          cwd: process.cwd(),
+          message: "Refactor the routing layer",
+          modelSelection: createModelSelection(primaryId, "gpt-5"),
+          fallbackModelSelections: [
+            createModelSelection(unregisteredFallbackId, "gpt-5"),
+            createModelSelection(workingFallbackId, "gpt-5"),
+          ],
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
+
+      expect(result.branch).toBe("fallback-branch");
+      expect(primaryCalls).toBe(2);
+      expect(workingFallbackCalls).toBe(1);
+    }),
+  );
+
+  it.effect("skips a fallback whose provider instance is disabled", () =>
+    Effect.gen(function* () {
+      const primaryId = ProviderInstanceId.make("codex_primary");
+      let primaryCalls = 0;
+      const primary = makeStubInstance(
+        primaryId,
+        makeStubTextGeneration({
+          generateBranchName: () => {
+            primaryCalls++;
+            return Effect.fail(
+              new TextGenerationError({
+                operation: "generateBranchName",
+                detail: "primary is out of quota",
+              }),
+            );
+          },
+        }),
+      );
+
+      const disabledFallbackId = ProviderInstanceId.make("codex_fallback_disabled");
+      let disabledFallbackCalls = 0;
+      const disabledFallback = {
+        ...makeStubInstance(
+          disabledFallbackId,
+          makeStubTextGeneration({
+            generateBranchName: () => {
+              disabledFallbackCalls++;
+              return Effect.succeed({ branch: "disabled-branch" });
+            },
+          }),
+        ),
+        enabled: false,
+      } satisfies ProviderInstance;
+
+      const workingFallbackId = ProviderInstanceId.make("codex_fallback_working");
+      const workingFallback = makeStubInstance(
+        workingFallbackId,
+        makeStubTextGeneration({
+          generateBranchName: () => Effect.succeed({ branch: "fallback-branch" }),
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(
+        makeStubRegistry([primary, disabledFallback, workingFallback]),
+      );
+
+      const child = yield* tg
+        .generateBranchName({
+          cwd: process.cwd(),
+          message: "Refactor the routing layer",
+          modelSelection: createModelSelection(primaryId, "gpt-5"),
+          fallbackModelSelections: [
+            createModelSelection(disabledFallbackId, "gpt-5"),
+            createModelSelection(workingFallbackId, "gpt-5"),
+          ],
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust("10 seconds");
+      const result = yield* Fiber.join(child);
+
+      expect(result.branch).toBe("fallback-branch");
+      expect(primaryCalls).toBe(2);
+      // A provider the user switched off never generates text, even as a fallback.
+      expect(disabledFallbackCalls).toBe(0);
+    }),
+  );
+
+  it.effect("behaves exactly like a single-candidate call when no fallbacks are configured", () =>
+    Effect.gen(function* () {
+      const primaryId = ProviderInstanceId.make("codex_primary");
+      let calls = 0;
+      const primary = makeStubInstance(
+        primaryId,
+        makeStubTextGeneration({
+          generateBranchName: (input) => {
+            calls++;
+            return Effect.succeed({ branch: `branch-for-${input.message}` });
+          },
+        }),
+      );
+
+      const tg = TextGeneration.makeTextGenerationFromRegistry(makeStubRegistry([primary]));
+
+      const result = yield* tg.generateBranchName({
+        cwd: process.cwd(),
+        message: "Refactor the routing layer",
+        modelSelection: createModelSelection(primaryId, "gpt-5"),
+      });
+
+      expect(result.branch).toBe("branch-for-Refactor the routing layer");
+      // No fallbackModelSelections and no failure: exactly one attempt, no retry delay.
+      expect(calls).toBe(1);
     }),
   );
 });
