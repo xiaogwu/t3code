@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Code"
+  short_description: "Configure and troubleshoot an installed T3 Code environment"
+  default_prompt: "Use $t3code to configure this machine's T3 Code environment - settings, providers, keybindings, themes, projects, remote access, or a broken install."
