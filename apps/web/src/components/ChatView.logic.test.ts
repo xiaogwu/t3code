@@ -264,6 +264,43 @@ describe("proactive panels", () => {
     );
   });
 
+  it("reports newTurn only for a new turn on the same thread", () => {
+    const firstTurn = TurnId.make("turn-1");
+    const nextTurn = TurnId.make("turn-2");
+
+    // First observation on a thread: never a "new turn", just first entry.
+    const first = observeProactivePanelUserChoice(null, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: firstTurn,
+      userActionRevision: 0,
+    });
+    expect(first.newTurn).toBe(false);
+
+    // Same thread, same running turn observed again: not a new turn.
+    const sameTurnAgain = observeProactivePanelUserChoice(first, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: firstTurn,
+      userActionRevision: 0,
+    });
+    expect(sameTurnAgain.newTurn).toBe(false);
+
+    // Same thread, a different running turn starts: a new turn.
+    const secondTurn = observeProactivePanelUserChoice(sameTurnAgain, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: nextTurn,
+      userActionRevision: 0,
+    });
+    expect(secondTurn.newTurn).toBe(true);
+
+    // A thread switch is never a new turn, even when the new thread has a running turn.
+    const switchedThread = observeProactivePanelUserChoice(secondTurn, {
+      threadKey: "env-1:thread-2",
+      runningTurnId: nextTurn,
+      userActionRevision: 0,
+    });
+    expect(switchedThread.newTurn).toBe(false);
+  });
+
   it.each(["idle", "loading", "observed"] as const)(
     "captures a new turn's choice once with initial state %s",
     (initialState) => {

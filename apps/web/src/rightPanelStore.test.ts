@@ -208,6 +208,63 @@ describe("rightPanelStore", () => {
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
   });
 
+  it("keeps a thread closed across a switch away and back until a new turn or manual reopen", () => {
+    const store = useRightPanelStore.getState();
+    // First entry into the thread: proactive open still happens.
+    const firstRevision = store.getUserActionRevision(refA);
+    expect(store.openProactive(refA, completedDiff, firstRevision)).toBe(true);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toHaveLength(1);
+
+    store.close(refA);
+
+    // A thread switch reads a fresh revision, the same way ChatView's effect does,
+    // so the revision guard alone would no longer block a proactive reopen here.
+    const revisionAfterSwitch = store.getUserActionRevision(refA);
+    expect(store.openProactive(refA, completedDiff, revisionAfterSwitch)).toBe(false);
+    const afterClose = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(afterClose.isOpen).toBe(false);
+    expect(afterClose.surfaces).toHaveLength(1);
+
+    // A new turn (clearProactiveDismissal) lifts the dismissal.
+    store.clearProactiveDismissal(refA);
+    const revisionAfterNewTurn = store.getUserActionRevision(refA);
+    expect(store.openProactive(refA, completedDiff, revisionAfterNewTurn)).toBe(true);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).isOpen,
+    ).toBe(true);
+  });
+
+  it("lifts a proactive dismissal when the user reopens the panel themselves", () => {
+    const store = useRightPanelStore.getState();
+    const revision = store.getUserActionRevision(refA);
+    store.openProactive(refA, completedDiff, revision);
+    store.close(refA);
+
+    store.show(refA);
+
+    const revisionAfterReopen = store.getUserActionRevision(refA);
+    expect(store.openProactive(refA, completedDiff, revisionAfterReopen)).toBe(true);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).isOpen,
+    ).toBe(true);
+  });
+
+  it("carries a proactive dismissal through persisted-state migration", () => {
+    const migrated = migratePersistedRightPanelState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: false,
+          activeSurfaceId: null,
+          surfaces: [{ id: "diff", kind: "diff" }],
+          proactiveDismissed: true,
+        },
+      },
+    });
+    expect(migrated.byThreadKey["env-1:thread-A"]?.proactiveDismissed).toBe(true);
+  });
+
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({
@@ -608,6 +665,7 @@ describe("rightPanelStore", () => {
       isOpen: false,
       activeSurfaceId: "agents",
       surfaces: [{ id: "agents", kind: "agents" }],
+      proactiveDismissed: true,
     });
   });
 
@@ -632,6 +690,7 @@ describe("rightPanelStore", () => {
       isOpen: false,
       activeSurfaceId: "diff",
       surfaces: [{ id: "diff", kind: "diff" }],
+      proactiveDismissed: true,
     });
   });
 

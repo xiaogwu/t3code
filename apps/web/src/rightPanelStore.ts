@@ -111,6 +111,12 @@ export interface ThreadRightPanelState {
   activeSurfaceId: string | null;
   surfaces: RightPanelSurface[];
   dismissedDeviceSurfaceIds?: string[];
+  /**
+   * The user closed the panel themselves, so it should not reopen on the next
+   * thread switch: a hidden panel is a choice, not first-entry fodder. Lifted
+   * by reopening it manually or by a new turn (`clearProactiveDismissal`).
+   */
+  proactiveDismissed?: boolean;
 }
 
 interface RightPanelStoreState {
@@ -163,6 +169,8 @@ interface RightPanelStoreState {
   closeAllSurfaces: (ref: ScopedThreadRef) => void;
   reconcileBrowserSurfaces: (ref: ScopedThreadRef, tabIds: readonly string[]) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
+  /** Lift a user's earlier close so a new turn's proactive open is not blocked by it. */
+  clearProactiveDismissal: (ref: ScopedThreadRef) => void;
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
@@ -324,16 +332,29 @@ const userAction = (
         surface.target &&
         !next.surfaces.some((entry) => entry.id === surface.id),
     );
-    if (removed.length === 0) return next;
-    return {
-      ...next,
-      dismissedDeviceSurfaceIds: [
-        ...new Set([
-          ...(next.dismissedDeviceSurfaceIds ?? []),
-          ...removed.map((surface) => surface.id),
-        ]),
-      ],
-    };
+    const withDeviceDismissals =
+      removed.length === 0
+        ? next
+        : {
+            ...next,
+            dismissedDeviceSurfaceIds: [
+              ...new Set([
+                ...(next.dismissedDeviceSurfaceIds ?? []),
+                ...removed.map((surface) => surface.id),
+              ]),
+            ],
+          };
+    // A closed panel stays closed across a thread switch until the user
+    // reopens it or a new turn starts; an opened one has nothing to hide from.
+    if (next.isOpen) {
+      if (!withDeviceDismissals.proactiveDismissed) return withDeviceDismissals;
+      const { proactiveDismissed: _proactiveDismissed, ...rest } = withDeviceDismissals;
+      return rest;
+    }
+    if (current.isOpen && !next.isOpen) {
+      return { ...withDeviceDismissals, proactiveDismissed: true };
+    }
+    return withDeviceDismissals;
   }),
   userActionRevisionByThreadKey: {
     ...state.userActionRevisionByThreadKey,
@@ -468,6 +489,9 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           ),
                       }
                     : {}),
+                  ...(validThreadState?.proactiveDismissed === true
+                    ? { proactiveDismissed: true }
+                    : {}),
                 },
               ];
             }),
@@ -490,6 +514,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           if (
             (state.userActionRevisionByThreadKey[threadKey] ?? 0) !== expectedUserActionRevision
           ) {
+            return state;
+          }
+          // A user close is a standing decision, not just the most recent one:
+          // a thread switch re-reads a fresh revision, so the revision check
+          // above no longer blocks a proactive open; this flag is what does.
+          if (state.byThreadKey[threadKey]?.proactiveDismissed) {
             return state;
           }
           // A linked PR takes priority over a completed-turn diff. Manual actions
@@ -805,6 +835,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 ? current.activeSurfaceId
                 : (surfaces.at(-1)?.id ?? null),
             };
+          }),
+        ),
+      clearProactiveDismissal: (ref) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            if (!current.proactiveDismissed) return current;
+            const { proactiveDismissed: _proactiveDismissed, ...rest } = current;
+            return rest;
           }),
         ),
       show: (ref) =>
