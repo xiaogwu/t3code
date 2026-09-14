@@ -4458,6 +4458,9 @@ export default function ChatView(props: ChatViewProps) {
       userActionRevision: panels.getUserActionRevision(activeThreadRef),
     });
     proactivePanelObservationRef.current = observation;
+    // A new turn re-earns the proactive panel even on a thread the user closed it
+    // on, mirroring the userActionRevision reset a new turn already gets below.
+    if (observation.newTurn) panels.clearProactiveDismissal(activeThreadRef);
     const {
       runningTurnId: previousRunningTurnId,
       targetKey: previousTargetKey,
