@@ -12,6 +12,7 @@ import {
   type ProviderInstanceId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
+  type SidebarV2ThreadSortOrder,
   type ThreadActivitySoundMode,
   TitlePolicy,
   type TitlePolicyPreviewResult,
@@ -99,6 +100,7 @@ import { isMacPlatform } from "../../lib/utils";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { SIDEBAR_V2_THREAD_SORT_LABELS } from "../sidebar/SidebarSortMenu";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import {
@@ -548,6 +550,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.sidebarV2ThreadSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder
+        ? ["Sort threads"]
+        : []),
       ...(settings.sidebarAutoSettleAfterDays !==
       DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
         ? ["Auto-settle inactive threads"]
@@ -660,6 +665,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarCompactThreadRows,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
+      settings.sidebarV2ThreadSortOrder,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.notificationMode,
@@ -753,6 +759,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
       sidebarCompactThreadRows: DEFAULT_UNIFIED_SETTINGS.sidebarCompactThreadRows,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -1978,7 +1985,6 @@ function FontFamilySettingsRow({
 }
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 3;
-
 function AutoSettleDaysInput({
   value,
   onCommit,
@@ -2333,6 +2339,51 @@ export function GeneralSettingsPanel() {
               }}
               aria-label="Project grouping"
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("thread-sorting")}
+          description="Choose how threads are ordered in the sidebar."
+          resetAction={
+            settings.sidebarV2ThreadSortOrder !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder ? (
+              <SettingResetButton
+                label="thread sorting"
+                onClick={() =>
+                  updateSettings({
+                    sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarV2ThreadSortOrder}
+              onValueChange={(value) => {
+                if (value === "updated_at" || value === "created_at") {
+                  updateSettings({ sidebarV2ThreadSortOrder: value });
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Sort threads">
+                <SelectValue>
+                  {SIDEBAR_V2_THREAD_SORT_LABELS[settings.sidebarV2ThreadSortOrder]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {(
+                  Object.entries(SIDEBAR_V2_THREAD_SORT_LABELS) as Array<
+                    [SidebarV2ThreadSortOrder, string]
+                  >
+                ).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 
