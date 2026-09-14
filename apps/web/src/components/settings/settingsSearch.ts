@@ -306,11 +306,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["automatically open diff pull request pr right panel agent completion"],
   },
   {
-    id: "agent-sounds",
-    title: "Agent sounds",
-    to: "/settings/general",
-  },
-  {
     id: "skills-in-slash-menu",
     title: "Show skills in slash menu",
     to: "/settings/general",
