@@ -166,10 +166,6 @@ export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill",
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
-export const ThreadActivitySoundMode = Schema.Literals(["off", "unfocused", "always"]);
-export type ThreadActivitySoundMode = typeof ThreadActivitySoundMode.Type;
-export const DEFAULT_THREAD_ACTIVITY_SOUND_MODE: ThreadActivitySoundMode = "off";
-
 export const SnapShotKeyChord = KeybindingShortcut.check(
   Schema.makeFilter(
     (shortcut) =>
@@ -473,9 +469,6 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarV2ThreadSortOrder: SidebarV2ThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER)),
-  ),
-  threadActivitySoundMode: ThreadActivitySoundMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_ACTIVITY_SOUND_MODE)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -1593,7 +1586,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarCompactThreadRows: Schema.optionalKey(Schema.Boolean),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   sidebarV2ThreadSortOrder: Schema.optionalKey(SidebarV2ThreadSortOrder),
-  threadActivitySoundMode: Schema.optionalKey(ThreadActivitySoundMode),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),
