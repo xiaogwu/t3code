@@ -913,6 +913,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     ),
   );
 
+  const agentThreadSnoozeEnabled = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentThreadSnooze),
+    Effect.catch((cause) =>
+      Effect.logWarning(
+        "Could not read server settings; withholding agent thread snooze for this session.",
+        { cause },
+      ).pipe(Effect.as(false)),
+    ),
+  );
+
   const agentAccessCapabilities = Effect.fn("ProviderService.agentAccessCapabilities")(function* (
     threadId: ThreadId,
   ) {
@@ -921,6 +931,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     if (access.browser) capabilities.add("preview");
     if (access.device) capabilities.add("device");
     if (yield* agentThreadSettleEnabled) capabilities.add("thread-settle");
+    if (yield* agentThreadSnoozeEnabled) capabilities.add("thread-snooze");
     return capabilities;
   });
 

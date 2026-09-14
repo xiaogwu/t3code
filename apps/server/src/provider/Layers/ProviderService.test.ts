@@ -4948,6 +4948,7 @@ describe("agent browser access", () => {
           readonly browser: boolean;
           readonly device: boolean;
           readonly settle?: boolean;
+          readonly snooze?: boolean;
         },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
@@ -4960,6 +4961,8 @@ describe("agent browser access", () => {
       // shorthand predates it and means "browser and device".
       const enableAgentThreadSettle =
         typeof access === "boolean" ? false : (access.settle ?? false);
+      const enableAgentThreadSnooze =
+        typeof access === "boolean" ? false : (access.snooze ?? false);
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
@@ -5035,6 +5038,7 @@ describe("agent browser access", () => {
             enableAgentBrowserAccess,
             enableAgentDeviceAccess,
             enableAgentThreadSettle,
+            enableAgentThreadSnooze,
             projectSettingsOverrides:
               projectOverride === undefined
                 ? {}
@@ -5150,6 +5154,24 @@ describe("agent browser access", () => {
       assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
       assert.deepEqual(on, [
         { threadId: onThreadId, capabilities: ["pull-requests", "thread-settle"] },
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("carries thread-snooze only when agents may snooze their own thread", () =>
+    Effect.gen(function* () {
+      const offThreadId = asThreadId("thread-snooze-off");
+      const onThreadId = asThreadId("thread-snooze-on");
+
+      const off = yield* startSessionWith({ browser: false, device: false }, offThreadId);
+      const on = yield* startSessionWith(
+        { browser: false, device: false, snooze: true },
+        onThreadId,
+      );
+
+      assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(on, [
+        { threadId: onThreadId, capabilities: ["pull-requests", "thread-snooze"] },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );

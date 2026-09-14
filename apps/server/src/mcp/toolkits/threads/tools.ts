@@ -1,5 +1,6 @@
 import {
   ChatAttachment,
+  IsoDateTime,
   McpCapabilityUnavailableError,
   ModelSelection,
   OrchestrationThreadShell,
@@ -74,6 +75,8 @@ export const ThreadReference = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   resultPreview: Schema.optional(Schema.String),
+  snoozedUntil: Schema.NullOr(IsoDateTime),
+  snoozedAt: Schema.NullOr(IsoDateTime),
   alreadyStarted: Schema.Boolean,
 });
 export type ThreadReference = typeof ThreadReference.Type;
@@ -121,6 +124,20 @@ export const SettleThreadResult = Schema.Struct({
   detail: Schema.String,
 });
 export type SettleThreadResult = typeof SettleThreadResult.Type;
+
+export const SnoozeThreadInput = Schema.Struct({
+  snoozedUntil: IsoDateTime.annotate({
+    description:
+      "Absolute ISO 8601 wake time. Interpret the user's natural-language snooze request using their timezone before calling this tool; do not pass raw natural-language text.",
+  }),
+});
+export type SnoozeThreadInput = typeof SnoozeThreadInput.Type;
+
+export const SnoozeThreadResult = Schema.Struct({
+  threadId: ThreadId,
+  snoozedUntil: Schema.NullOr(IsoDateTime),
+});
+export type SnoozeThreadResult = typeof SnoozeThreadResult.Type;
 
 export class ThreadDelegationFailedError extends Schema.TaggedError<ThreadDelegationFailedError>()(
   "ThreadDelegationFailedError",
@@ -182,6 +199,34 @@ const SettleThreadTool = Tool.make("settle_thread", {
   dependencies,
 })
   .annotate(Tool.Title, "Settle this thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const SnoozeThreadTool = Tool.make("snooze_thread", {
+  description:
+    "Snooze this thread until the requested time. Interpret the user's natural-language duration or wake-time request using their timezone, then provide the resulting absolute ISO 8601 timestamp as snoozedUntil. This tool accepts only an absolute timestamp and does not parse raw natural-language text. Snoozing changes inbox visibility but does not stop active work.",
+  parameters: SnoozeThreadInput,
+  success: SnoozeThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Snooze this thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const UnsnoozeThreadTool = Tool.make("unsnooze_thread", {
+  description:
+    "Wake this thread immediately by clearing its snooze. This does not stop or restart active work.",
+  parameters: Schema.Struct({}),
+  success: SnoozeThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Wake this thread")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
@@ -256,6 +301,8 @@ const WaitForThreadTool = Tool.make("wait_for_thread", {
 
 export const ThreadsToolkit = Toolkit.make(
   SettleThreadTool,
+  SnoozeThreadTool,
+  UnsnoozeThreadTool,
   StartThreadTool,
   ListChildThreadsTool,
   GetThreadStatusTool,
@@ -273,6 +320,8 @@ export type ThreadShell = Pick<
   | "session"
   | "latestTurn"
   | "settledOverride"
+  | "snoozedUntil"
+  | "snoozedAt"
   | "parentThreadId"
   | "parentTurnId"
   | "spawnKey"

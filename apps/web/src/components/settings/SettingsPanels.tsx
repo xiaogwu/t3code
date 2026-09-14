@@ -2213,6 +2213,11 @@ export function GeneralSettingsPanel() {
     connectedEnvironments.every(
       (target) => target.serverConfig?.environment.capabilities.agentThreadSettle === true,
     );
+  const supportsAgentThreadSnooze =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every(
+      (target) => target.serverConfig?.environment.capabilities.threadSnooze === true,
+    );
   const supportsRestartContinuation =
     connectedEnvironments.length > 0 &&
     connectedEnvironments.every(
@@ -2521,6 +2526,22 @@ export function GeneralSettingsPanel() {
                   updateSettings({ enableAgentThreadSettle: Boolean(checked) })
                 }
                 aria-label="Let agents settle their thread"
+              />
+            }
+          />
+        ) : null}
+        {supportsAgentThreadSnooze ? (
+          <SettingsRow
+            serverScoped
+            {...searchableSetting("agent-thread-snooze")}
+            description="Agents may hide their own thread until a time they specify. Natural-language requests are interpreted by the agent and sent as an exact wake time; snoozing does not stop active work."
+            control={
+              <Switch
+                checked={settings.enableAgentThreadSnooze}
+                onCheckedChange={(checked) =>
+                  updateSettings({ enableAgentThreadSnooze: Boolean(checked) })
+                }
+                aria-label="Let agents snooze their thread"
               />
             }
           />
