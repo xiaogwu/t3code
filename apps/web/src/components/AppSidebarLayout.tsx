@@ -79,7 +79,7 @@ function readInitialThreadSidebarWidth(): number {
 
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, peeked, peekPanelHandlers } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const updateClientSettings = useUpdateClientSettings();
@@ -131,8 +131,20 @@ function SidebarControl() {
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
     // off their edge and the titlebar reads symmetric.
     <div
-      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center"
+      className={cn(
+        "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
+        // The trigger sits inside the peeked panel's footprint, so it has to
+        // clear the panel's own `z-[60]` or the only affordance for pinning
+        // the panel open disappears underneath it.
+        peeked && "z-[70]",
+      )}
       data-sidebar-control=""
+      // Hovering the trigger counts as being in the panel, exactly as if the
+      // pointer were over the panel itself. Without this the trigger is not a
+      // DOM descendant of the panel, so reaching for it fires the panel's
+      // `pointerleave` and retracts it out from under the cursor.
+      onPointerEnter={peekPanelHandlers.onPointerEnter}
+      onPointerLeave={peekPanelHandlers.onPointerLeave}
     >
       <Tooltip>
         <TooltipTrigger

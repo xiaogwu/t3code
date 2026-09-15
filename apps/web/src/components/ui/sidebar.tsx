@@ -351,9 +351,13 @@ function Sidebar({
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:translate-x-(--sidebar-width)"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:-translate-x-(--sidebar-width)",
             // Peeked: leave the gap collapsed (no reflow) and float the panel
-            // over the content with an inset instead of pushing it back to
-            // its pinned position.
-            "group-data-[peek=true]:p-2",
+            // over the content, flush to the window edges, instead of pushing
+            // the content back to the panel's pinned position. Above the
+            // window chrome — the titlebar control clusters sit at `z-50` and
+            // would otherwise paint over a panel that is on top of everything
+            // else — but below menus and popovers at `z-[130]`, so the
+            // sidebar's own snooze and context menus still open over it.
+            "group-data-[peek=true]:z-[60]",
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
@@ -376,7 +380,10 @@ function Sidebar({
             className={cn(
               "flex h-full w-full flex-col bg-sidebar surface-grain",
               "group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5",
-              "group-data-[peek=true]:rounded-lg group-data-[peek=true]:border group-data-[peek=true]:border-sidebar-border group-data-[peek=true]:shadow-lg",
+              // A peeked panel is flush to the window edges, so it takes the
+              // pinned panel's square corners and its side border; only the
+              // drop shadow marks it as floating over the content.
+              "group-data-[peek=true]:shadow-lg",
             )}
             data-sidebar="sidebar"
             data-slot="sidebar-inner"
