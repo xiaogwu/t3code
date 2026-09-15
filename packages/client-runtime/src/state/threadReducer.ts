@@ -149,6 +149,7 @@ export function applyThreadDetailEvent(
           ...CLEARED_AGENT_SETTLE,
           snoozedUntil: null,
           snoozedAt: null,
+          snoozedTurnId: null,
           deletedAt: null,
           pullRequests: [],
           messages: [],
@@ -240,6 +241,7 @@ export function applyThreadDetailEvent(
           ...thread,
           snoozedUntil: event.payload.snoozedUntil,
           snoozedAt: event.payload.snoozedAt,
+          snoozedTurnId: event.payload.snoozedTurnId ?? null,
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -251,6 +253,7 @@ export function applyThreadDetailEvent(
           ...thread,
           snoozedUntil: null,
           snoozedAt: null,
+          snoozedTurnId: null,
           updatedAt: event.payload.updatedAt,
         },
       };

@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type OrchestrationReadModel,
   type OrchestrationThread,
 } from "@t3tools/contracts";
@@ -24,6 +25,7 @@ const SNOOZED_AT = "1969-12-30T00:00:00.000Z";
 function makeReadModel(input: {
   readonly snoozedUntil?: string | null;
   readonly snoozedAt?: string | null;
+  readonly snoozedTurnId?: string | null;
   readonly archivedAt?: string | null;
   readonly activities?: OrchestrationThread["activities"];
   readonly messages?: OrchestrationThread["messages"];
@@ -50,6 +52,7 @@ function makeReadModel(input: {
         settledAt: null,
         snoozedUntil: input.snoozedUntil ?? null,
         snoozedAt: input.snoozedAt ?? (input.snoozedUntil != null ? SNOOZED_AT : null),
+        snoozedTurnId: input.snoozedTurnId == null ? null : TurnId.make(input.snoozedTurnId),
         deletedAt: null,
         messages: input.messages ?? [],
         proposedPlans: [],
@@ -156,6 +159,64 @@ it.layer(NodeServices.layer)("snoozed thread decider", (it) => {
       if (events[0]?.type === "thread.snoozed") {
         // Original snoozedAt preserved; updatedAt must not churn.
         expect(events[0].payload.snoozedAt).toBe(SNOOZED_AT);
+        expect(events[0].payload.updatedAt).toBe(NOW);
+      }
+    }),
+  );
+
+  it.effect("stamps the turn an agent snoozed its own thread from", () =>
+    Effect.gen(function* () {
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.snooze",
+          commandId: CommandId.make("cmd-snooze-agent"),
+          threadId: ThreadId.make("thread-1"),
+          snoozedUntil: FUTURE_WAKE,
+          snoozedTurnId: TurnId.make("turn-1"),
+        },
+        readModel: makeReadModel({}),
+      });
+      const events = Array.isArray(event) ? event : [event];
+      if (events[0]?.type === "thread.snoozed") {
+        expect(events[0].payload.snoozedTurnId).toBe("turn-1");
+      }
+    }),
+  );
+
+  it.effect("a client snooze carries no turn, so a completing run still wakes it", () =>
+    Effect.gen(function* () {
+      const event = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.snooze",
+          commandId: CommandId.make("cmd-snooze-client"),
+          threadId: ThreadId.make("thread-1"),
+          snoozedUntil: FUTURE_WAKE,
+        },
+        readModel: makeReadModel({}),
+      });
+      const events = Array.isArray(event) ? event : [event];
+      if (events[0]?.type === "thread.snoozed") {
+        expect(events[0].payload.snoozedTurnId).toBe(null);
+      }
+    }),
+  );
+
+  it.effect("keeps the stamped turn on a duplicate snooze", () =>
+    Effect.gen(function* () {
+      // The duplicate path is a projection no-op: a re-dispatch that lost the
+      // turn (idle session, another client) must not drop the arm.
+      const reEmit = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.snooze",
+          commandId: CommandId.make("cmd-snooze-agent-again"),
+          threadId: ThreadId.make("thread-1"),
+          snoozedUntil: FUTURE_WAKE,
+        },
+        readModel: makeReadModel({ snoozedUntil: FUTURE_WAKE, snoozedTurnId: "turn-1" }),
+      });
+      const events = Array.isArray(reEmit) ? reEmit : [reEmit];
+      if (events[0]?.type === "thread.snoozed") {
+        expect(events[0].payload.snoozedTurnId).toBe("turn-1");
         expect(events[0].payload.updatedAt).toBe(NOW);
       }
     }),

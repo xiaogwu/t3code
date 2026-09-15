@@ -771,6 +771,11 @@ export const OrchestrationThread = Schema.Struct({
   // Optional so payloads from pre-snooze servers still decode.
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // The turn the agent snoozed its own thread from, if any. That turn's
+  // completion is the same breath as the snooze, not a reason to wake — every
+  // later turn still is. Null for a snooze the user set.
+  // Optional so payloads from pre-stamp servers still decode.
+  snoozedTurnId: Schema.optional(Schema.NullOr(TurnId)),
   // Active pinned threads render in the pinned block. Settled and snoozed
   // threads remain in their respective shelves even when pinned.
   // Optional so payloads from pre-pinning servers still decode.
@@ -878,6 +883,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   agentSettleReason: Schema.optional(Schema.NullOr(AgentSettleReason)),
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // See OrchestrationThread.snoozedTurnId. On the shell because the sidebar
+  // decides snoozed-vs-awake from it.
+  snoozedTurnId: Schema.optional(Schema.NullOr(TurnId)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Optional, and never hydrated on the shell: bookmarks are not shown in
@@ -1183,6 +1191,10 @@ const ThreadSnoozeCommand = Schema.Struct({
   // will arrive as an optional condition field alongside this; time-based
   // snooze is just the first kind of condition.
   snoozedUntil: IsoDateTime,
+  // Set only by an agent snoozing its own thread mid-turn, to the turn it is
+  // running: that turn's completion must not read as an early wake. Clients
+  // omit it, which keeps a user snooze waking on the run it was watching.
+  snoozedTurnId: Schema.optional(TurnId),
 });
 
 const ThreadUnsnoozeCommand = Schema.Struct({
@@ -1803,6 +1815,9 @@ export const ThreadSnoozedPayload = Schema.Struct({
   threadId: ThreadId,
   snoozedUntil: IsoDateTime,
   snoozedAt: IsoDateTime,
+  // See OrchestrationThread.snoozedTurnId. Optional so events written by
+  // pre-stamp servers still decode.
+  snoozedTurnId: Schema.optional(Schema.NullOr(TurnId)),
   updatedAt: IsoDateTime,
 });
 

@@ -102,6 +102,7 @@ describe("orchestration projector", () => {
         agentSettleReason: null,
         snoozedUntil: null,
         snoozedAt: null,
+        snoozedTurnId: null,
         deletedAt: null,
         messages: [],
         proposedPlans: [],

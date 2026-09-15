@@ -347,6 +347,30 @@ describe("thread toolkit handlers", () => {
     }),
   );
 
+  it.effect("stamps the live turn so an agent's own turn landing does not wake it", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: SNOOZE_CAPABILITIES,
+        parent: { session: runningSession },
+      });
+
+      yield* harness.call("snooze_thread", { snoozedUntil: "2026-08-02T00:00:00.000Z" });
+      expect(yield* Ref.get(harness.commands)).toEqual([
+        expect.objectContaining({ type: "thread.snooze", snoozedTurnId: TURN_ID }),
+      ]);
+    }),
+  );
+
+  it.effect("omits the turn when no session is running", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: SNOOZE_CAPABILITIES });
+
+      yield* harness.call("snooze_thread", { snoozedUntil: "2026-08-02T00:00:00.000Z" });
+      const command = (yield* Ref.get(harness.commands))[0];
+      expect(command).not.toHaveProperty("snoozedTurnId");
+    }),
+  );
+
   it.effect("dispatches a user unsnooze for the invoking thread", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({ capabilities: SNOOZE_CAPABILITIES });
