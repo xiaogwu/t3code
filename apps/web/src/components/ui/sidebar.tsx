@@ -20,6 +20,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
+import {
+  useSidebarPeekController,
+  useSidebarPeekFocusHold,
+  type SidebarPeekEdgeHandlers,
+  type SidebarPeekPanelHandlers,
+} from "../Sidebar.autoHide";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
 
@@ -38,6 +44,17 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
+  /** Dia-style auto-hide mode: unpinned reveals as a floating overlay on
+   * hover-intent instead of staying off-screen. */
+  autoHide: boolean;
+  /** Whether the floating overlay is currently showing. Always false while
+   * pinned (`open`) or while `autoHide` is off. */
+  peeked: boolean;
+  peekEdgeHandlers: SidebarPeekEdgeHandlers;
+  peekPanelHandlers: SidebarPeekPanelHandlers;
+  /** Forces the peeked panel away immediately: Escape, a click into the
+   * content, or picking a thread. */
+  retractPeek: () => void;
 };
 
 type SidebarResizableOptions = {
@@ -96,6 +113,7 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  autoHide = false,
   className,
   style,
   children,
@@ -104,6 +122,7 @@ function SidebarProvider({
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  autoHide?: boolean;
 }) {
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
@@ -141,17 +160,45 @@ function SidebarProvider({
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = resolveSidebarState({ isMobile, open, openMobile });
 
+  // Turning the mode on unpins immediately — otherwise the setting would sit
+  // there doing nothing until the next manual toggle. Turning it off is the
+  // reverse of exactly that action, and only that action: restore `open`
+  // only if this effect was the one that closed it, so a sidebar the user
+  // had already pinned shut before enabling the mode stays shut afterward.
+  // Mobile has no peek affordance (see `ui/sidebar.tsx`'s mobile branch, a
+  // `Sheet`), so the controller stays inert there.
+  const previousAutoHideRef = React.useRef(autoHide);
+  const forcedClosedByAutoHideRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoHide && !previousAutoHideRef.current) {
+      forcedClosedByAutoHideRef.current = open;
+      if (open) void setOpen(false);
+    } else if (!autoHide && previousAutoHideRef.current && forcedClosedByAutoHideRef.current) {
+      forcedClosedByAutoHideRef.current = false;
+      void setOpen(true);
+    }
+    previousAutoHideRef.current = autoHide;
+  }, [autoHide, open, setOpen]);
+  const peekEnabled = autoHide && !isMobile && !open;
+  const peekController = useSidebarPeekController(peekEnabled);
+  const peeked = peekEnabled && peekController.peeked;
+
   const contextValue = React.useMemo<SidebarContextProps>(
     () => ({
+      autoHide,
       isMobile,
       open,
       openMobile,
+      peeked,
+      peekEdgeHandlers: peekController.edgeHandlers,
+      peekPanelHandlers: peekController.panelHandlers,
+      retractPeek: peekController.retract,
       setOpen,
       setOpenMobile,
       state,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
+    [autoHide, state, open, peeked, peekController, setOpen, isMobile, openMobile, toggleSidebar],
   );
 
   return (
@@ -159,6 +206,7 @@ function SidebarProvider({
       <div
         // Inset layouts opt into bg-sidebar through className.
         className={cn("group/sidebar-wrapper flex min-h-svh w-full", className)}
+        data-peek={peeked ? "true" : undefined}
         data-sidebar-state={state}
         data-slot="sidebar-wrapper"
         style={
@@ -185,6 +233,8 @@ function Sidebar({
   resizable = false,
   className,
   children,
+  onPointerEnter,
+  onPointerLeave,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right";
@@ -192,7 +242,9 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
   resizable?: boolean | SidebarResizableOptions;
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, state, openMobile, setOpenMobile, peeked, peekPanelHandlers } = useSidebar();
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  useSidebarPeekFocusHold(containerRef);
   const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
     if (isMobile || collapsible === "none" || !resizable) {
       return null;
@@ -272,6 +324,7 @@ function Sidebar({
       <div
         className="group peer hidden text-sidebar-foreground md:block"
         data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-peek={peeked ? "true" : undefined}
         data-side={side}
         data-slot="sidebar"
         data-state={state}
@@ -293,10 +346,14 @@ function Sidebar({
         <div
           className={cn(
             "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
-            "[[data-panel-animations=true]_&]:transition-[left,right,width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+            "[[data-panel-animations=true]_&]:transition-[left,right,width,translate] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:translate-x-(--sidebar-width)"
+              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:-translate-x-(--sidebar-width)",
+            // Peeked: leave the gap collapsed (no reflow) and float the panel
+            // over the content with an inset instead of pushing it back to
+            // its pinned position.
+            "group-data-[peek=true]:p-2",
             // Adjust the padding for floating and inset variants.
             variant === "floating" || variant === "inset"
               ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
@@ -304,10 +361,23 @@ function Sidebar({
             className,
           )}
           data-slot="sidebar-container"
+          onPointerEnter={(event) => {
+            onPointerEnter?.(event);
+            peekPanelHandlers.onPointerEnter(event);
+          }}
+          onPointerLeave={(event) => {
+            onPointerLeave?.(event);
+            peekPanelHandlers.onPointerLeave(event);
+          }}
+          ref={containerRef}
           {...props}
         >
           <div
-            className="flex h-full w-full flex-col bg-sidebar surface-grain group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5"
+            className={cn(
+              "flex h-full w-full flex-col bg-sidebar surface-grain",
+              "group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5",
+              "group-data-[peek=true]:rounded-lg group-data-[peek=true]:border group-data-[peek=true]:border-sidebar-border group-data-[peek=true]:shadow-lg",
+            )}
             data-sidebar="sidebar"
             data-slot="sidebar-inner"
           >
@@ -360,7 +430,7 @@ function SidebarRail({
   onPointerUp,
   ...props
 }: React.ComponentProps<"button">) {
-  const { open, toggleSidebar } = useSidebar();
+  const { open, peeked, toggleSidebar } = useSidebar();
   const sidebarInstance = React.use(SidebarInstanceContext);
   const railRef = React.useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = React.useRef(false);
@@ -369,11 +439,14 @@ function SidebarRail({
   React.useLayoutEffect(() => {
     latestResizable.current = resolvedResizable;
   }, [resolvedResizable]);
-  const canResize = resolvedResizable !== null && open;
+  // The floating peeked panel resizes the same way a pinned one does; only a
+  // fully hidden sidebar has nothing to drag.
+  const visuallyOpen = open || peeked;
+  const canResize = resolvedResizable !== null && visuallyOpen;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
   const railTitle = canResize ? "Drag to resize sidebar" : "Toggle Sidebar";
   const resize = useResizeDrag<HTMLButtonElement>((event) => {
-    if (!resolvedResizable || !open) return null;
+    if (!resolvedResizable || !visuallyOpen) return null;
     const rail = event.currentTarget;
     const wrapper = rail.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const sidebarRoot = rail.closest<HTMLElement>("[data-slot='sidebar']");
@@ -447,13 +520,13 @@ function SidebarRail({
         event.preventDefault();
         return;
       }
-      if (resolvedResizable && open) {
+      if (resolvedResizable && visuallyOpen) {
         event.preventDefault();
         return;
       }
       toggleSidebar();
     },
-    [onClick, open, resolvedResizable, toggleSidebar],
+    [onClick, visuallyOpen, resolvedResizable, toggleSidebar],
   );
 
   React.useLayoutEffect(() => {
@@ -485,8 +558,8 @@ function SidebarRail({
           <button
             aria-label={railLabel}
             className={cn(
-              /* disable pointer events only when offcanvas sidebar is collapsed, that's when the rail sits over the native scrollbar on windows and linux. icon mode stays fully clickable. */
-              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
+              /* disable pointer events only when offcanvas sidebar is collapsed, that's when the rail sits over the native scrollbar on windows and linux. icon mode stays fully clickable. peeked is an exception: the floating panel still needs to be resizable. */
+              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]:not([data-peek=true])_&]:pointer-events-none",
               "[[data-panel-animations=true]_&]:transition-all [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
               "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
               "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",

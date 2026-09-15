@@ -17,6 +17,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import {
   toggleLegacySidebarPreference,
   useCompactSidebarEnabled,
+  useClientSettings,
   useEnvironmentIdentificationMode,
   useLegacySidebarEnabled,
   useUpdateClientSettings,
@@ -30,6 +31,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarEdgeTrigger } from "./SidebarEdgeTrigger";
 import {
   resolveSidebarStageFocusRingOffsetClass,
   useSidebarStageBackdropVariant,
@@ -86,6 +88,7 @@ function SidebarControl() {
     environmentIdentificationMode === "artwork",
   );
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
+  const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -97,12 +100,22 @@ function SidebarControl() {
         return;
       }
       const command = resolveShortcutCommand(event, keybindings);
-      if (command !== "sidebar.toggle" && command !== "sidebar.version.toggle") return;
+      if (
+        command !== "sidebar.toggle" &&
+        command !== "sidebar.version.toggle" &&
+        command !== "sidebarAutoHide.toggle"
+      ) {
+        return;
+      }
 
       event.preventDefault();
       event.stopPropagation();
       if (command === "sidebar.toggle") {
         toggleSidebar();
+        return;
+      }
+      if (command === "sidebarAutoHide.toggle") {
+        void updateClientSettings({ sidebarAutoHide: !sidebarAutoHide });
         return;
       }
       updateClientSettings(toggleLegacySidebarPreference(legacySidebarEnabled));
@@ -111,7 +124,7 @@ function SidebarControl() {
     // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [keybindings, legacySidebarEnabled, toggleSidebar, updateClientSettings]);
+  }, [keybindings, legacySidebarEnabled, sidebarAutoHide, toggleSidebar, updateClientSettings]);
 
   return (
     // The right-side layout controls carry mr-px (border compensation inside
@@ -154,10 +167,44 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+// A peeked panel puts itself away on any deliberate move into the content:
+// clicking into it, or backing out with Escape. Filters by DOM position
+// instead of wrapping `{children}` in an event-boundary element — `Sidebar`
+// and `SidebarInset` communicate through `peer-*` sibling selectors, which a
+// wrapper div would break (it changes DOM nesting even at `display:
+// contents`, since CSS sibling combinators match the DOM tree, not the box
+// tree).
+function SidebarPeekRetractOnContentInteraction({ children }: { children: ReactNode }) {
+  const { peeked, retractPeek } = useSidebar();
+
+  useEffect(() => {
+    if (!peeked) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") retractPeek();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      // Only a pointerdown that lands outside the sidebar's own DOM (and
+      // outside the reveal strip) counts as "into the content".
+      if (target?.closest('[data-slot="sidebar"], [data-slot="sidebar-edge-trigger"]')) return;
+      retractPeek();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [peeked, retractPeek]);
+
+  return children;
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const compactSidebarEnabled = useCompactSidebarEnabled();
+  const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -235,6 +282,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       <SidebarProvider
+        autoHide={sidebarAutoHide}
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
@@ -243,7 +291,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <ProjectProjectionRetention />
         <Sidebar
           side="left"
-          collapsible={compactSidebarEnabled ? "icon" : "offcanvas"}
+          // Auto-hide wins over the compact rail when both are on: peek is an
+          // offcanvas overlay, and `collapsible="icon"` would keep a rail on
+          // screen for peek to slide sideways into the content.
+          collapsible={compactSidebarEnabled && !sidebarAutoHide ? "icon" : "offcanvas"}
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
           resizable={{
@@ -268,7 +319,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
-        {children}
+        <SidebarEdgeTrigger />
+        <SidebarPeekRetractOnContentInteraction>{children}</SidebarPeekRetractOnContentInteraction>
         <SidebarControl />
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

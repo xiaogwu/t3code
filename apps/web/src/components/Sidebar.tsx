@@ -197,6 +197,7 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { useSidebarPeekHold, withSidebarPeekHold } from "./Sidebar.autoHide";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
   ThreadPullRequestBadgeControl,
@@ -1368,6 +1369,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   );
   const [isFileDragOver, setIsFileDragOver] = useState(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
+  // A file dragged over this row is a real drop target; the peeked panel
+  // must not retract out from under it mid-drag.
+  useSidebarPeekHold(isFileDragOver);
   const fileDropHandlers = useMemo(
     () =>
       onFileDropThreads
@@ -1465,6 +1469,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // hover actions, and the effect clears the raw state so the popover
   // doesn't resurrect if the button later remounts.
   const snoozeMenuOpen = snoozeMenuOpenRaw && showSnoozeButton;
+  // Base UI renders the popover in a portal outside this row, so it fires a
+  // `pointerleave` on the row the instant it opens; hold the peeked panel
+  // open for as long as the menu is.
+  useSidebarPeekHold(snoozeMenuOpen);
   useEffect(() => {
     if (!showSnoozeButton) setSnoozeMenuOpen(false);
   }, [showSnoozeButton]);
@@ -2378,6 +2386,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   });
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const [isFileDragOver, setIsFileDragOver] = useState(false);
+  useSidebarPeekHold(isFileDragOver);
   const fileDropHandlers = useMemo(
     () =>
       makeWorkspaceFileDropHandlers({
@@ -2466,9 +2475,19 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
-  const { isMobile, setOpenMobile, setOpen, state: sidebarState } = useSidebar();
+  const {
+    isMobile,
+    setOpenMobile,
+    setOpen,
+    state: sidebarState,
+    retractPeek,
+    autoHide,
+  } = useSidebar();
   const compactEnabled = useCompactSidebarEnabled();
-  const compact = compactEnabled && sidebarState === "collapsed" && !isMobile;
+  // A peeked panel is the full sidebar floating, never the icon rail, so
+  // auto-hide suppresses compact rather than rendering icon-only rows at full
+  // width. Matches the `collapsible` choice in `AppSidebarLayout`.
+  const compact = compactEnabled && !autoHide && sidebarState === "collapsed" && !isMobile;
   const [snoozedFooter, setSnoozedFooter] = useState<HTMLUListElement | null>(null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const compactThreadRows = useClientSettings((s) => s.sidebarCompactThreadRows);
@@ -3171,12 +3190,15 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
+      // Picking a thread out of a peeked panel is what makes the reveal feel
+      // intentional rather than sticky — it puts itself away immediately.
+      retractPeek();
       return router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
       });
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, retractPeek, router, setOpenMobile, setSelectionAnchor],
   );
 
   // Dropping files on a row opens that thread and attaches the files there.
@@ -3488,6 +3510,8 @@ export default function Sidebar() {
     readonly activationY: number | null;
     readonly targetSection: SidebarSection | null;
   } | null>(null);
+  // An in-flight reorder must not have the peeked panel retract mid-drag.
+  useSidebarPeekHold(dragState !== null);
   const dragTargetSection = dragState?.targetSection ?? null;
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
   const finishThreadDrag = useCallback((started: boolean) => {
@@ -4174,32 +4198,36 @@ export default function Sidebar() {
         pinnedCount: pinnedSelectedThreads.length,
       });
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-      const clicked = await settlePromise(() =>
-        api.contextMenu.show(
-          [
-            ...(unpinMenuItem ? [unpinMenuItem] : []),
-            { id: "settle", label: `Settle (${count})` },
-            ...(canSnoozeSelection
-              ? [
-                  {
-                    id: "snooze",
-                    label: `Snooze (${count})`,
-                    children: snoozePresets
-                      .map((preset) => ({
-                        id: `snooze:${preset.id}`,
-                        label: `${preset.label} (${preset.whenLabel})`,
-                      }))
-                      .concat({ id: "snooze-for", label: "Until…" }),
-                  },
-                ]
-              : []),
-            ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
-            allUnread
-              ? { id: "mark-read", label: `Mark read (${count})` }
-              : { id: "mark-unread", label: `Mark unread (${count})` },
-            { id: "delete", label: `Delete (${count})`, destructive: true },
-          ],
-          position,
+      // The native menu renders outside our DOM entirely; hold the peeked
+      // panel open for as long as it's up.
+      const clicked = await withSidebarPeekHold(() =>
+        settlePromise(() =>
+          api.contextMenu.show(
+            [
+              ...(unpinMenuItem ? [unpinMenuItem] : []),
+              { id: "settle", label: `Settle (${count})` },
+              ...(canSnoozeSelection
+                ? [
+                    {
+                      id: "snooze",
+                      label: `Snooze (${count})`,
+                      children: snoozePresets
+                        .map((preset) => ({
+                          id: `snooze:${preset.id}`,
+                          label: `${preset.label} (${preset.whenLabel})`,
+                        }))
+                        .concat({ id: "snooze-for", label: "Until…" }),
+                    },
+                  ]
+                : []),
+              ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
+              allUnread
+                ? { id: "mark-read", label: `Mark read (${count})` }
+                : { id: "mark-unread", label: `Mark unread (${count})` },
+              { id: "delete", label: `Delete (${count})`, destructive: true },
+            ],
+            position,
+          ),
         ),
       );
       if (clicked._tag === "Failure") return;
@@ -4432,32 +4460,36 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-        const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              isPinned,
-              isSettled,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning:
-                thread.session?.status === "running" && thread.session.activeTurnId != null,
-              isUnread:
-                useUiStateStore.getState().threadManuallyUnreadById[threadKey] === true ||
-                hasUnseenCompletion({
-                  ...thread,
-                  lastVisitedAt: useUiStateStore.getState().threadLastVisitedAtById[threadKey],
-                }),
-              supports: {
-                settlement: supportsSettlement,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
-            position,
+        // The native menu renders outside our DOM entirely; hold the peeked
+        // panel open for as long as it's up.
+        const clicked = await withSidebarPeekHold(() =>
+          settlePromise(() =>
+            api.contextMenu.show(
+              buildThreadActionMenuItems({
+                branch: thread.branch ?? null,
+                isPinned,
+                isSettled,
+                isSnoozed,
+                canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+                isRegeneratingTitle,
+                isRunning:
+                  thread.session?.status === "running" && thread.session.activeTurnId != null,
+                isUnread:
+                  useUiStateStore.getState().threadManuallyUnreadById[threadKey] === true ||
+                  hasUnseenCompletion({
+                    ...thread,
+                    lastVisitedAt: useUiStateStore.getState().threadLastVisitedAtById[threadKey],
+                  }),
+                supports: {
+                  settlement: supportsSettlement,
+                  snooze: supportsSnooze,
+                  pinning: supportsPinning,
+                  titleRegeneration: supportsTitleRegeneration,
+                },
+                snoozePresets,
+              }),
+              position,
+            ),
           ),
         );
         if (clicked._tag === "Failure") return;
