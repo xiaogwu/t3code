@@ -108,6 +108,15 @@ export function resolveSnoozePresets(
 }
 
 /**
+ * Preset stand-in for a wake time the user picked in the "Until…" dialog.
+ * Snoozing only reads `snoozedUntil`; the label and time column exist for
+ * the menu rows a custom time never renders in.
+ */
+export function customSnoozePreset(snoozedUntil: string): SnoozePreset {
+  return { id: "hour", label: "Until", whenLabel: "", snoozedUntil };
+}
+
+/**
  * Human wake time for menus and toasts: "tomorrow 9:00", "Mon 9:00",
  * "17:30" (today).
  */
