@@ -210,6 +210,7 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import {
+  customSnoozePreset,
   resolveSnoozePresets,
   snoozeWakeDescription,
   snoozeWakeLabel,
@@ -507,6 +508,19 @@ function SnoozePopoverButton(props: {
             </span>
           </button>
         ))}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenChange(false);
+            openSnoozeForDialog({
+              onSnooze: (snoozedUntil) => onSnooze(customSnoozePreset(snoozedUntil)),
+            });
+          }}
+          className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+        >
+          <span className="flex-1">Until…</span>
+        </button>
       </PopoverPopup>
     </Popover>
   );
@@ -4295,7 +4309,7 @@ export default function Sidebar() {
         openSnoozeForDialog({
           threadCount: selectedThreads.length,
           onSnooze: (snoozedUntil) => {
-            const preset = { id: "hour", label: "Until", whenLabel: "", snoozedUntil } as const;
+            const preset = customSnoozePreset(snoozedUntil);
             for (const thread of selectedThreads) {
               attemptSnooze(scopeThreadRef(thread.environmentId, thread.id), preset, {
                 coSnoozingKeys: new Set(threadKeys),
@@ -4502,13 +4516,7 @@ export default function Sidebar() {
         }
         if (clicked.value === "snooze-for") {
           openSnoozeForDialog({
-            onSnooze: (snoozedUntil) =>
-              attemptSnooze(threadRef, {
-                id: "hour",
-                label: "Until",
-                whenLabel: "",
-                snoozedUntil,
-              }),
+            onSnooze: (snoozedUntil) => attemptSnooze(threadRef, customSnoozePreset(snoozedUntil)),
           });
           return;
         }
