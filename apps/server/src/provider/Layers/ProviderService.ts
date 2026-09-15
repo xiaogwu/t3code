@@ -964,10 +964,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      const capabilities = yield* agentAccessCapabilities(threadId);
-      const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
+      // The registry re-runs this per invocation so a settings change reaches a
+      // running session. The device shim is a spawn-time PATH decision, so it
+      // still reads the capabilities once, here.
+      const resolveCapabilities = agentAccessCapabilities(threadId);
+      const credential = yield* issueMcpCredential({
+        threadId,
+        providerInstanceId,
+        resolveCapabilities,
+      });
       if (credential) {
-        const deviceEnvironment = capabilities.has("device")
+        const deviceEnvironment = credential.config.capabilities.has("device")
           ? yield* agentDeviceEnvironment
           : undefined;
         yield* Effect.sync(() =>

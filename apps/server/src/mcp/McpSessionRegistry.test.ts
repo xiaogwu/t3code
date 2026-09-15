@@ -5,7 +5,11 @@ import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/unstable/http";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+
+const grants = (...capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
+  Effect.succeed(new Set(capabilities));
 
 const environmentId = EnvironmentId.make("environment-1");
 const makeFakeHttpServer = (hostname: string, port = 43123) =>
@@ -39,7 +43,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
     const issued = yield* registry.issue({
       threadId,
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(["preview"]),
+      resolveCapabilities: grants("preview"),
     });
     expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp");
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
@@ -61,17 +65,17 @@ it.effect("always grants pull-requests and gates browser and device access indep
     const withPreview = yield* registry.issue({
       threadId: ThreadId.make("thread-preview"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(["preview"]),
+      resolveCapabilities: grants("preview"),
     });
     const withoutPreview = yield* registry.issue({
       threadId: ThreadId.make("thread-no-preview"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(),
+      resolveCapabilities: grants(),
     });
     const withDevice = yield* registry.issue({
       threadId: ThreadId.make("thread-device"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(["device"]),
+      resolveCapabilities: grants("device"),
     });
     const capabilitiesOf = (issued: typeof withPreview) =>
       registry
@@ -98,7 +102,7 @@ it.effect("builds MCP endpoints from the bound server host", () =>
       const issued = yield* registry.issue({
         threadId: ThreadId.make(`thread-${hostname}`),
         providerInstanceId: ProviderInstanceId.make("codex"),
-        capabilities: new Set(["preview"]),
+        resolveCapabilities: grants("preview"),
       });
       expect(issued.config.endpoint).toBe(expectedEndpoint);
     }
@@ -112,7 +116,7 @@ it.effect("expires credentials once their session stops showing signs of life", 
     const issued = yield* registry.issue({
       threadId: ThreadId.make("thread-2"),
       providerInstanceId: ProviderInstanceId.make("claude"),
-      capabilities: new Set(["preview"]),
+      resolveCapabilities: grants("preview"),
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
     timestamp += 101;
@@ -128,7 +132,7 @@ it.effect("keeps a credential alive across turns that never touch an MCP tool", 
     const issued = yield* registry.issue({
       threadId,
       providerInstanceId: ProviderInstanceId.make("claude"),
-      capabilities: new Set(["preview"]),
+      resolveCapabilities: grants("preview"),
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
 
@@ -150,7 +154,7 @@ it.effect("does not keep credentials of other threads alive", () =>
     const issued = yield* registry.issue({
       threadId: ThreadId.make("thread-4"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      capabilities: new Set(["preview"]),
+      resolveCapabilities: grants("preview"),
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
 
@@ -160,4 +164,34 @@ it.effect("does not keep credentials of other threads alive", () =>
 
     expect(yield* registry.resolve(token)).toBeUndefined();
   }),
+);
+
+it.effect(
+  "re-reads capabilities on every resolve so a settings change reaches a live session",
+  () =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1_000);
+      // Stands in for the agent-access settings a maintainer flips mid-session.
+      let snoozeEnabled = false;
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("thread-settings"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        resolveCapabilities: Effect.sync(
+          () => new Set<McpInvocationContext.McpCapability>(snoozeEnabled ? ["thread-snooze"] : []),
+        ),
+      });
+      const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+      const capabilitiesNow = registry
+        .resolve(token)
+        .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
+
+      expect(issued.config.capabilities.has("thread-snooze")).toBe(false);
+      expect(yield* capabilitiesNow).toEqual(["pull-requests", "threads"]);
+
+      snoozeEnabled = true;
+      expect(yield* capabilitiesNow).toEqual(["pull-requests", "thread-snooze", "threads"]);
+
+      snoozeEnabled = false;
+      expect(yield* capabilitiesNow).toEqual(["pull-requests", "threads"]);
+    }),
 );

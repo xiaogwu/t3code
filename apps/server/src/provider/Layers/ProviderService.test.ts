@@ -11,6 +11,7 @@ import type {
   ProviderTurnStartResult,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
+  ServerSettingsError,
 } from "@t3tools/contracts";
 import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
@@ -74,6 +75,7 @@ import {
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
 import * as ServerConfig from "../../config.ts";
+import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
@@ -4952,7 +4954,16 @@ describe("agent browser access", () => {
         },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
-    options?: { readonly withoutOrchestration?: boolean },
+    options?: {
+      readonly withoutOrchestration?: boolean;
+      /** Overrides the settings the session reads, for mid-session changes. */
+      readonly settingsLayer?: Layer.Layer<
+        ServerSettings.ServerSettingsService,
+        ServerSettingsError
+      >;
+      /** Collects the live capability resolver handed to each credential. */
+      readonly resolvers?: Array<Effect.Effect<ReadonlySet<McpInvocationContext.McpCapability>>>;
+    },
   ) =>
     Effect.gen(function* () {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
@@ -5022,39 +5033,43 @@ describe("agent browser access", () => {
       });
       const providerLayer = makeProviderServiceLive({
         issueMcpCredential: (request) =>
-          Effect.sync(() => {
-            issued.push({
-              threadId: request.threadId,
-              capabilities: [...request.capabilities].toSorted(),
-            });
-            return undefined;
-          }),
+          request.resolveCapabilities.pipe(
+            Effect.map((capabilities) => {
+              options?.resolvers?.push(request.resolveCapabilities);
+              issued.push({
+                threadId: request.threadId,
+                capabilities: [...capabilities].toSorted(),
+              });
+              return undefined;
+            }),
+          ),
       }).pipe(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(options?.withoutOrchestration ? Layer.empty : projectionLayer),
         Layer.provide(
-          ServerSettings.ServerSettingsService.layerTest({
-            enableAgentBrowserAccess,
-            enableAgentDeviceAccess,
-            enableAgentThreadSettle,
-            enableAgentThreadSnooze,
-            projectSettingsOverrides:
-              projectOverride === undefined
-                ? {}
-                : typeof projectOverride === "boolean"
-                  ? { [projectId]: { enableAgentBrowserAccess: projectOverride } }
-                  : {
-                      [projectId]: {
-                        ...(projectOverride.browser !== undefined
-                          ? { enableAgentBrowserAccess: projectOverride.browser }
-                          : {}),
-                        ...(projectOverride.device !== undefined
-                          ? { enableAgentDeviceAccess: projectOverride.device }
-                          : {}),
+          options?.settingsLayer ??
+            ServerSettings.ServerSettingsService.layerTest({
+              enableAgentBrowserAccess,
+              enableAgentDeviceAccess,
+              enableAgentThreadSettle,
+              enableAgentThreadSnooze,
+              projectSettingsOverrides:
+                projectOverride === undefined
+                  ? {}
+                  : typeof projectOverride === "boolean"
+                    ? { [projectId]: { enableAgentBrowserAccess: projectOverride } }
+                    : {
+                        [projectId]: {
+                          ...(projectOverride.browser !== undefined
+                            ? { enableAgentBrowserAccess: projectOverride.browser }
+                            : {}),
+                          ...(projectOverride.device !== undefined
+                            ? { enableAgentDeviceAccess: projectOverride.device }
+                            : {}),
+                        },
                       },
-                    },
-          }),
+            }),
         ),
         Layer.provide(serverConfigTestLayer),
         Layer.provide(AnalyticsService.layerTest),
@@ -5173,6 +5188,57 @@ describe("agent browser access", () => {
       assert.deepEqual(on, [
         { threadId: onThreadId, capabilities: ["pull-requests", "thread-snooze"] },
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  // A session that started before the maintainer enabled snoozing must pick the
+  // grant up on its next tool call: nothing restarts a live provider session, so
+  // a capability snapshot taken at start would strand the setting.
+  it.effect("hands the credential a resolver that follows a mid-session settings change", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-snooze-enabled-mid-session");
+      const snoozeEnabled = { current: false };
+      const resolvers: Array<Effect.Effect<ReadonlySet<McpInvocationContext.McpCapability>>> = [];
+
+      const issued = yield* startSessionWith(
+        { browser: false, device: false },
+        threadId,
+        undefined,
+        {
+          settingsLayer: Layer.effect(
+            ServerSettings.ServerSettingsService,
+            Effect.gen(function* () {
+              const settings = yield* ServerSettings.ServerSettingsService;
+              return ServerSettings.ServerSettingsService.of({
+                ...settings,
+                getSettings: settings.getSettings.pipe(
+                  Effect.map((current) => ({
+                    ...current,
+                    enableAgentThreadSnooze: snoozeEnabled.current,
+                  })),
+                ),
+              });
+            }),
+          ).pipe(
+            Layer.provide(
+              ServerSettings.ServerSettingsService.layerTest({
+                enableAgentBrowserAccess: false,
+                enableAgentDeviceAccess: false,
+              }),
+            ),
+          ),
+          resolvers,
+        },
+      );
+
+      assert.deepEqual(issued, [{ threadId, capabilities: ["pull-requests"] }]);
+
+      snoozeEnabled.current = true;
+      assert.deepEqual(
+        [...(yield* resolvers[0]!)].toSorted(),
+        ["pull-requests", "thread-snooze"],
+        "the stored resolver still reads the current setting",
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
