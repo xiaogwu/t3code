@@ -14,7 +14,13 @@ import * as McpProviderSession from "./McpProviderSession.ts";
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
   readonly providerInstanceId: ProviderInstanceId;
-  readonly capabilities: ReadonlySet<McpInvocationContext.McpCapability>;
+  /**
+   * Reads the capabilities the credential currently grants. The registry keeps
+   * the effect rather than its result and re-runs it on every `resolve`, so
+   * flipping an agent-access setting reaches a session that is already running
+   * instead of waiting for the next provider restart to mint a new token.
+   */
+  readonly resolveCapabilities: Effect.Effect<ReadonlySet<McpInvocationContext.McpCapability>>;
 }
 
 export interface McpIssuedCredential {
@@ -44,7 +50,9 @@ export class McpSessionRegistry extends Context.Service<
 
 interface CredentialRecord {
   readonly tokenHash: string;
-  readonly scope: McpInvocationContext.McpInvocationScope;
+  /** The scope's fixed half. Only `capabilities` is re-read per invocation. */
+  readonly identity: Omit<McpInvocationContext.McpInvocationScope, "capabilities">;
+  readonly resolveCapabilities: Effect.Effect<ReadonlySet<McpInvocationContext.McpCapability>>;
   readonly lastAliveAt: number;
 }
 
@@ -77,6 +85,16 @@ const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const tokenFromBytes = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
+
+/**
+ * Thread delegation is scoped to this credential's environment and originating
+ * thread by the toolkit handlers. It is safe to advertise alongside the existing
+ * thread-local pull-request capability.
+ */
+const grantedCapabilities = (
+  capabilities: ReadonlySet<McpInvocationContext.McpCapability>,
+): ReadonlySet<McpInvocationContext.McpCapability> =>
+  new Set<McpInvocationContext.McpCapability>(["pull-requests", "threads", ...capabilities]);
 
 const getHttpMcpEndpointHost = (hostname: string): string => {
   const normalized = hostname.toLowerCase();
@@ -124,35 +142,36 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const providerSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
-      const scope: McpInvocationContext.McpInvocationScope = {
+      // Adapters read the config's capabilities at spawn time to decide which
+      // native features to wire up, so the config carries a snapshot while the
+      // record keeps the resolver.
+      const spawnCapabilities = grantedCapabilities(yield* request.resolveCapabilities);
+      const identity = {
         environmentId,
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        // Thread delegation is scoped to this credential's environment and
-        // originating thread by the toolkit handlers. It is safe to advertise
-        // alongside the existing thread-local pull-request capability.
-        capabilities: new Set<McpInvocationContext.McpCapability>([
-          "pull-requests",
-          "threads",
-          ...request.capabilities,
-        ]),
         issuedAt,
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(pruneDead(records, issuedAt));
-        next.set(tokenHash, { tokenHash, scope, lastAliveAt: issuedAt });
+        next.set(tokenHash, {
+          tokenHash,
+          identity,
+          resolveCapabilities: request.resolveCapabilities,
+          lastAliveAt: issuedAt,
+        });
         return { records: next };
       });
       return {
         config: {
           environmentId,
-          threadId: scope.threadId,
+          threadId: identity.threadId,
           providerSessionId,
-          providerInstanceId: scope.providerInstanceId,
+          providerInstanceId: identity.providerInstanceId,
           endpoint,
           authorizationHeader: `Bearer ${rawToken}`,
-          capabilities: scope.capabilities,
+          capabilities: spawnCapabilities,
         },
       };
     },
@@ -163,14 +182,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       if (rawToken.length === 0) return undefined;
       const tokenHash = yield* hashToken(rawToken);
       const timestamp = yield* currentTimeMillis;
-      return yield* SynchronizedRef.modify(state, ({ records }) => {
+      const record = yield* SynchronizedRef.modify(state, ({ records }) => {
         const current = pruneDead(records, timestamp);
-        const record = current.get(tokenHash);
-        if (!record) return [undefined, { records: current }] as const;
+        const found = current.get(tokenHash);
+        if (!found) return [undefined, { records: current }] as const;
         const next = new Map(current);
-        next.set(tokenHash, { ...record, lastAliveAt: timestamp });
-        return [record.scope, { records: next }] as const;
+        next.set(tokenHash, { ...found, lastAliveAt: timestamp });
+        return [found, { records: next }] as const;
       });
+      if (!record) return undefined;
+      // Outside the ref update on purpose: the resolver reads server settings.
+      const capabilities = yield* record.resolveCapabilities;
+      return { ...record.identity, capabilities: grantedCapabilities(capabilities) };
     },
   );
 
@@ -181,7 +204,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         const current = pruneDead(records, timestamp);
         const next = new Map(current);
         for (const [tokenHash, record] of current) {
-          if (record.scope.threadId === threadId) {
+          if (record.identity.threadId === threadId) {
             next.set(tokenHash, { ...record, lastAliveAt: timestamp });
           }
         }
@@ -201,11 +224,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     touch,
     revokeProviderSession: Effect.fn("McpSessionRegistry.revokeProviderSession")(
       function* (providerSessionId) {
-        yield* revokeWhere((record) => record.scope.providerSessionId === providerSessionId);
+        yield* revokeWhere((record) => record.identity.providerSessionId === providerSessionId);
       },
     ),
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
-      yield* revokeWhere((record) => record.scope.threadId === threadId);
+      yield* revokeWhere((record) => record.identity.threadId === threadId);
     }),
     revokeAll: SynchronizedRef.set(state, { records: new Map() }),
   });
