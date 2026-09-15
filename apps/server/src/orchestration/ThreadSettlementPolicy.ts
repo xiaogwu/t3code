@@ -127,10 +127,14 @@ export function isAutoSettlementCandidate(thread: OrchestrationThreadShell, now:
     thread.session?.status === "error" &&
     (thread.snoozedAt == null ||
       Date.parse(thread.session.updatedAt) > Date.parse(thread.snoozedAt));
+  // The turn an agent snoozed from completes moments later; that completion is
+  // part of the snooze, not a wake. Twin of threadRaisedHandWhileSnoozed in
+  // packages/client-runtime/src/state/threadSettled.ts.
   const wokeOnCompletion =
     thread.snoozedAt != null &&
     thread.latestTurn?.state === "completed" &&
     thread.latestTurn.completedAt != null &&
+    thread.latestTurn.turnId !== thread.snoozedTurnId &&
     Date.parse(thread.latestTurn.completedAt) > Date.parse(thread.snoozedAt);
   return wokeOnError || wokeOnCompletion;
 }

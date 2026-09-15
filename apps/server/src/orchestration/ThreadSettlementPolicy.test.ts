@@ -214,6 +214,28 @@ describe("resolveAutoSettlementAt", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps an agent's own snooze intact when its turn lands", () => {
+    // Same shape as the wake above, except the completed turn is the one the
+    // agent snoozed from — that completion is part of the snooze.
+    expect(
+      decide(
+        makeThread({
+          snoozedAt: "2026-08-19T00:00:00.000Z",
+          snoozedUntil: "2026-08-29T00:00:00.000Z",
+          snoozedTurnId: TurnId.make("turn-woke"),
+          latestTurn: {
+            turnId: TurnId.make("turn-woke"),
+            state: "completed",
+            requestedAt: "2026-08-18T00:00:00.000Z",
+            startedAt: "2026-08-18T00:01:00.000Z",
+            completedAt: "2026-08-20T00:00:00.000Z",
+            assistantMessageId: null,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 function linkedRequest(

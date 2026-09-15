@@ -54,11 +54,27 @@ export type ThreadSnoozeShell = Pick<
   OrchestrationThreadShell,
   | "snoozedUntil"
   | "snoozedAt"
+  | "snoozedTurnId"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
   | "session"
   | "latestTurn"
 >;
+
+/**
+ * The run that finished after the snooze was set, if that finish is news to
+ * the user: "the work I snoozed while it was going has landed". An agent that
+ * snoozes its own thread does so from inside a turn that completes moments
+ * later, and snoozedTurnId marks that turn — its completion is the same breath
+ * as the snooze, so it never wakes the thread. Every later turn still does.
+ */
+function completedRunAfterSnooze(shell: ThreadSnoozeShell): string | null {
+  if (shell.snoozedAt == null) return null;
+  const turn = shell.latestTurn;
+  if (turn?.state !== "completed" || turn.completedAt == null) return null;
+  if (shell.snoozedTurnId != null && turn.turnId === shell.snoozedTurnId) return null;
+  return Date.parse(turn.completedAt) > Date.parse(shell.snoozedAt) ? turn.completedAt : null;
+}
 
 /**
  * A snoozed thread "raises its hand" when something happens that outranks
@@ -80,15 +96,7 @@ export function threadRaisedHandWhileSnoozed(shell: ThreadSnoozeShell): boolean 
   ) {
     return true;
   }
-  if (
-    shell.snoozedAt != null &&
-    shell.latestTurn?.state === "completed" &&
-    shell.latestTurn.completedAt != null &&
-    Date.parse(shell.latestTurn.completedAt) > Date.parse(shell.snoozedAt)
-  ) {
-    return true;
-  }
-  return false;
+  return completedRunAfterSnooze(shell) !== null;
 }
 
 /**
@@ -153,15 +161,7 @@ export function threadWokeAt(
   // indicator the user already cleared by visiting (snoozedUntil is newer
   // than that visit's lastVisitedAt).
   if (threadRaisedHandWhileSnoozed(shell)) {
-    if (
-      shell.snoozedAt != null &&
-      shell.latestTurn?.state === "completed" &&
-      shell.latestTurn.completedAt != null &&
-      Date.parse(shell.latestTurn.completedAt) > Date.parse(shell.snoozedAt)
-    ) {
-      return shell.latestTurn.completedAt;
-    }
-    return shell.session?.updatedAt ?? shell.snoozedAt ?? null;
+    return completedRunAfterSnooze(shell) ?? shell.session?.updatedAt ?? shell.snoozedAt ?? null;
   }
   // No raised hand: woke iff the timer elapsed (still-snoozed → null).
   return wakeAtMs <= Date.parse(options.now) ? shell.snoozedUntil : null;

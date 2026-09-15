@@ -32,11 +32,14 @@ function makeShell(input: {
   readonly sessionStatus?: "starting" | "running" | "ready" | "error";
   readonly pending?: "approval" | "user-input";
   readonly turnCompletedAt?: string | null;
+  /** The turn an agent snoozed its own thread from. makeShell's turn is "turn-1". */
+  readonly snoozedTurnId?: string | null;
 }): ThreadSnoozeShell {
   const threadId = ThreadId.make("thread-1");
   return {
     snoozedUntil: input.snoozedUntil ?? null,
     snoozedAt: input.snoozedAt ?? (input.snoozedUntil != null ? SNOOZED_AT : null),
+    snoozedTurnId: input.snoozedTurnId == null ? null : TurnId.make(input.snoozedTurnId),
     hasPendingApprovals: input.pending === "approval",
     hasPendingUserInput: input.pending === "user-input",
     session:
@@ -151,6 +154,33 @@ describe("effectiveSnoozed", () => {
         { now: NOW },
       ),
     ).toBe(true);
+  });
+
+  it("stays snoozed when the completed run is the turn the agent snoozed from", () => {
+    // The agent snoozes as its last act, so its own turn lands seconds later.
+    expect(
+      effectiveSnoozed(
+        makeShell({
+          snoozedUntil: FUTURE_WAKE,
+          turnCompletedAt: "2026-04-10T09:00:02.000Z",
+          snoozedTurnId: "turn-1",
+        }),
+        { now: NOW },
+      ),
+    ).toBe(true);
+  });
+
+  it("wakes when a turn other than the snoozing one completes", () => {
+    expect(
+      effectiveSnoozed(
+        makeShell({
+          snoozedUntil: FUTURE_WAKE,
+          turnCompletedAt: "2026-04-10T10:30:00.000Z",
+          snoozedTurnId: "turn-0",
+        }),
+        { now: NOW },
+      ),
+    ).toBe(false);
   });
 });
 
@@ -302,6 +332,19 @@ describe("threadWokeAt", () => {
         { now: NOW },
       ),
     ).toBe("2026-04-10T09:30:00.000Z");
+  });
+
+  it("reports no wake for the turn the agent snoozed from", () => {
+    expect(
+      threadWokeAt(
+        makeShell({
+          snoozedUntil: FUTURE_WAKE,
+          turnCompletedAt: "2026-04-10T09:00:02.000Z",
+          snoozedTurnId: "turn-1",
+        }),
+        { now: NOW },
+      ),
+    ).toBe(null);
   });
 });
 

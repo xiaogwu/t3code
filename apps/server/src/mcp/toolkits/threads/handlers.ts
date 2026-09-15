@@ -488,12 +488,18 @@ const make = Effect.gen(function* () {
         Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
       );
       if (thread === undefined) return yield* new ThreadNotFoundError({ threadId: scope.threadId });
+      // An agent that snoozes itself is almost always doing it as the last act
+      // of a turn, and that turn completes a moment later. Stamping the live
+      // turn keeps its completion from reading as an early wake. Read from the
+      // session, never the caller, exactly as the settle arm does.
+      const activeTurnId = thread.session?.activeTurnId ?? null;
       yield* engine
         .dispatch({
           type: "thread.snooze",
           commandId: CommandId.make(`mcp:threads:snooze:${scope.threadId}:${input.snoozedUntil}`),
           threadId: scope.threadId,
           snoozedUntil: input.snoozedUntil,
+          ...(activeTurnId === null ? {} : { snoozedTurnId: activeTurnId }),
         })
         .pipe(
           Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),

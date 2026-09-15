@@ -2939,7 +2939,12 @@ export default function Sidebar() {
         ).push(
           optimisticDrop.clearsSnooze
             ? projected
-            : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
+            : {
+                ...projected,
+                snoozedAt: thread.snoozedAt,
+                snoozedUntil: thread.snoozedUntil,
+                snoozedTurnId: thread.snoozedTurnId,
+              },
         );
       } else if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
         // Snooze outranks settlement and pinning until the thread wakes.

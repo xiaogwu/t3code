@@ -953,6 +953,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           snoozedUntil: command.snoozedUntil,
           snoozedAt: existingSnoozedAt ?? occurredAt,
+          // Carried by an agent snoozing from inside its own turn, so that
+          // turn's completion does not immediately wake the thread. The
+          // duplicate path keeps the original stamp along with its timestamps.
+          snoozedTurnId:
+            existingSnoozedAt !== null
+              ? (thread.snoozedTurnId ?? null)
+              : (command.snoozedTurnId ?? null),
           updatedAt: existingSnoozedAt !== null ? thread.updatedAt : occurredAt,
         },
       };

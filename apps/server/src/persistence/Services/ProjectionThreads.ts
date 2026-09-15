@@ -51,6 +51,7 @@ export const ProjectionThread = Schema.Struct({
   agentSettleReason: Schema.NullOr(Schema.String),
   snoozedUntil: Schema.NullOr(IsoDateTime),
   snoozedAt: Schema.NullOr(IsoDateTime),
+  snoozedTurnId: Schema.optional(Schema.NullOr(TurnId)),
   pinnedAt: Schema.NullOr(IsoDateTime),
   pinOrderKey: Schema.optional(Schema.NullOr(Schema.String)),
   activeOrderKey: Schema.optional(Schema.NullOr(Schema.String)),

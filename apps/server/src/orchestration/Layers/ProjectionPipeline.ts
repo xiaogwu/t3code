@@ -647,6 +647,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             agentSettleReason: null,
             snoozedUntil: null,
             snoozedAt: null,
+            snoozedTurnId: null,
             pinnedAt: null,
             pinOrderKey: null,
             activeOrderKey: null,
@@ -795,6 +796,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             snoozedUntil: event.payload.snoozedUntil,
             snoozedAt: event.payload.snoozedAt,
+            snoozedTurnId: event.payload.snoozedTurnId ?? null,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -811,6 +813,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             snoozedUntil: null,
             snoozedAt: null,
+            snoozedTurnId: null,
             updatedAt: event.payload.updatedAt,
           });
           return;

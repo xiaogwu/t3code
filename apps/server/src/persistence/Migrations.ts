@@ -71,6 +71,7 @@ import Migration0056 from "./Migrations/056_ProjectionThreadsAgentSettle.ts";
 // Upstream shipped this as 051; the fork's ids 044-046, 051, 055-056 are already
 // taken, so it lands at the end of the fork's sequence instead.
 import Migration0057 from "./Migrations/057_ProjectionThreadMessageContext.ts";
+import Migration0058 from "./Migrations/058_ProjectionThreadsSnoozedTurn.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -140,6 +141,7 @@ const migrationEntries = [
   [55, "ProjectionThreadDelegation", Migration0055],
   [56, "ProjectionThreadsAgentSettle", Migration0056],
   [57, "ProjectionThreadMessageContext", Migration0057],
+  [58, "ProjectionThreadsSnoozedTurn", Migration0058],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
