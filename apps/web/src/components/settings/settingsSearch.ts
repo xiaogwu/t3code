@@ -153,6 +153,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
+    id: "sidebar-auto-hide",
+    title: "Auto-hide sidebar",
+    to: "/settings/appearance",
+    searchTerms: ["reveal peek hover edge float pin unpin dia"],
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",

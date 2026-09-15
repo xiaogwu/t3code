@@ -539,6 +539,13 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettingsPatch({ confirmThreadUnpin: true }).confirmThreadUnpin).toBe(true);
     expect(() => decodeClientSettingsPatch({ confirmThreadUnpin: "yes" })).toThrow();
   });
+
+  it("keeps auto-hide off by default and patchable", () => {
+    expect(decodeClientSettings({}).sidebarAutoHide).toBe(false);
+    expect(decodeClientSettings({ sidebarAutoHide: true }).sidebarAutoHide).toBe(true);
+    expect(decodeClientSettingsPatch({ sidebarAutoHide: true }).sidebarAutoHide).toBe(true);
+    expect(() => decodeClientSettingsPatch({ sidebarAutoHide: "yes" })).toThrow();
+  });
 });
 
 describe("ClientSettings context window meter", () => {

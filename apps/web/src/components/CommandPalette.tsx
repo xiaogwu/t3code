@@ -55,6 +55,7 @@ import {
   LinkIcon,
   MessageSquareIcon,
   PaletteIcon,
+  PanelLeftIcon,
   SettingsIcon,
   SquarePenIcon,
   TextSearchIcon,
@@ -78,7 +79,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -669,6 +670,7 @@ function OpenCommandPaletteDialog(props: {
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
   const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const updateClientSettings = useUpdateClientSettings();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2014,6 +2016,20 @@ function OpenCommandPaletteDialog(props: {
         themeHalves,
         initialAppearance: resolvedTheme,
       });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:sidebar-auto-hide",
+    searchTerms: ["sidebar", "reveal", "peek", "hover", "edge", "float", "pin", "unpin", "dia"],
+    title: clientSettings.sidebarAutoHide
+      ? "Turn off auto-hide sidebar"
+      : "Turn on auto-hide sidebar",
+    icon: <PanelLeftIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "sidebarAutoHide.toggle",
+    run: async () => {
+      await updateClientSettings({ sidebarAutoHide: !clientSettings.sidebarAutoHide });
     },
   });
 

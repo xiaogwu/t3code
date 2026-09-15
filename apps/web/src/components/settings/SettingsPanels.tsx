@@ -1263,6 +1263,18 @@ export function AppearanceSettingsPanel() {
           }
         />
 
+        <SettingsRow
+          {...searchableSetting("sidebar-auto-hide")}
+          description="Hide the main sidebar until you point at the window's edge."
+          control={
+            <Switch
+              checked={settings.sidebarAutoHide}
+              onCheckedChange={(checked) => updateSettings({ sidebarAutoHide: Boolean(checked) })}
+              aria-label="Auto-hide sidebar"
+            />
+          }
+        />
+
         {showEnvironmentIdentification ? (
           <SettingsRow
             {...searchableSetting("environment-identification")}
