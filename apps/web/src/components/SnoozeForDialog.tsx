@@ -1,4 +1,8 @@
-import { resolveSnoozeForDefault } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  resolveSnoozeDuration,
+  resolveSnoozeForDefault,
+  type SnoozeDurationUnit,
+} from "@t3tools/client-runtime/state/thread-settled";
 import { type FormEvent, useState, useSyncExternalStore } from "react";
 
 import {
@@ -19,23 +23,43 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
 
 const FORM_ID = "snooze-for-form";
+
+const DURATION_UNITS: ReadonlyArray<{ readonly id: SnoozeDurationUnit; readonly label: string }> = [
+  { id: "minutes", label: "minutes" },
+  { id: "hours", label: "hours" },
+  { id: "days", label: "days" },
+];
+
+/** "Until a moment" and "for a stretch of time" are the same choice phrased two
+    ways, so they share one dialog rather than two menu entries. */
+type SnoozeMode = "until" | "for";
 
 function SnoozeForForm(props: {
   readonly request: Extract<SnoozeForDialogState, { readonly status: "open" }>;
 }) {
   const { request } = props;
+  const [mode, setMode] = useState<SnoozeMode>("until");
   const [input, setInput] = useState(() =>
     formatSnoozeForInput(resolveSnoozeForDefault(new Date())),
   );
+  const [amount, setAmount] = useState("2");
+  const [unit, setUnit] = useState<SnoozeDurationUnit>("hours");
   const [error, setError] = useState<string | null>(null);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Re-read the clock here: a valid value can expire while the dialog is open.
-    const result = parseSnoozeForInput(input, { now: new Date() });
+    // Re-read the clock here: a valid value can expire while the dialog is open,
+    // and a duration is measured from the moment it is confirmed.
+    const now = new Date();
+    const result =
+      mode === "until"
+        ? parseSnoozeForInput(input, { now })
+        : resolveSnoozeDuration({ amount, unit }, { now });
     if (!result.ok) {
       setError(result.error);
       return;
@@ -47,7 +71,7 @@ function SnoozeForForm(props: {
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Snooze until</DialogTitle>
+        <DialogTitle>Snooze</DialogTitle>
         <DialogDescription>
           Choose when {request.threadCount === 1 ? "this thread" : "these threads"} should return to
           your inbox.
@@ -55,18 +79,73 @@ function SnoozeForForm(props: {
       </DialogHeader>
       <DialogPanel>
         <form id={FORM_ID} className="space-y-2" noValidate onSubmit={submit}>
-          <Label htmlFor="snooze-for-time">Date and time</Label>
-          <SnoozeDateTimePicker
-            id="snooze-for-time"
-            form={FORM_ID}
-            value={input}
-            invalid={error !== null}
-            {...(error ? { describedBy: "snooze-for-error" } : {})}
-            onChange={(value) => {
-              setInput(value);
-              if (error) setError(null);
+          <ToggleGroup
+            aria-label="Snooze mode"
+            variant="segmented"
+            value={[mode]}
+            onValueChange={(next) => {
+              const selected = next[0];
+              if (selected !== "until" && selected !== "for") return;
+              setMode(selected);
+              setError(null);
             }}
-          />
+          >
+            <Toggle value="until">Until</Toggle>
+            <Toggle value="for">For</Toggle>
+          </ToggleGroup>
+          {mode === "until" ? (
+            <>
+              <Label htmlFor="snooze-for-time">Date and time</Label>
+              <SnoozeDateTimePicker
+                id="snooze-for-time"
+                form={FORM_ID}
+                value={input}
+                invalid={error !== null}
+                {...(error ? { describedBy: "snooze-for-error" } : {})}
+                onChange={(value) => {
+                  setInput(value);
+                  if (error) setError(null);
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <Label htmlFor="snooze-for-amount">How long</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="snooze-for-amount"
+                  className="w-20"
+                  form={FORM_ID}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={amount}
+                  aria-invalid={error !== null}
+                  {...(error ? { "aria-describedby": "snooze-for-error" } : {})}
+                  onValueChange={(value) => {
+                    setAmount(value);
+                    if (error) setError(null);
+                  }}
+                />
+                <ToggleGroup
+                  aria-label="Duration unit"
+                  variant="segmented"
+                  value={[unit]}
+                  onValueChange={(next) => {
+                    const selected = DURATION_UNITS.find((candidate) => candidate.id === next[0]);
+                    if (!selected) return;
+                    setUnit(selected.id);
+                    if (error) setError(null);
+                  }}
+                >
+                  {DURATION_UNITS.map((candidate) => (
+                    <Toggle key={candidate.id} value={candidate.id}>
+                      {candidate.label}
+                    </Toggle>
+                  ))}
+                </ToggleGroup>
+              </div>
+            </>
+          )}
           {error ? (
             <p id="snooze-for-error" className="text-sm text-destructive">
               {error}

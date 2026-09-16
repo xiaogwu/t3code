@@ -296,37 +296,41 @@ export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: s
   return `${Math.round((wakeDay - today) / DAY_MS)}d`;
 }
 
-export type CustomSnoozeInput =
-  | { readonly mode: "date"; readonly date: string; readonly time: string }
-  | {
-      readonly mode: "duration";
-      readonly amount: string;
-      readonly unit: "minutes" | "hours" | "days";
-    };
+export type SnoozeDurationUnit = "minutes" | "hours" | "days";
 
-/** Resolve local calendar input or elapsed time, rejecting past and invalid dates. */
-export function resolveCustomSnooze(input: CustomSnoozeInput, now: Date): string | null {
-  let wake: Date;
-  if (input.mode === "duration") {
-    const amount = Number(input.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return null;
-    const unitMs = { minutes: 60_000, hours: HOUR_MS, days: 24 * HOUR_MS }[input.unit];
-    wake = new Date(now.getTime() + amount * unitMs);
-  } else {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !/^\d{2}:\d{2}$/.test(input.time)) return null;
-    wake = new Date(`${input.date}T${input.time}:00`);
-    // Reject rolled-over dates and nonexistent local times during DST changes.
-    if (localSnoozeDate(wake) !== input.date || localSnoozeTime(wake) !== input.time) return null;
+export interface SnoozeDurationInput {
+  /** Raw field text, so an empty or half-typed value stays the form's problem. */
+  readonly amount: string;
+  readonly unit: SnoozeDurationUnit;
+}
+
+export type SnoozeInputResult =
+  | { readonly ok: true; readonly value: Date }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Wake time for "snooze for 3 hours". Days advance the calendar rather than
+ * adding 24h each, for the reason `addSnoozeDays` exists: a spring-forward day
+ * is 23 hours long, so fixed offsets drift the wall time the user asked for.
+ * A fractional day carries its remainder as elapsed time.
+ */
+export function resolveSnoozeDuration(
+  input: SnoozeDurationInput,
+  options: { readonly now: Date },
+): SnoozeInputResult {
+  const amount = Number(input.amount.trim());
+  if (input.amount.trim() === "" || !Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: "Enter how long to snooze for." };
   }
-  return Number.isFinite(wake.getTime()) && wake.getTime() > now.getTime()
-    ? wake.toISOString()
-    : null;
-}
-
-export function localSnoozeDate(date: Date): string {
-  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export function localSnoozeTime(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  let wake: Date;
+  if (input.unit === "days") {
+    const wholeDays = Math.trunc(amount);
+    wake = addSnoozeDays(options.now, wholeDays);
+    wake = new Date(wake.getTime() + (amount - wholeDays) * 24 * HOUR_MS);
+  } else {
+    const unitMs = input.unit === "minutes" ? 60_000 : HOUR_MS;
+    wake = new Date(options.now.getTime() + amount * unitMs);
+  }
+  const error = snoozeForTimeError(wake, options);
+  return error === null ? { ok: true, value: wake } : { ok: false, error };
 }

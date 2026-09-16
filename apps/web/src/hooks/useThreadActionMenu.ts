@@ -1,4 +1,3 @@
-import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   type AtomCommandResult,
@@ -180,12 +179,7 @@ export function useThreadActionMenu(input: {
           );
         };
         if (action.startsWith("snooze:")) {
-          // Upstream's Custom… dialog and the fork's Until… dialog both resolve
-          // to a wake time, so each funnels through the same snooze + toast path.
-          const choice =
-            action === "snooze:custom"
-              ? await requestCustomSnooze()
-              : snoozePresets.find((candidate) => `snooze:${candidate.id}` === action);
+          const choice = snoozePresets.find((candidate) => `snooze:${candidate.id}` === action);
           if (!choice) return;
           await snoozeUntil(choice.snoozedUntil);
           return;
