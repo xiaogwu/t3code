@@ -40,7 +40,7 @@ const DURATION_UNITS: ReadonlyArray<{
 
 const MODE_OPTIONS: ReadonlyArray<{ readonly value: SnoozeMode; readonly label: string }> = [
   { value: "until", label: "Until" },
-  { value: "for", label: "For" },
+  { value: "for", label: "Duration" },
 ];
 
 export function SnoozeForRouteScreen({ route }: StaticScreenProps<SnoozeForRouteParams>) {
