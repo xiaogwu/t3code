@@ -482,18 +482,7 @@ describe("ClientSettings environment identification", () => {
 
 describe("ClientSettings sidebar", () => {
   it("defaults to the current sidebar", () => {
-    const settings = decodeClientSettings({});
-    expect(settings.legacySidebarEnabled).toBe(false);
-    expect(settings.sidebarCompactThreadRows).toBe(false);
-  });
-
-  it("preserves an explicit compact thread row preference", () => {
-    expect(decodeClientSettings({ sidebarCompactThreadRows: true }).sidebarCompactThreadRows).toBe(
-      true,
-    );
-    expect(
-      decodeClientSettingsPatch({ sidebarCompactThreadRows: true }).sidebarCompactThreadRows,
-    ).toBe(true);
+    expect(decodeClientSettings({}).legacySidebarEnabled).toBe(false);
   });
 
   it("drops the retired sidebar v2 beta keys, resetting everyone to the default", () => {
@@ -527,6 +516,14 @@ describe("ClientSettings sidebar", () => {
     expect(patch.sidebarThreadSortOrder).toBeUndefined();
   });
 
+  it("drops the retired compact sidebar keys for users who opted in", () => {
+    const stored = { compactSidebarEnabled: true, sidebarCompactThreadRows: true };
+    const decoded = decodeClientSettings(stored);
+    expect(decoded).not.toHaveProperty("compactSidebarEnabled");
+    expect(decoded).not.toHaveProperty("sidebarCompactThreadRows");
+    expect(decodeClientSettingsPatch(stored)).toEqual({});
+  });
+
   it("preserves an explicit legacy sidebar opt-in", () => {
     expect(decodeClientSettings({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(true);
     expect(decodeClientSettingsPatch({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(
@@ -557,6 +554,19 @@ describe("ClientSettings context window meter", () => {
     expect(
       decodeClientSettingsPatch({ contextWindowMeterEnabled: true }).contextWindowMeterEnabled,
     ).toBe(true);
+  });
+});
+
+describe("ClientSettings follow-up behavior", () => {
+  it("defaults to queue and accepts either behavior", () => {
+    expect(decodeClientSettings({}).followUpBehavior).toBe("queue");
+    for (const followUpBehavior of ["queue", "steer"]) {
+      expect(decodeClientSettings({ followUpBehavior }).followUpBehavior).toBe(followUpBehavior);
+      expect(decodeClientSettingsPatch({ followUpBehavior }).followUpBehavior).toBe(
+        followUpBehavior,
+      );
+    }
+    expect(() => decodeClientSettingsPatch({ followUpBehavior: "invalid" })).toThrow();
   });
 });
 

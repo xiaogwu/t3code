@@ -8,6 +8,8 @@ import { TextGenerationError } from "@t3tools/contracts";
 
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "../provider/ProviderDriver.ts";
+import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import * as ThreadTitleLinks from "./ThreadTitleLinks.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
 
 export type TextGenerationProvider = "codex" | "claudeAgent" | "cursor" | "grok" | "opencode";
@@ -68,6 +70,7 @@ export interface BranchNameGenerationResult {
 }
 
 export interface ThreadTitleGenerationInput {
+  linkedContext?: string | undefined;
   cwd: string;
   message: string;
   /** Present when replacing an existing title from the current thread history. */
@@ -81,6 +84,7 @@ export interface ThreadTitleGenerationInput {
 
 export interface ThreadTitleGenerationResult {
   title: string;
+  needsRefinement?: boolean | undefined;
 }
 
 export interface TitlePolicyEvaluationInput {
@@ -292,6 +296,10 @@ const runWithFallback = Effect.fn("TextGeneration.runWithFallback")(function* <
 
 export const makeTextGenerationFromRegistry = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
+  // Optional: callers that only exercise model fallback build the service from a
+  // bare registry. Without it a thread title skips source-control link
+  // resolution and uses whatever `linkedContext` the caller already supplied.
+  sourceControl?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"],
 ): TextGeneration["Service"] =>
   TextGeneration.of({
     generateCommitMessage: (input) =>
@@ -307,9 +315,26 @@ export const makeTextGenerationFromRegistry = (
         textGeneration.generateBranchName(attemptInput),
       ),
     generateThreadTitle: (input) =>
-      runWithFallback(registry, "generateThreadTitle", input, (textGeneration, attemptInput) =>
-        textGeneration.generateThreadTitle(attemptInput),
-      ),
+      Effect.gen(function* () {
+        // Resolve source-control links once, ahead of the fallback walk, so a
+        // retry against a fallback model does not re-fetch the same subjects.
+        const linkedContext =
+          input.linkedContext ??
+          (sourceControl === undefined
+            ? undefined
+            : yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
+                Effect.provideService(
+                  SourceControlProviderRegistry.SourceControlProviderRegistry,
+                  sourceControl,
+                ),
+              ));
+        return yield* runWithFallback(
+          registry,
+          "generateThreadTitle",
+          { ...input, linkedContext },
+          (textGeneration, attemptInput) => textGeneration.generateThreadTitle(attemptInput),
+        );
+      }),
     evaluateTitlePolicy: (input) =>
       runWithFallback(registry, "evaluateTitlePolicy", input, (textGeneration, attemptInput) =>
         textGeneration.evaluateTitlePolicy(attemptInput),
@@ -319,7 +344,8 @@ export const makeTextGenerationFromRegistry = (
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-  return makeTextGenerationFromRegistry(registry);
+  const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
+  return makeTextGenerationFromRegistry(registry, sourceControl);
 });
 
 export const layer = Layer.effect(TextGeneration, make);

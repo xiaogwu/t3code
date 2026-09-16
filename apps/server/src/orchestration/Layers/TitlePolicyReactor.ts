@@ -28,7 +28,7 @@ import {
 } from "../Services/TitlePolicyReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { formatThreadTitleContext } from "./ProviderCommandReactor.ts";
+import { formatThreadTitleContext } from "../../textGeneration/ThreadTitleContext.ts";
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;

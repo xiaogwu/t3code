@@ -442,6 +442,9 @@ export const ClientSettingsSchema = Schema.Struct({
   // Desktop resting composer: scrolling an existing thread's conversation
   // settles the composer into its single-line layout. Losing focus never does.
   composerCollapseOnScroll: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  followUpBehavior: Schema.Literals(["queue", "steer"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("queue")),
+  ),
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Legacy sidebar (the original per-project tree). Deliberately a fresh key
@@ -449,7 +452,6 @@ export const ClientSettingsSchema = Schema.Struct({
   // old keys, so everyone, including prior beta opt-outs, resets to the new
   // default sidebar.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  compactSidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Dia-style auto-hide: the main sidebar becomes a floating panel that
   // reveals on hover-intent from the window edge instead of staying pinned
   // open. Off by default so existing users see no behavioral change.
@@ -467,7 +469,6 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
   ),
-  sidebarCompactThreadRows: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
@@ -1015,6 +1016,15 @@ export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
  * background activity, theme. UI, search and the write planner derive
  * eligibility from this list, so adding a key here is the whole opt-in.
  */
+/**
+ * How assistant text reaches clients while a turn runs.
+ * - `turn`: hold the whole message until the turn finishes or pauses.
+ * - `paragraph`: deliver each finished paragraph or closed code block.
+ * - `token`: forward every provider delta. Legacy, kept for compatibility.
+ */
+export const ResponseStreamingMode = Schema.Literals(["turn", "paragraph", "token"]);
+export type ResponseStreamingMode = typeof ResponseStreamingMode.Type;
+
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "defaultModelSelection",
   "defaultRuntimeMode",
@@ -1032,7 +1042,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "sidebarAutoSettleOnMerge",
   "sidebarAutoSettleAfterDays",
   "continueThreadsAfterServerUpdate",
-  "enableLegacyTokenStreaming",
+  "responseStreamingMode",
 ] as const;
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
@@ -1058,7 +1068,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   sidebarAutoSettleOnMerge: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
-  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
+  responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
 } satisfies Record<ProjectScopedServerSettingKey, unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
@@ -1066,11 +1076,12 @@ export const ServerSettings = Schema.Struct({
   externalTerminal: ExternalTerminalId.pipe(
     Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
   ),
-  // Legacy token-by-token assistant output. Deliberately a fresh key (was
+  // How assistant text reaches clients during a turn. Deliberately a fresh
+  // key (was `enableLegacyTokenStreaming`, before that
   // `enableAssistantStreaming`): decoding drops the old key, so everyone,
-  // including prior opt-ins, resets to the buffered default.
-  enableLegacyTokenStreaming: Schema.Boolean.pipe(
-    Schema.withDecodingDefault(Effect.succeed(false)),
+  // including prior token-streaming opt-ins, resets to the paragraph default.
+  responseStreamingMode: ResponseStreamingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Retain the update-era key; recovery now needs an environment-owned opt-in.
@@ -1436,7 +1447,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   externalTerminal: Schema.optionalKey(ExternalTerminalId),
-  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
+  responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
@@ -1597,10 +1608,10 @@ export const ClientSettingsPatch = Schema.Struct({
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   contextWindowMeterEnabled: Schema.optionalKey(Schema.Boolean),
   composerCollapseOnScroll: Schema.optionalKey(Schema.Boolean),
+  followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
-  compactSidebarEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarAutoHide: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
@@ -1608,7 +1619,6 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
-  sidebarCompactThreadRows: Schema.optionalKey(Schema.Boolean),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   sidebarV2ThreadSortOrder: Schema.optionalKey(SidebarV2ThreadSortOrder),
   timestampFormat: Schema.optionalKey(TimestampFormat),

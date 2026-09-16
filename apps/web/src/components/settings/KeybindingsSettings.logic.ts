@@ -276,6 +276,7 @@ export function buildKeybindingCommandOptions(
 }
 
 export function commandLabel(command: KeybindingCommand): string {
+  if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread ID";
   const raw = String(command);
   if (raw === "shell.openInTerminal") return "Open Worktree in External Terminal";
   if (raw.startsWith("script.") && raw.endsWith(".run")) {

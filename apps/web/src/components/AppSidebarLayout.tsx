@@ -16,7 +16,6 @@ import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import {
   toggleLegacySidebarPreference,
-  useCompactSidebarEnabled,
   useClientSettings,
   useEnvironmentIdentificationMode,
   useLegacySidebarEnabled,
@@ -54,7 +53,7 @@ import {
 } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "90px";
+const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
 function subscribeToViewportWidth(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
@@ -215,7 +214,6 @@ function SidebarPeekRetractOnContentInteraction({ children }: { children: ReactN
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
-  const compactSidebarEnabled = useCompactSidebarEnabled();
   const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
@@ -303,10 +301,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <ProjectProjectionRetention />
         <Sidebar
           side="left"
-          // Auto-hide wins over the compact rail when both are on: peek is an
-          // offcanvas overlay, and `collapsible="icon"` would keep a rail on
-          // screen for peek to slide sideways into the content.
-          collapsible={compactSidebarEnabled && !sidebarAutoHide ? "icon" : "offcanvas"}
+          // Auto-hide peek is an offcanvas overlay. Upstream retired the compact
+          // rail, so there is no longer an `icon` mode to lose the race against.
+          collapsible="offcanvas"
           data-app-sidebar=""
           className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
           resizable={{

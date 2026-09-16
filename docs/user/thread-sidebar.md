@@ -129,8 +129,20 @@ To generate a fresh title from the conversation, open a thread's context menu an
 **Regenerate title**. While T3 Code is generating it, the action reads **Regenerating…** and cannot
 be selected again. The option is hidden when the connected environment needs a server update.
 
+## Inspect agent work
+
+On web and desktop, use **Agents** to follow work delegated to subagents.
+
+Expand a tool call in the conversation to see its full command and output.
+Summaries shorten shell wrappers and can still describe the latest call after it
+finishes; the call's own result shows its status.
+
 ## Snoozing threads
 
 Snooze a thread with a preset, or choose **Until…** to set a specific date and time. The thread stays
 out of your inbox until then, unless it finishes or needs you sooner. Use **Undo** after snoozing,
 or expand the Snoozed section and choose **Wake** to bring it back immediately.
+
+**Snooze → Custom…** also picks a date and time in your local time zone, or a duration in minutes,
+hours, or days. Durations start when you confirm; one day means 24 hours. On web and desktop, you can
+also snooze several selected threads together. Choose **Wake thread** to bring a thread back early.

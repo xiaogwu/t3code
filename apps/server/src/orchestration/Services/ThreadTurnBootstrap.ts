@@ -63,7 +63,8 @@ function legacySetupFailureDescription(cause: unknown): string {
   return String(cause);
 }
 
-function projectSetupScriptCompatibilityDetail(
+// Also used by ws.ts, whose own turn bootstrap reports the same failure.
+export function projectSetupScriptCompatibilityDetail(
   error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError,
 ): string {
   switch (error._tag) {
