@@ -1,5 +1,4 @@
 import { RowPressable } from "../../components/RowPressable";
-import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
@@ -480,7 +479,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [onRegenerateThreadTitle, thread],
   );
   const handleSettle = useCallback(() => onSettleThread(thread), [onSettleThread, thread]);
-  const [customSnoozeOpen, setCustomSnoozeOpen] = useState(false);
   const handleSnooze = useCallback(
     (snoozedUntil: string) => onSnoozeThread(thread, snoozedUntil),
     [onSnoozeThread, thread],
@@ -524,8 +522,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         title: preset.label,
         subtitle: preset.whenLabel,
       })),
-      ...(Platform.OS === "ios" ? [{ id: "snooze-for", title: "Until…" }] : []),
-      { id: "snooze:custom", title: "Custom…" },
+      { id: "snooze-for", title: "Until…" },
     ],
     [snoozePresets],
   );
@@ -650,10 +647,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             threadId: String(thread.id),
           });
         }
-        return;
-      }
-      if (nativeEvent.event === "snooze:custom") {
-        setCustomSnoozeOpen(true);
         return;
       }
       const snoozeSelection = resolveThreadListV2SnoozeMenuSelection({
@@ -1105,9 +1098,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   return (
     <>
-      {customSnoozeOpen && (
-        <CustomSnoozeSheet onClose={() => setCustomSnoozeOpen(false)} onSnooze={handleSnooze} />
-      )}
       <ThreadSwipeable
         threadKey={`${thread.environmentId}:${thread.id}`}
         backgroundColor={sidebarPane ? drawerColor : screenColor}
