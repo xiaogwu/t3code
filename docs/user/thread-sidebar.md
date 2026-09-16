@@ -144,7 +144,7 @@ out of your inbox until then, unless it finishes or needs you sooner. Use **Undo
 or expand the Snoozed section and choose **Wake** to bring it back immediately.
 
 **Until…** offers two ways to say when: **Until** a date and time in your local time zone, or
-**For** a length of time in minutes, hours, or days. A duration starts when you confirm it, and days
-keep the same clock time, so "for 1 day" means this time tomorrow even across a daylight-saving
+**Duration**, a length of time in minutes, hours, or days. A duration starts when you confirm it, and
+days keep the same clock time, so "for 1 day" means this time tomorrow even across a daylight-saving
 change. On web and desktop, you can also snooze several selected threads together. Choose **Wake
 thread** to bring a thread back early.

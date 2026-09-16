@@ -23,8 +23,14 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import {
+  NumberField,
+  NumberFieldDecrement,
+  NumberFieldGroup,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from "./ui/number-field";
 import { Toggle, ToggleGroup } from "./ui/toggle-group";
 
 const FORM_ID = "snooze-for-form";
@@ -47,7 +53,7 @@ function SnoozeForForm(props: {
   const [input, setInput] = useState(() =>
     formatSnoozeForInput(resolveSnoozeForDefault(new Date())),
   );
-  const [amount, setAmount] = useState("2");
+  const [amount, setAmount] = useState<number | null>(2);
   const [unit, setUnit] = useState<SnoozeDurationUnit>("hours");
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +65,9 @@ function SnoozeForForm(props: {
     const result =
       mode === "until"
         ? parseSnoozeForInput(input, { now })
-        : resolveSnoozeDuration({ amount, unit }, { now });
+        : // A cleared stepper reads as null, which the shared validator rejects as
+          // an empty amount.
+          resolveSnoozeDuration({ amount: String(amount ?? ""), unit }, { now });
     if (!result.ok) {
       setError(result.error);
       return;
@@ -91,7 +99,7 @@ function SnoozeForForm(props: {
             }}
           >
             <Toggle value="until">Until</Toggle>
-            <Toggle value="for">For</Toggle>
+            <Toggle value="for">Duration</Toggle>
           </ToggleGroup>
           {mode === "until" ? (
             <>
@@ -112,20 +120,26 @@ function SnoozeForForm(props: {
             <>
               <Label htmlFor="snooze-for-amount">How long</Label>
               <div className="flex items-center gap-2">
-                <Input
-                  id="snooze-for-amount"
-                  className="w-20"
-                  form={FORM_ID}
-                  inputMode="decimal"
-                  autoComplete="off"
+                <NumberField
+                  className="w-32"
+                  min={1}
+                  step={1}
                   value={amount}
-                  aria-invalid={error !== null}
-                  {...(error ? { "aria-describedby": "snooze-for-error" } : {})}
                   onValueChange={(value) => {
                     setAmount(value);
                     if (error) setError(null);
                   }}
-                />
+                >
+                  <NumberFieldGroup>
+                    <NumberFieldDecrement aria-label="Decrease duration" />
+                    <NumberFieldInput
+                      id="snooze-for-amount"
+                      aria-invalid={error !== null}
+                      {...(error ? { "aria-describedby": "snooze-for-error" } : {})}
+                    />
+                    <NumberFieldIncrement aria-label="Increase duration" />
+                  </NumberFieldGroup>
+                </NumberField>
                 <ToggleGroup
                   aria-label="Duration unit"
                   variant="segmented"
