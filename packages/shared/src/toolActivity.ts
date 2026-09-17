@@ -283,11 +283,15 @@ export function projectQuestionToolInput(data: Record<string, unknown>, title: u
     input: {
       questions: questions.map((value) => {
         const question = asRecord(value);
-        return {
-          question: asTrimmedString(
-            question?.question ?? question?.question_text ?? question?.prompt ?? question?.title,
-          ),
-        };
+        const text = asTrimmedString(
+          question?.question ?? question?.question_text ?? question?.prompt ?? question?.title,
+        );
+        // A rejected tool call can persist a question object with no text. The
+        // key must be omitted rather than set to `undefined`: the activity
+        // payload crosses the wire as `Schema.Unknown`, whose JSON encoding
+        // rejects `undefined` and fails the whole thread snapshot, not just
+        // this row.
+        return text === undefined ? {} : { question: text };
       }),
     },
   };
