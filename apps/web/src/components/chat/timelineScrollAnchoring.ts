@@ -1,3 +1,11 @@
+import type { TurnId } from "@t3tools/contracts";
+
+import {
+  clearThreadTimelinePosition,
+  readThreadTimelinePosition,
+  saveThreadTimelinePosition,
+} from "../../threadTimelinePositionStore";
+
 // Match the titlebar fade inset so draft promotion preserves the first row's position.
 export const CHAT_TIMELINE_ANCHOR_OFFSET = 24;
 
@@ -151,4 +159,69 @@ export function getAnchoredTurnMetrics({
     targetScrollToRevealEnd,
     scrollDeltaToRevealEnd,
   };
+}
+
+export interface RememberedTimelinePosition {
+  readonly rowId: string;
+  readonly offsetWithinRow: number;
+  readonly scrollOffset: number;
+  readonly atEnd: boolean;
+  /** Timestamp of the anchored row, mirrored to storage so a cold start keeps it. */
+  readonly rowCreatedAt?: string | null;
+  readonly disclosures?: {
+    readonly turns: ReadonlySet<TurnId>;
+    readonly workGroups: ReadonlySet<string>;
+    readonly spawnEntries: ReadonlySet<string>;
+    readonly reasoningMessages: ReadonlySet<string>;
+    readonly workGroupState: {
+      scrollPositions: Map<string, { readonly entryId: string; readonly offset: number }>;
+      expandedEntries: Set<string>;
+    };
+  };
+}
+
+// Scoped thread keys keep separate environments independent. Bound the session cache.
+const rememberedTimelinePositions = new Map<string, RememberedTimelinePosition>();
+
+/**
+ * The cache only lives as long as the tab, so on a cold start it falls through
+ * to the persisted position. A seeded position carries no `disclosures`:
+ * `workGroupState` holds live `Map`/`Set` objects that do not serialize, so a
+ * reloaded thread restores its scroll offset with its groups collapsed.
+ */
+export function readTimelinePosition(threadKey: string) {
+  const remembered = rememberedTimelinePositions.get(threadKey);
+  if (remembered !== undefined) return remembered;
+  const persisted = readThreadTimelinePosition(threadKey);
+  if (persisted === undefined) return undefined;
+  return {
+    rowId: persisted.rowId,
+    offsetWithinRow: persisted.offsetWithinRow,
+    scrollOffset: persisted.scrollOffset ?? 0,
+    atEnd: persisted.atEnd ?? false,
+    rowCreatedAt: persisted.rowCreatedAt ?? null,
+  } satisfies RememberedTimelinePosition;
+}
+
+export function rememberTimelinePosition(threadKey: string, position: RememberedTimelinePosition) {
+  rememberedTimelinePositions.delete(threadKey);
+  rememberedTimelinePositions.set(threadKey, position);
+  if (rememberedTimelinePositions.size > 100) {
+    const oldest = rememberedTimelinePositions.keys().next().value;
+    if (oldest !== undefined) rememberedTimelinePositions.delete(oldest);
+  }
+  // Mirror the durable subset so a reload resumes where reading stopped. The
+  // live edge is stored as absence, not as `atEnd: true`, so a cold start at
+  // the bottom cannot restore a stale mid-thread anchor.
+  if (position.atEnd) {
+    clearThreadTimelinePosition(threadKey);
+    return;
+  }
+  saveThreadTimelinePosition(threadKey, {
+    rowId: position.rowId,
+    offsetWithinRow: position.offsetWithinRow,
+    scrollOffset: position.scrollOffset,
+    atEnd: position.atEnd,
+    ...(position.rowCreatedAt !== undefined ? { rowCreatedAt: position.rowCreatedAt } : {}),
+  });
 }

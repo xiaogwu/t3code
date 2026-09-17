@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { TurnId } from "@t3tools/contracts";
+import {
+  readThreadTimelinePosition,
+  saveThreadTimelinePosition,
+} from "../../threadTimelinePositionStore";
 import {
   getAnchoredTurnMetrics,
   getRowBottom,
+  readTimelinePosition,
+  rememberTimelinePosition,
   resolveTimelineSendScrollBehavior,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
@@ -230,5 +237,86 @@ describe("timeline scroll anchoring", () => {
 
     expect(withoutComposer?.overflowsUsableViewport).toBe(false);
     expect(withComposer?.overflowsUsableViewport).toBe(true);
+  });
+});
+
+describe("remembered timeline positions", () => {
+  it("keeps reading positions and end-follow independent across threads and environments", () => {
+    const reading = { rowId: "message-4", offsetWithinRow: 32, scrollOffset: 932, atEnd: false };
+    const following = { rowId: "message-9", offsetWithinRow: 10, scrollOffset: 2010, atEnd: true };
+    rememberTimelinePosition("scroll-test-a:thread-1", reading);
+    rememberTimelinePosition("scroll-test-a:thread-2", following);
+    rememberTimelinePosition("scroll-test-b:thread-1", following);
+    expect(readTimelinePosition("scroll-test-a:thread-1")).toEqual(reading);
+    expect(readTimelinePosition("scroll-test-a:thread-2")).toEqual(following);
+    expect(readTimelinePosition("scroll-test-b:thread-1")).toEqual(following);
+    expect(readTimelinePosition("scroll-test-a:unvisited")).toBeUndefined();
+    rememberTimelinePosition("scroll-test-a:thread-1", following);
+    expect(readTimelinePosition("scroll-test-a:thread-1")).toEqual(following);
+  });
+
+  it("mirrors the durable subset of a reading position, minus its live disclosures", () => {
+    const threadKey = "scroll-test-mirror:thread-1";
+    rememberTimelinePosition(threadKey, {
+      rowId: "message-7",
+      offsetWithinRow: 48,
+      scrollOffset: 1480,
+      atEnd: false,
+      rowCreatedAt: "2026-09-17T00:00:00.000Z",
+      disclosures: {
+        turns: new Set(["turn-1" as TurnId]),
+        workGroups: new Set(["group-1"]),
+        spawnEntries: new Set(["spawn-1"]),
+        reasoningMessages: new Set(["message-7"]),
+        workGroupState: { scrollPositions: new Map(), expandedEntries: new Set() },
+      },
+    });
+    // `workGroupState` holds live Map/Set objects, so disclosures are deliberately
+    // not persisted: a reloaded thread restores its offset with groups collapsed.
+    expect(readThreadTimelinePosition(threadKey)).toEqual({
+      rowId: "message-7",
+      offsetWithinRow: 48,
+      scrollOffset: 1480,
+      atEnd: false,
+      rowCreatedAt: "2026-09-17T00:00:00.000Z",
+    });
+  });
+
+  it("seeds a cold start from the persisted position", () => {
+    // Nothing was remembered this session, which is what a reload looks like:
+    // the cache lives only as long as the tab, the stored position does not.
+    const threadKey = "scroll-test-cold:thread-1";
+    saveThreadTimelinePosition(threadKey, {
+      rowId: "message-3",
+      offsetWithinRow: 12,
+      scrollOffset: 640,
+      atEnd: false,
+      rowCreatedAt: "2026-09-17T01:00:00.000Z",
+    });
+    expect(readTimelinePosition(threadKey)).toEqual({
+      rowId: "message-3",
+      offsetWithinRow: 12,
+      scrollOffset: 640,
+      atEnd: false,
+      rowCreatedAt: "2026-09-17T01:00:00.000Z",
+    });
+  });
+
+  it("stores the live edge as absence, so a cold start there restores no stale anchor", () => {
+    const threadKey = "scroll-test-edge:thread-1";
+    rememberTimelinePosition(threadKey, {
+      rowId: "message-2",
+      offsetWithinRow: 20,
+      scrollOffset: 400,
+      atEnd: false,
+    });
+    expect(readThreadTimelinePosition(threadKey)).toBeDefined();
+    rememberTimelinePosition(threadKey, {
+      rowId: "message-9",
+      offsetWithinRow: 0,
+      scrollOffset: 2400,
+      atEnd: true,
+    });
+    expect(readThreadTimelinePosition(threadKey)).toBeUndefined();
   });
 });

@@ -3,9 +3,13 @@
  * `localStorage`. Keyed by scoped thread key (environment + thread) so
  * positions never collide across environments.
  *
- * Nothing subscribes to this store: it is read at mount and written on
- * scroll, both imperative, so a React subscriber would re-render on every
- * scroll event. Use the exported functions below, not the store hook.
+ * This is the durable layer *behind* the in-memory position cache in
+ * `components/chat/timelineScrollAnchoring.ts`, which is the only caller: it
+ * mirrors writes here and falls back to a read here on a cold start, when the
+ * process-lifetime cache is empty. Nothing else should reach for these
+ * functions, and nothing subscribes to the store — it is read at mount and
+ * written on scroll, both imperative, so a React subscriber would re-render on
+ * every scroll event.
  */
 
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -29,6 +33,19 @@ export interface ThreadTimelinePosition {
    * nearest surviving row. Absent on positions saved before this was tracked.
    */
   readonly rowCreatedAt?: string | null;
+  /**
+   * Raw viewport offset, used to land somewhere sane when the anchored row is
+   * gone from the projection entirely. Absent on positions saved before the
+   * in-memory cache became the writer.
+   */
+  readonly scrollOffset?: number;
+  /**
+   * Whether the reader was at the live edge. A saved position is only ever
+   * mid-thread (the bottom is cleared, not stored), so this is `false` on
+   * everything this client writes; it exists because the in-memory cache
+   * models the bottom as a value rather than as absence.
+   */
+  readonly atEnd?: boolean;
 }
 
 interface PersistedThreadTimelinePositionStoreState {
