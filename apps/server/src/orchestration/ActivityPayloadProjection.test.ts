@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import { OrchestrationThreadActivity } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
 
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
@@ -342,5 +343,32 @@ describe("projectActivityPayload", () => {
     });
     const projected = projectActivityPayload(source);
     expect(projected.payload).toEqual(source.payload);
+  });
+
+  /**
+   * A rejected AskUserQuestion call persists a question object with no text.
+   * `payload` crosses the wire as `Schema.Unknown`, so a key set to `undefined`
+   * fails the encode for the whole thread snapshot — every message in the
+   * thread goes dark behind "Loading messages...", not just this row.
+   */
+  it("keeps a question projection encodable when the call carried no question text", () => {
+    const projected = projectActivityPayload(
+      activity({
+        itemType: "dynamic_tool_call",
+        status: "failed",
+        title: "Tool call",
+        data: {
+          toolName: "AskUserQuestion",
+          input: { questions: [{ header: "Repair route", options: [{ label: "Rebase" }] }] },
+        },
+      }),
+    );
+
+    const codec = Schema.toCodecJson(OrchestrationThreadActivity);
+    expect(() => Schema.encodeUnknownSync(codec)(projected)).not.toThrow();
+    expect(
+      (projected.payload as { data: { input: { questions: ReadonlyArray<unknown> } } }).data.input
+        .questions[0],
+    ).toEqual({});
   });
 });
