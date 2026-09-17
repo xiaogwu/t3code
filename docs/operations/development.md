@@ -130,6 +130,24 @@ export check's workspace selectors as more workspaces become clean. Review calle
 deleting code; production mode can also report development scripts and test fixtures.
 Runtime-discovered entrypoints and dependency exceptions belong in [knip.jsonc](../../knip.jsonc).
 
+### Replaying real state
+
+Typecheck and the unit suite cannot see a build that no longer reads state an earlier build wrote —
+a message role missing from the contract union, or a projection that puts `undefined` where the
+wire schema wants JSON. Both have shipped, and both blank a whole thread rather than one row.
+[readPathReplay.test.ts](../../apps/server/src/orchestration/readPathReplay.test.ts) is the gate:
+it replays a real database through the event decoder, the activity projection, and the message
+decoder, and names any row this build cannot carry. It skips unless pointed at a snapshot, so run
+it before staging a build you intend to use:
+
+```sh
+bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '/tmp/replay/state.sqlite'\")"
+T3CODE_REPLAY_STATE_DB=/tmp/replay/state.sqlite vp test run apps/server/src/orchestration/readPathReplay.test.ts
+```
+
+`VACUUM INTO` is safe while a server holds the source open; a plain `cp` of a live database is a
+corrupt copy. Never point the test at `~/.t3/userdata` itself.
+
 ## Desktop artifacts
 
 Local artifact builds are unsigned by default and write to `release/`:
