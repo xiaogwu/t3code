@@ -3,6 +3,7 @@ import {
   ApprovalRequestId,
   ChatAttachment,
   OrchestrationMessageContext,
+  OrchestrationMessageRole,
   CheckpointRef,
   IsoDateTime,
   MessageId,
@@ -118,12 +119,13 @@ const ProjectionReplyContext = Schema.Struct({
 const ProjectionReplyContextValue = Schema.Union([MessageReplyReference, ProjectionReplyContext]);
 // Spelled out rather than derived from `ProjectionThreadMessage`: the fork stores
 // reply context in one `reply_to_json` column, which has no matching field on the
-// projection row type.
+// projection row type. `role` still comes from the contract rather than a literal
+// list, so a role added upstream cannot silently fail to decode here.
 const ProjectionThreadMessageDbRowSchema = Schema.Struct({
   messageId: MessageId,
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
-  role: Schema.Literals(["user", "assistant", "system"]),
+  role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
   replyToContext: Schema.NullOr(Schema.fromJsonString(ProjectionReplyContextValue)),
