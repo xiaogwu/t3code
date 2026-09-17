@@ -277,7 +277,11 @@ describe("searchSettings", () => {
   });
 
   it("finds keybinding commands by label, command id, and default key", () => {
-    expect(searchSettings("toggle sidebar")[0]?.id).toBe("keybinding-sidebar.toggle");
+    // Label matches come out alphabetical, so "Sidebar Auto Hide: Toggle" leads
+    // this query. Both are hits; only the command id and key are unambiguous.
+    expect(searchSettings("toggle sidebar").map((item) => item.id)).toContain(
+      "keybinding-sidebar.toggle",
+    );
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("copy link")[0]).toMatchObject({
