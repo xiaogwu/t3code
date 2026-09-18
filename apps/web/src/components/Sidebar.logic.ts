@@ -957,25 +957,21 @@ export function sortThreadsForSidebar<
   },
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
   const activeOrder = sortActiveThreadsByOrderKey(threads);
-  const arrangedIndex = activeOrder.findIndex((thread) => thread.activeOrderKey != null);
-  const unarrangedEnd = arrangedIndex === -1 ? activeOrder.length : arrangedIndex;
-  const unarranged =
-    sortOrder === "created_at"
-      ? activeOrder.slice(0, unarrangedEnd)
-      : activeOrder
-          .slice(0, unarrangedEnd)
-          .toSorted(
-            (left, right) =>
-              getThreadSortTimestamp(
-                { ...right, updatedAt: right.updatedAt ?? right.createdAt },
-                sortOrder,
-              ) -
-                getThreadSortTimestamp(
-                  { ...left, updatedAt: left.updatedAt ?? left.createdAt },
-                  sortOrder,
-                ) || left.id.localeCompare(right.id),
-          );
-  return [...unarranged, ...activeOrder.slice(unarrangedEnd)];
+  if (sortOrder === "created_at") return activeOrder;
+
+  const timestamps = new Map(
+    activeOrder.map((thread) => [
+      thread,
+      getThreadSortTimestamp(
+        { ...thread, updatedAt: thread.updatedAt ?? thread.createdAt },
+        sortOrder,
+      ),
+    ]),
+  );
+  return activeOrder.toSorted(
+    (left, right) =>
+      timestamps.get(right)! - timestamps.get(left)! || left.id.localeCompare(right.id),
+  );
 }
 
 // Pinned-reorder key math and the keyed sort live in client-runtime

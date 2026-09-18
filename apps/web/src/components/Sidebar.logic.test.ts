@@ -968,11 +968,13 @@ describe("sortThreadsForSidebar", () => {
     createdAt: string;
     updatedAt?: string;
     latestUserMessageAt?: string | null;
+    activeOrderKey?: string | null;
   }) => ({
     id: input.id,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt ?? input.createdAt,
     latestUserMessageAt: input.latestUserMessageAt ?? null,
+    activeOrderKey: input.activeOrderKey ?? null,
   });
 
   it("orders by creation time, newest first, ignoring activity", () => {
@@ -989,15 +991,19 @@ describe("sortThreadsForSidebar", () => {
   });
 
   it("breaks creation-time ties by id so the order is stable", () => {
-    const sorted = sortThreadsForSidebar(
-      [
-        sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
-        sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
-      ],
-      "created_at",
-    );
+    const threads = [
+      sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
+      sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
+    ];
 
-    expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+    expect(sortThreadsForSidebar(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 
   it("orders by latest user message when the sort order is updated_at", () => {
@@ -1028,6 +1034,81 @@ describe("sortThreadsForSidebar", () => {
       "stale",
       "chatty",
       "quiet",
+    ]);
+  });
+
+  it("reorders keyed peers by latest user message when the sort order is updated_at", () => {
+    const threads = [
+      sortable({
+        id: "older-keyed",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "newer-keyed",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "newer-keyed",
+      "older-keyed",
+    ]);
+  });
+
+  it("moves a keyed thread to the top when its latest user message changes", () => {
+    const threads = [
+      sortable({
+        id: "first",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "second",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "second",
+      "first",
+    ]);
+    const updated = threads.map((thread) =>
+      thread.id === "first"
+        ? { ...thread, latestUserMessageAt: "2026-03-09T11:00:00.000Z" }
+        : thread,
+    );
+    expect(sortThreadsForSidebar(updated, "updated_at").map((thread) => thread.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("preserves manual active order when the sort order is created_at", () => {
+    const threads = [
+      sortable({
+        id: "manual-first",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "manual-second",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "manual-first",
+      "manual-second",
     ]);
   });
 
