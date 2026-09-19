@@ -7,9 +7,7 @@ import * as Struct from "effect/Struct";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
-  DeleteProjectionThreadInput,
   GetProjectionThreadInput,
-  ListProjectionThreadsByProjectInput,
   ProjectionThread,
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
@@ -24,7 +22,6 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
   }),
 );
-type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
 
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -212,67 +209,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
-  const listProjectionThreadRows = SqlSchema.findAll({
-    Request: ListProjectionThreadsByProjectInput,
-    Result: ProjectionThreadDbRow,
-    execute: ({ projectId }) =>
-      sql`
-        SELECT
-          thread_id AS "threadId",
-          project_id AS "projectId",
-          title,
-          title_state_json AS "titleState",
-          model_selection_json AS "modelSelection",
-          runtime_mode AS "runtimeMode",
-          interaction_mode AS "interactionMode",
-          branch,
-          worktree_path AS "worktreePath",
-          parent_thread_id AS "parentThreadId",
-          parent_turn_id AS "parentTurnId",
-          spawn_key AS "spawnKey",
-          linked_pull_request_json AS "linkedPullRequest",
-          branch_pull_request_json AS "branchPullRequest",
-          latest_turn_id AS "latestTurnId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          settled_override AS "settledOverride",
-          settled_at AS "settledAt",
-          unsettled_at AS "unsettledAt",
-          agent_settle_turn_id AS "agentSettleTurnId",
-          agent_settle_requested_at AS "agentSettleRequestedAt",
-          agent_settle_reason AS "agentSettleReason",
-          snoozed_until AS "snoozedUntil",
-          snoozed_at AS "snoozedAt",
-          snoozed_turn_id AS "snoozedTurnId",
-          pinned_at AS "pinnedAt",
-          pin_order_key AS "pinOrderKey",
-          active_order_key AS "activeOrderKey",
-          title_regeneration_request_id AS "titleRegenerationRequestId",
-          title_regeneration_started_at AS "titleRegenerationStartedAt",
-          title_provenance AS "titleProvenance",
-          title_protected_prefix AS "titleProtectedPrefix",
-          title_turns_since_policy_eval AS "titleTurnsSincePolicyEval",
-          latest_user_message_at AS "latestUserMessageAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          has_actionable_proposed_plan AS "hasActionableProposedPlan",
-          deleted_at AS "deletedAt"
-        FROM projection_threads
-        WHERE project_id = ${projectId}
-        ORDER BY created_at ASC, thread_id ASC
-      `,
-  });
-
-  const deleteProjectionThreadRow = SqlSchema.void({
-    Request: DeleteProjectionThreadInput,
-    execute: ({ threadId }) =>
-      sql`
-        DELETE FROM projection_threads
-        WHERE thread_id = ${threadId}
-      `,
-  });
-
   const upsert: ProjectionThreadRepositoryShape["upsert"] = (row) =>
     upsertProjectionThreadRow(row).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.upsert:query")),
@@ -283,21 +219,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
     );
 
-  const listByProjectId: ProjectionThreadRepositoryShape["listByProjectId"] = (input) =>
-    listProjectionThreadRows(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
-    );
-
-  const deleteById: ProjectionThreadRepositoryShape["deleteById"] = (input) =>
-    deleteProjectionThreadRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.deleteById:query")),
-    );
-
   return {
     upsert,
     getById,
-    listByProjectId,
-    deleteById,
   } satisfies ProjectionThreadRepositoryShape;
 });
 
