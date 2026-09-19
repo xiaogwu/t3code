@@ -1,4 +1,5 @@
 import { EnvironmentId } from "@t3tools/contracts";
+import { ListTodoIcon } from "lucide-react";
 import { act, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -168,6 +169,17 @@ describe("ChatMarkdown favicon privacy", () => {
       });
       expect(renderer!.root.findAllByType("img")).toHaveLength(0);
       expect(renderer!.root.findAllByType(GitHubIcon)).toHaveLength(1);
+      // The rem-open bridge is a loopback origin, so it never had a favicon to fetch; it gets a
+      // to-do mark rather than the globe every other private host falls back to.
+      await act(async () => {
+        renderer!.update(markdown("http://127.0.0.1:17429/open/token/reminder-uuid"));
+      });
+      expect(renderer!.root.findAllByType(ListTodoIcon)).toHaveLength(1);
+      // A different port on the same host is somebody's dev server, not the bridge.
+      await act(async () => {
+        renderer!.update(markdown("http://127.0.0.1:3000/open/token/reminder-uuid"));
+      });
+      expect(renderer!.root.findAllByType(ListTodoIcon)).toHaveLength(0);
     } finally {
       await act(async () => {
         renderer?.unmount();
