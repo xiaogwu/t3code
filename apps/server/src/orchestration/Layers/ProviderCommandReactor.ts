@@ -1097,7 +1097,7 @@ const make = Effect.gen(function* () {
     const matched = policy.enabled ? resolveTitlePolicyRule(message, policy.rules) : null;
     const generated =
       matched?.rule.titleTemplate !== undefined
-        ? { title: expandTitleTemplate(matched.rule.titleTemplate) }
+        ? { title: expandTitleTemplate(matched.rule.titleTemplate, thread.createdAt) }
         : yield* textGeneration
             .generateThreadTitle({
               cwd,

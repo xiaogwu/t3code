@@ -27,14 +27,32 @@ export function composeTitle(input: {
   return `${prefix}${truncatedDescription}`.trim();
 }
 
-/** Expand the small, deliberately fixed set of date variables allowed in policy templates. */
-export function expandTitleTemplate(template: string, now?: Date | number): string {
+/**
+ * Expand the small, deliberately fixed set of date variables allowed in policy
+ * templates, in the host's local timezone.
+ *
+ * `at` is the moment the title should describe, and callers with a thread in
+ * hand pass that thread's `createdAt` rather than letting this default to now.
+ * The policy re-evaluates every `refreshEveryTurns` turns and re-expands the
+ * template each time, so anchoring to thread start is what keeps a title still:
+ * `{now:HH:mm}` would otherwise tick forward mid-thread, and
+ * `{today:MM/DD/YYYY}` would flip on a thread that crosses midnight.
+ */
+export function expandTitleTemplate(template: string, at?: Date | number | string): string {
+  const instant = typeof at === "string" ? Date.parse(at) : at;
+  // A malformed timestamp must not become "Invalid Date" in a title.
+  const resolved = typeof instant === "number" && Number.isNaN(instant) ? undefined : instant;
   const date = new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     day: "2-digit",
     year: "numeric",
-  }).format(now);
-  return template.replaceAll("{today:MM/DD/YYYY}", date).trim();
+  }).format(resolved);
+  const time = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(resolved);
+  return template.replaceAll("{today:MM/DD/YYYY}", date).replaceAll("{now:HH:mm}", time).trim();
 }
 
 export function shouldEvaluateNow(input: {

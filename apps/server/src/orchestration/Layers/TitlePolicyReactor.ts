@@ -72,7 +72,9 @@ const make = Effect.gen(function* () {
             ? policy.defaults.maxCharacters
             : Math.max(10, policy.defaults.maxCharacters - protectedPrefix.length - 1);
         if (matched?.rule.titleTemplate !== undefined) {
-          rename = { title: expandTitleTemplate(matched.rule.titleTemplate) };
+          // Anchored to thread start so a re-evaluation four turns later
+          // reproduces the same title instead of stamping "now".
+          rename = { title: expandTitleTemplate(matched.rule.titleTemplate, thread.createdAt) };
         } else {
           const evaluation = yield* textGeneration.evaluateTitlePolicy({
             cwd: thread.worktreePath ?? process.cwd(),

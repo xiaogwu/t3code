@@ -55,6 +55,28 @@ describe("expandTitleTemplate", () => {
       "Oliver 08/31/2026",
     );
   });
+
+  it("stamps a zero-padded 24-hour local time so same-day runs get distinct titles", () => {
+    // Asserted as a shape and a difference rather than a literal, because the
+    // wall-clock reading of a fixed instant depends on the host timezone.
+    const earlier = expandTitleTemplate("Upgrade {now:HH:mm}", Date.UTC(2026, 7, 31, 9, 5));
+    const later = expandTitleTemplate("Upgrade {now:HH:mm}", Date.UTC(2026, 7, 31, 21, 35));
+    expect(earlier).toMatch(/^Upgrade (?:[01]\d|2[0-3]):[0-5]\d$/);
+    expect(later).toMatch(/^Upgrade (?:[01]\d|2[0-3]):[0-5]\d$/);
+    expect(later).not.toBe(earlier);
+  });
+
+  it("accepts an ISO timestamp so callers can anchor to a thread's createdAt", () => {
+    expect(expandTitleTemplate("Oliver {today:MM/DD/YYYY}", "2026-08-31T12:00:00.000Z")).toBe(
+      "Oliver 08/31/2026",
+    );
+  });
+
+  it("falls back to now rather than writing Invalid Date into a title", () => {
+    expect(expandTitleTemplate("Upgrade {today:MM/DD/YYYY}", "not-a-timestamp")).toMatch(
+      /^Upgrade \d{2}\/\d{2}\/\d{4}$/,
+    );
+  });
 });
 
 describe("shouldEvaluateNow", () => {
