@@ -385,6 +385,13 @@ export function toggleLegacySidebarPreference(currentlyEnabled: boolean): Client
   return { legacySidebarEnabled: !currentlyEnabled };
 }
 
+/** Toggle Sidebar V2 between its live recency list and stable board order. */
+export function toggleSidebarThreadSortPreference(
+  current: ClientSettings["sidebarV2ThreadSortOrder"],
+): ClientSettingsPatch {
+  return { sidebarV2ThreadSortOrder: current === "updated_at" ? "created_at" : "updated_at" };
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,

@@ -25,6 +25,7 @@ import {
   persistClientSettingsUpdate,
   resolveEnvironmentIdentificationMode,
   toggleLegacySidebarPreference,
+  toggleSidebarThreadSortPreference,
 } from "./useSettings";
 
 beforeEach(() => {
@@ -374,6 +375,17 @@ describe("toggleLegacySidebarPreference", () => {
   it("inverts the current sidebar choice", () => {
     expect(toggleLegacySidebarPreference(false)).toEqual({ legacySidebarEnabled: true });
     expect(toggleLegacySidebarPreference(true)).toEqual({ legacySidebarEnabled: false });
+  });
+});
+
+describe("toggleSidebarThreadSortPreference", () => {
+  it("switches between recency and stable creation order", () => {
+    expect(toggleSidebarThreadSortPreference("created_at")).toEqual({
+      sidebarV2ThreadSortOrder: "updated_at",
+    });
+    expect(toggleSidebarThreadSortPreference("updated_at")).toEqual({
+      sidebarV2ThreadSortOrder: "created_at",
+    });
   });
 });
 
