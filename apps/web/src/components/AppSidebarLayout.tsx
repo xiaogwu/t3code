@@ -20,6 +20,7 @@ import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import {
   toggleLegacySidebarPreference,
+  toggleSidebarThreadSortPreference,
   useClientSettings,
   useEnvironmentIdentificationMode,
   useLegacySidebarEnabled,
@@ -92,6 +93,7 @@ function SidebarControl() {
   );
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
   const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
+  const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarV2ThreadSortOrder);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -115,6 +117,7 @@ function SidebarControl() {
       if (
         command !== "sidebar.toggle" &&
         command !== "sidebar.version.toggle" &&
+        command !== "sidebar.sort.toggle" &&
         command !== "sidebarAutoHide.toggle"
       ) {
         return;
@@ -130,13 +133,24 @@ function SidebarControl() {
         void updateClientSettings({ sidebarAutoHide: !sidebarAutoHide });
         return;
       }
+      if (command === "sidebar.sort.toggle") {
+        void updateClientSettings(toggleSidebarThreadSortPreference(sidebarThreadSortOrder));
+        return;
+      }
       updateClientSettings(toggleLegacySidebarPreference(legacySidebarEnabled));
     };
 
     // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [keybindings, legacySidebarEnabled, sidebarAutoHide, toggleSidebar, updateClientSettings]);
+  }, [
+    keybindings,
+    legacySidebarEnabled,
+    sidebarAutoHide,
+    sidebarThreadSortOrder,
+    toggleSidebar,
+    updateClientSettings,
+  ]);
 
   return (
     // The right-side layout controls carry mr-px (border compensation inside

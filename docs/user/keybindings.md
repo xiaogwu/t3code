@@ -102,6 +102,9 @@ switches between the default sidebar and the legacy one, persists that choice lo
 defaults to `mod+alt+b` (`⌥⌘B` on macOS and `Ctrl+Alt+B` elsewhere). `rightPanel.toggle` defaults
 to `mod+shift+b`.
 
+`sidebar.sort.toggle` switches Sidebar V2 between **Last user message** and **Created at** order.
+It defaults to `mod+alt+s` (`⌥⌘S` on macOS and `Ctrl+Alt+S` elsewhere).
+
 `rightPanel.toggleMaximized` maximizes or restores the open right panel. It has no default shortcut,
 so add one in **Settings** → **Keybindings** if you want to use it.
 

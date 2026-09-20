@@ -21,6 +21,7 @@ type WhenToken =
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
   { key: "mod+alt+b", command: "sidebar.version.toggle" },
+  { key: "mod+alt+s", command: "sidebar.sort.toggle" },
   { key: "mod+j", command: "terminal.toggle" },
   { key: "mod+shift+t", command: "shell.openInTerminal", when: "!terminalFocus" },
   // Moved off mod+alt+b, which now switches sidebar versions.
