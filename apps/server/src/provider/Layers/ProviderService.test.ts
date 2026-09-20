@@ -4951,6 +4951,7 @@ describe("agent browser access", () => {
           readonly device: boolean;
           readonly settle?: boolean;
           readonly snooze?: boolean;
+          readonly rename?: boolean;
         },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
@@ -4974,6 +4975,8 @@ describe("agent browser access", () => {
         typeof access === "boolean" ? false : (access.settle ?? false);
       const enableAgentThreadSnooze =
         typeof access === "boolean" ? false : (access.snooze ?? false);
+      const enableAgentThreadRename =
+        typeof access === "boolean" ? false : (access.rename ?? false);
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
@@ -5056,6 +5059,7 @@ describe("agent browser access", () => {
               enableAgentDeviceAccess,
               enableAgentThreadSettle,
               enableAgentThreadSnooze,
+              enableAgentThreadRename,
               projectSettingsOverrides:
                 projectOverride === undefined
                   ? {}
@@ -5189,6 +5193,24 @@ describe("agent browser access", () => {
       assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
       assert.deepEqual(on, [
         { threadId: onThreadId, capabilities: ["pull-requests", "thread-snooze"] },
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("carries thread-rename only when agents may rename their own thread", () =>
+    Effect.gen(function* () {
+      const offThreadId = asThreadId("thread-rename-off");
+      const onThreadId = asThreadId("thread-rename-on");
+
+      const off = yield* startSessionWith({ browser: false, device: false }, offThreadId);
+      const on = yield* startSessionWith(
+        { browser: false, device: false, rename: true },
+        onThreadId,
+      );
+
+      assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(on, [
+        { threadId: onThreadId, capabilities: ["pull-requests", "thread-rename"] },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );

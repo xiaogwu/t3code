@@ -1,5 +1,6 @@
 import {
   AGENT_SETTLE_REASON_MAX_LENGTH,
+  AGENT_THREAD_TITLE_MAX_LENGTH,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -44,6 +45,7 @@ const TURN_ID = TurnId.make("turn-1");
 /** Settling is its own grant, so the settle cases opt into it explicitly. */
 const SETTLE_CAPABILITIES = ["threads", "thread-settle"] as const;
 const SNOOZE_CAPABILITIES = ["threads", "thread-snooze"] as const;
+const RENAME_CAPABILITIES = ["threads", "thread-rename"] as const;
 
 const runningSession: OrchestrationSession = {
   threadId: PARENT_ID,
@@ -422,6 +424,97 @@ describe("thread toolkit handlers", () => {
       expect(
         yield* harness.call("get_thread_status", { threadId: ThreadId.make("snoozed-child") }),
       ).toMatchObject({ snoozedUntil, snoozedAt });
+    }),
+  );
+
+  it.effect("refuses to rename without the thread-rename grant", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const error = yield* harness.call("rename_thread", { title: "New title" }).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "McpCapabilityUnavailableError",
+        capability: "thread-rename",
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("renames the calling thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: RENAME_CAPABILITIES });
+
+      expect(yield* harness.call("rename_thread", { title: "New title" })).toEqual({
+        threadId: PARENT_ID,
+        title: "New title",
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([
+        expect.objectContaining({
+          type: "thread.meta.update",
+          threadId: PARENT_ID,
+          title: "New title",
+        }),
+      ]);
+    }),
+  );
+
+  it.effect("renames a thread it spawned", () =>
+    Effect.gen(function* () {
+      const childId = ThreadId.make("rename-child");
+      const harness = yield* makeHarness({
+        capabilities: RENAME_CAPABILITIES,
+        initialChildren: [makeShell(childId, { parentThreadId: PARENT_ID })],
+      });
+
+      expect(
+        yield* harness.call("rename_thread", { threadId: childId, title: "New title" }),
+      ).toEqual({ threadId: childId, title: "New title" });
+      expect(yield* Ref.get(harness.commands)).toEqual([
+        expect.objectContaining({
+          type: "thread.meta.update",
+          threadId: childId,
+          title: "New title",
+        }),
+      ]);
+    }),
+  );
+
+  it.effect("refuses to rename a thread it did not spawn", () =>
+    Effect.gen(function* () {
+      const otherId = ThreadId.make("not-my-child");
+      const harness = yield* makeHarness({
+        capabilities: RENAME_CAPABILITIES,
+        initialChildren: [makeShell(otherId)],
+      });
+
+      const error = yield* harness
+        .call("rename_thread", { threadId: otherId, title: "New title" })
+        .pipe(Effect.flip);
+
+      expect(error).toMatchObject({ _tag: "ThreadNotOwnedError", threadId: otherId });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("truncates an over-long title", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: RENAME_CAPABILITIES });
+      const longTitle = "x".repeat(AGENT_THREAD_TITLE_MAX_LENGTH + 40);
+
+      const result = yield* harness.call("rename_thread", { title: longTitle });
+
+      expect(result.title).toBe(longTitle.slice(0, AGENT_THREAD_TITLE_MAX_LENGTH));
+      expect(result.title).toHaveLength(AGENT_THREAD_TITLE_MAX_LENGTH);
+    }),
+  );
+
+  it.effect("dispatches nothing when the title is unchanged", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ capabilities: RENAME_CAPABILITIES });
+
+      const result = yield* harness.call("rename_thread", { title: "Parent" });
+
+      expect(result).toEqual({ threadId: PARENT_ID, title: "Parent" });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
     }),
   );
 

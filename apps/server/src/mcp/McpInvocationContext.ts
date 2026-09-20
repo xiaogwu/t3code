@@ -14,7 +14,8 @@ export type McpCapability =
   | "pull-requests"
   | "threads"
   | "thread-settle"
-  | "thread-snooze";
+  | "thread-snooze"
+  | "thread-rename";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;

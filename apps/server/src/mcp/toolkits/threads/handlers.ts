@@ -2,6 +2,7 @@ import * as NodeCrypto from "node:crypto";
 
 import {
   AGENT_SETTLE_REASON_MAX_LENGTH,
+  AGENT_THREAD_TITLE_MAX_LENGTH,
   CommandId,
   EventId,
   MessageId,
@@ -30,6 +31,8 @@ import { ServerConfig } from "../../../config.ts";
 import { WorkspacePaths } from "../../../workspace/WorkspacePaths.ts";
 import {
   type ListChildThreadsInput,
+  type RenameThreadInput,
+  type RenameThreadResult,
   type SendThreadMessageInput,
   type SnoozeThreadInput,
   type SnoozeThreadResult,
@@ -532,6 +535,42 @@ const make = Effect.gen(function* () {
       return { threadId: scope.threadId, snoozedUntil: null } satisfies SnoozeThreadResult;
     });
 
+  const renameThread = (input: RenameThreadInput) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-rename");
+      const targetId = input.threadId ?? scope.threadId;
+      // Own thread reads its shell directly; any other threadId must be a
+      // child of this thread, which requireChild enforces (ownership ->
+      // ThreadNotOwnedError).
+      const thread =
+        targetId === scope.threadId
+          ? yield* snapshots.getThreadShellById(scope.threadId).pipe(
+              Effect.map(Option.getOrUndefined),
+              Effect.mapError(() => new ThreadNotFoundError({ threadId: scope.threadId })),
+            )
+          : yield* requireChild(targetId);
+      if (thread === undefined) return yield* new ThreadNotFoundError({ threadId: targetId });
+      const title = input.title.trim().slice(0, AGENT_THREAD_TITLE_MAX_LENGTH);
+      // A rename to the current title is a noop, matching the sidebar and
+      // chat header's own inline rename rule (resolveRenameCommit).
+      if (title === thread.title) return { threadId: targetId, title } satisfies RenameThreadResult;
+      yield* engine
+        .dispatch({
+          type: "thread.meta.update",
+          // Retrying the same rename is deduped; a rename to a different
+          // title is not, since the hash changes with the title.
+          commandId: CommandId.make(
+            `mcp:threads:rename:${targetId}:${NodeCrypto.createHash("sha256").update(title).digest("hex").slice(0, 12)}`,
+          ),
+          threadId: targetId,
+          title,
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      return { threadId: targetId, title } satisfies RenameThreadResult;
+    });
+
   const waitForThread = (input: WaitForThreadInput) =>
     Effect.gen(function* () {
       const initial = yield* getStatus(input.threadId);
@@ -569,6 +608,7 @@ const make = Effect.gen(function* () {
     settle_thread: settleThread,
     snooze_thread: snoozeThread,
     unsnooze_thread: unsnoozeThread,
+    rename_thread: renameThread,
     start_thread: startThread,
     list_child_threads: listChildren,
     get_thread_status: (input) => getStatus(input.threadId),

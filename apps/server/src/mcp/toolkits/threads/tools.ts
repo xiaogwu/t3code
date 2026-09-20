@@ -1,4 +1,5 @@
 import {
+  AGENT_THREAD_TITLE_MAX_LENGTH,
   ChatAttachment,
   IsoDateTime,
   McpCapabilityUnavailableError,
@@ -139,6 +140,25 @@ export const SnoozeThreadResult = Schema.Struct({
 });
 export type SnoozeThreadResult = typeof SnoozeThreadResult.Type;
 
+export const RenameThreadInput = Schema.Struct({
+  title: TrimmedNonEmptyString.annotate({
+    description: `The new title. A short human title is best -- the automatic title policy's own default is 50 characters. Truncated past ${AGENT_THREAD_TITLE_MAX_LENGTH} characters.`,
+  }),
+  threadId: Schema.optional(
+    ThreadId.annotate({
+      description:
+        "Omit to rename this thread; otherwise a thread this thread started with start_thread.",
+    }),
+  ),
+});
+export type RenameThreadInput = typeof RenameThreadInput.Type;
+
+export const RenameThreadResult = Schema.Struct({
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString,
+});
+export type RenameThreadResult = typeof RenameThreadResult.Type;
+
 export class ThreadDelegationFailedError extends Schema.TaggedError<ThreadDelegationFailedError>()(
   "ThreadDelegationFailedError",
   { message: Schema.String },
@@ -235,6 +255,20 @@ const UnsnoozeThreadTool = Tool.make("unsnooze_thread", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const RenameThreadTool = Tool.make("rename_thread", {
+  description:
+    "Rename this thread, or a thread this thread started with start_thread. Use this when the auto-generated title no longer fits the work.",
+  parameters: RenameThreadInput,
+  success: RenameThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Rename thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const StartThreadTool = Tool.make("start_thread", {
   description:
     "Start separate top-level work in this T3 environment. The child is immediately started and remains visible as a separate thread; use list_child_threads or wait_for_thread to coordinate. This tool does not resume the parent automatically.",
@@ -306,6 +340,7 @@ export const ThreadsToolkit = Toolkit.make(
   SettleThreadTool,
   SnoozeThreadTool,
   UnsnoozeThreadTool,
+  RenameThreadTool,
   StartThreadTool,
   ListChildThreadsTool,
   GetThreadStatusTool,

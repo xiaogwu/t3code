@@ -58,6 +58,11 @@ export function useAvailableSettingsSearchItems() {
             environment.connection.phase === "connected" &&
             environment.serverConfig?.environment.capabilities.threadSnooze === true,
         ),
+        hasAgentThreadRename: environments.some(
+          (environment) =>
+            environment.connection.phase === "connected" &&
+            environment.serverConfig?.environment.capabilities.agentThreadRename === true,
+        ),
       }),
     [
       canManageLocalBackend,

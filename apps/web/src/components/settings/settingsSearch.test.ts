@@ -160,6 +160,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     });
 
     const gatedIds = new Set<string>([
@@ -178,6 +179,7 @@ describe("searchSettings", () => {
       "days-before-auto-settle",
       "agent-thread-settle",
       "agent-thread-snooze",
+      "agent-thread-rename",
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
@@ -192,6 +194,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     };
     const remoteOnly = filterAvailableSettingsSearchItems({
       ...availability,
@@ -216,6 +219,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: true,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     });
 
     expect(searchSettings("auto-settle", available).map((item) => item.id)).toEqual([
@@ -235,6 +239,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     };
 
     expect(
@@ -260,6 +265,7 @@ describe("searchSettings", () => {
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
+      hasAgentThreadRename: false,
     };
 
     expect(
@@ -272,6 +278,33 @@ describe("searchSettings", () => {
       searchSettings(
         "snooze their thread",
         filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadSnooze: false }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("shows agent thread renaming only on servers that support it", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: false,
+      hasProviderSettingsEnvironment: false,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+      hasAgentThreadSettle: false,
+      hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
+    };
+
+    expect(
+      searchSettings(
+        "rename their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadRename: true }),
+      ).map((item) => item.id),
+    ).toEqual(["agent-thread-rename"]);
+    expect(
+      searchSettings(
+        "rename their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadRename: false }),
       ),
     ).toEqual([]);
   });
@@ -399,6 +432,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: true,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     });
     expect(searchSettings("writing style", available)[0]?.id).toBe("source-control-writing-style");
     expect(searchSettings("auto-settle", available)).toHaveLength(3);
@@ -495,6 +529,7 @@ describe("auto-settlement search availability", () => {
       hasThreadAutoSettlement: availability.eligibleEnvironmentIds.length > 0,
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     });
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
       "auto-settle-inactive-threads",
