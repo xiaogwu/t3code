@@ -318,6 +318,9 @@ describe("searchSettings", () => {
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("sidebar.sort.toggle")[0]?.id).toBe("keybinding-sidebar.sort.toggle");
+    expect(searchSettings("thread sort order").map((item) => item.id)).toContain(
+      "keybinding-sidebar.sort.toggle",
+    );
     expect(searchSettings("mod+alt+s").map((item) => item.id)).toContain(
       "keybinding-sidebar.sort.toggle",
     );
