@@ -789,6 +789,10 @@ export const AgentSettleReason = TrimmedNonEmptyString.check(Schema.isMaxLength(
 export type AgentSettleReason = typeof AgentSettleReason.Type;
 export const AGENT_SETTLE_REASON_MAX_LENGTH = 200;
 
+// Matches the slice `start_thread` already uses for a delegated thread's
+// title; the MCP handler truncates a rename request to the same length.
+export const AGENT_THREAD_TITLE_MAX_LENGTH = 120;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,

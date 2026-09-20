@@ -2205,6 +2205,11 @@ export function GeneralSettingsPanel() {
     connectedEnvironments.every(
       (target) => target.serverConfig?.environment.capabilities.threadSnooze === true,
     );
+  const supportsAgentThreadRename =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every(
+      (target) => target.serverConfig?.environment.capabilities.agentThreadRename === true,
+    );
   const supportsRestartContinuation =
     connectedEnvironments.length > 0 &&
     connectedEnvironments.every(
@@ -2529,6 +2534,22 @@ export function GeneralSettingsPanel() {
                   updateSettings({ enableAgentThreadSnooze: Boolean(checked) })
                 }
                 aria-label="Let agents snooze their thread"
+              />
+            }
+          />
+        ) : null}
+        {supportsAgentThreadRename ? (
+          <SettingsRow
+            serverScoped
+            {...searchableSetting("agent-thread-rename")}
+            description="Agents may rename their own thread, or a thread they started, when the auto-generated title no longer fits the work."
+            control={
+              <Switch
+                checked={settings.enableAgentThreadRename}
+                onCheckedChange={(checked) =>
+                  updateSettings({ enableAgentThreadRename: Boolean(checked) })
+                }
+                aria-label="Let agents rename their thread"
               />
             }
           />

@@ -1202,6 +1202,14 @@ export const ServerSettings = Schema.Struct({
    */
   enableAgentThreadSnooze: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * Whether an agent may rename its own thread (or a thread it spawned).
+   * Gates the `rename_thread` MCP tool. Per-environment like
+   * `enableAgentThreadSettle`: letting agents relabel threads is a trust
+   * decision about this machine's agents, not a preference to sync between
+   * clients.
+   */
+  enableAgentThreadRename: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
    * not also grant providers control of simulators and emulators.
@@ -1549,6 +1557,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentThreadSettle: Schema.optionalKey(Schema.Boolean),
   enableAgentThreadSnooze: Schema.optionalKey(Schema.Boolean),
+  enableAgentThreadRename: Schema.optionalKey(Schema.Boolean),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

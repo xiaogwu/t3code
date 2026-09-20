@@ -66,6 +66,7 @@ export interface SettingsSearchItem {
   readonly requiresThreadAutoSettlement?: boolean;
   readonly requiresAgentThreadSettle?: boolean;
   readonly requiresAgentThreadSnooze?: boolean;
+  readonly requiresAgentThreadRename?: boolean;
 }
 
 export interface SettingsSearchAvailability {
@@ -78,6 +79,7 @@ export interface SettingsSearchAvailability {
   readonly hasThreadAutoSettlement: boolean;
   readonly hasAgentThreadSettle: boolean;
   readonly hasAgentThreadSnooze: boolean;
+  readonly hasAgentThreadRename: boolean;
 }
 
 /**
@@ -319,6 +321,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     searchTerms: ["mcp tool snooze_thread unsnooze_thread inbox permission duration"],
     requiresAgentThreadSnooze: true,
+  },
+  {
+    id: "agent-thread-rename",
+    title: "Let agents rename their thread",
+    to: "/settings/general",
+    searchTerms: ["mcp tool rename_thread title permission"],
+    requiresAgentThreadRename: true,
   },
   {
     id: "external-terminal",
@@ -978,7 +987,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
       (!item.requiresAgentThreadSettle || availability.hasAgentThreadSettle) &&
-      (!item.requiresAgentThreadSnooze || availability.hasAgentThreadSnooze),
+      (!item.requiresAgentThreadSnooze || availability.hasAgentThreadSnooze) &&
+      (!item.requiresAgentThreadRename || availability.hasAgentThreadRename),
   );
 }
 
