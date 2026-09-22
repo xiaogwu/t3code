@@ -332,7 +332,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           // rail, so there is no longer an `icon` mode to lose the race against.
           collapsible="offcanvas"
           data-app-sidebar=""
-          className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+          className="border-r border-sidebar-border"
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: THREAD_SIDEBAR_MIN_WIDTH,
