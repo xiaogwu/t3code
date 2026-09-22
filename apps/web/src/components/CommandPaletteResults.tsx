@@ -16,7 +16,6 @@ import {
   CommandShortcut,
 } from "./ui/command";
 import { THREAD_SEARCH_MATCH_EXCERPT_CLASS, ThreadSearchMatchContent } from "./ThreadSearchMatch";
-import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export function isCommandPaletteTextOverflowing(
@@ -186,10 +185,8 @@ function CommandPaletteResultRow(props: {
   return (
     <CommandItem
       value={props.item.value}
-      className={cn(
-        "cursor-pointer gap-2 hover:bg-transparent hover:text-inherit data-highlighted:bg-transparent data-highlighted:text-inherit data-selected:bg-transparent data-selected:text-inherit [&[data-highlighted][data-selected]]:bg-transparent [&[data-highlighted][data-selected]]:text-inherit",
-        props.isActive && "bg-accent! text-accent-foreground!",
-      )}
+      active={props.isActive}
+      className="gap-2"
       onMouseDown={(event) => {
         event.preventDefault();
       }}

@@ -70,7 +70,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         <SidebarBrand onBackdrop={backdropVariant !== null} />
         {pillLabel ? (
           <Badge
-            className="ml-1 hidden shrink-0 rounded-full px-1.5 text-muted-foreground @[7rem]/sidebar-title:inline-flex"
+            className="ml-1 hidden @[7rem]/sidebar-title:inline-flex"
             data-environment-identification="pill"
             size="sm"
             variant="secondary"
