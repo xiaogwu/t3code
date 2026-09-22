@@ -470,6 +470,45 @@ it.effect("refines unknown self-hosted GitLab projects before listing merge requ
   }),
 );
 
+it.effect(
+  "resolves a GitHub Enterprise project refined from unknown, instead of provider-unsupported",
+  () =>
+    Effect.gen(function* () {
+      // This is the actual reported symptom: a GitHub Enterprise Server remote lands on
+      // `unknown` because hostname matching cannot see it, and the PR panel used to fail
+      // with `provider-unsupported` because nothing claimed the host during refinement.
+      const enterprise = project({
+        id: "p1",
+        title: "enterprise",
+        workspaceRoot: "/ghes",
+        repository: "acme/web",
+        provider: "unknown",
+        host: "git.example.edu",
+      });
+      const service = yield* makeService({
+        projects: [enterprise],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequestSummary: () => Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z")),
+          }),
+        ],
+        resolveHandle: ({ context }) =>
+          Effect.succeed({
+            context: { ...context!, provider: { ...context!.provider, kind: "github" } },
+            provider: undefined as never,
+          }),
+      });
+
+      const summary = yield* service.summary(
+        { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 },
+        { recoverTransientFailure: false },
+      );
+
+      assert.strictEqual(summary.provider, "github");
+      assert.strictEqual(summary.number, 1);
+    }),
+);
+
 it.effect("derives a legacy repository host after refining its provider", () =>
   Effect.gen(function* () {
     const current = project({
