@@ -545,6 +545,45 @@ export function buildBulkUnpinContextMenuItem(input: {
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
 }
 
+export interface BulkCopyValues {
+  paths: readonly string[];
+  branches: readonly string[];
+  threadIds: readonly string[];
+}
+
+/** Collects copy values in sidebar order; paths and branches are de-duplicated. */
+export function collectBulkCopyValues(
+  threads: readonly { id: string; branch: string | null; workspacePath: string | null }[],
+): BulkCopyValues {
+  const paths = new Set<string>();
+  const branches = new Set<string>();
+  const threadIds: string[] = [];
+  for (const thread of threads) {
+    if (thread.workspacePath !== null) paths.add(thread.workspacePath);
+    if (thread.branch !== null) branches.add(thread.branch);
+    threadIds.push(thread.id);
+  }
+  return { paths: [...paths], branches: [...branches], threadIds };
+}
+
+/** Returns null only if every list is empty (not possible in practice: threadIds is never empty). */
+export function buildBulkCopyContextMenuItem(
+  values: BulkCopyValues,
+): ContextMenuItem<"copy" | "copy-paths" | "copy-branches" | "copy-thread-ids"> | null {
+  const children: ContextMenuItem<"copy-paths" | "copy-branches" | "copy-thread-ids">[] = [];
+  if (values.paths.length > 0) {
+    children.push({ id: "copy-paths", label: `Paths (${values.paths.length})` });
+  }
+  if (values.branches.length > 0) {
+    children.push({ id: "copy-branches", label: `Branches (${values.branches.length})` });
+  }
+  if (values.threadIds.length > 0) {
+    children.push({ id: "copy-thread-ids", label: `Thread IDs (${values.threadIds.length})` });
+  }
+  if (children.length === 0) return null;
+  return { id: "copy", label: "Copy", separatorBefore: true, children };
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
