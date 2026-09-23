@@ -7,9 +7,11 @@ import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   archiveSelectedThreadEntries,
+  buildBulkCopyContextMenuItem,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
+  collectBulkCopyValues,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -305,6 +307,110 @@ describe("buildBulkUnpinContextMenuItem", () => {
 
   it("omits the action when nothing selected is pinned", () => {
     expect(buildBulkUnpinContextMenuItem({ pinnedCount: 0 })).toBeNull();
+  });
+});
+
+describe("collectBulkCopyValues", () => {
+  it("de-duplicates paths and branches while keeping first-appearance order", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: "main", workspacePath: "/repo/a" },
+        { id: "t2", branch: "main", workspacePath: "/repo/b" },
+        { id: "t3", branch: "feature", workspacePath: "/repo/a" },
+      ]),
+    ).toEqual({
+      paths: ["/repo/a", "/repo/b"],
+      branches: ["main", "feature"],
+      threadIds: ["t1", "t2", "t3"],
+    });
+  });
+
+  it("skips threads with no branch", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: "/repo/a" },
+        { id: "t2", branch: "main", workspacePath: "/repo/b" },
+      ]),
+    ).toEqual({
+      paths: ["/repo/a", "/repo/b"],
+      branches: ["main"],
+      threadIds: ["t1", "t2"],
+    });
+  });
+
+  it("returns no branches when nothing selected has one", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: "/repo/a" },
+        { id: "t2", branch: null, workspacePath: "/repo/b" },
+      ]).branches,
+    ).toEqual([]);
+  });
+
+  it("returns no paths when every thread has a null path", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: "main", workspacePath: null },
+        { id: "t2", branch: "feature", workspacePath: null },
+      ]).paths,
+    ).toEqual([]);
+  });
+
+  it("always counts every thread for thread IDs", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: null },
+        { id: "t2", branch: null, workspacePath: null },
+      ]).threadIds,
+    ).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("buildBulkCopyContextMenuItem", () => {
+  it("includes a child with the distinct count for each non-empty list", () => {
+    expect(
+      buildBulkCopyContextMenuItem({
+        paths: ["/repo/a", "/repo/b"],
+        branches: ["main"],
+        threadIds: ["t1", "t2", "t3"],
+      }),
+    ).toEqual({
+      id: "copy",
+      label: "Copy",
+      separatorBefore: true,
+      children: [
+        { id: "copy-paths", label: "Paths (2)" },
+        { id: "copy-branches", label: "Branches (1)" },
+        { id: "copy-thread-ids", label: "Thread IDs (3)" },
+      ],
+    });
+  });
+
+  it("omits Branches when no thread has a branch", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: ["/repo/a"],
+      branches: [],
+      threadIds: ["t1"],
+    });
+    expect(item?.children?.some((child) => child.id === "copy-branches")).toBe(false);
+  });
+
+  it("omits Paths when every thread has a null path", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: [],
+      branches: ["main"],
+      threadIds: ["t1"],
+    });
+    expect(item?.children?.some((child) => child.id === "copy-paths")).toBe(false);
+  });
+
+  it("always includes Thread IDs with the total selected count", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: [],
+      branches: [],
+      threadIds: ["t1", "t2"],
+    });
+    expect(item?.children).toEqual([{ id: "copy-thread-ids", label: "Thread IDs (2)" }]);
   });
 });
 

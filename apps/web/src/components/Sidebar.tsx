@@ -157,8 +157,10 @@ import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
+  buildBulkCopyContextMenuItem,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
+  collectBulkCopyValues,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
@@ -2255,6 +2257,27 @@ export default function Sidebar() {
       );
     },
   });
+  const { copyToClipboard: copyBulkValuesToClipboard } = useCopyToClipboard<{
+    noun: string;
+    pluralNoun: string;
+    count: number;
+  }>({
+    onCopy: ({ noun, pluralNoun, count }) => {
+      toastManager.add({
+        type: "success",
+        title: `Copied ${count} ${count === 1 ? noun : pluralNoun}`,
+      });
+    },
+    onError: (error, { pluralNoun }) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: `Failed to copy ${pluralNoun}`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    },
+  });
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -3885,6 +3908,29 @@ export default function Sidebar() {
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      // Copy follows sidebar order, not selection order — a range select can
+      // land in the selection Set in an order that doesn't match the rows.
+      const orderedThreadKeyIndex = new Map(
+        orderedThreadKeysRef.current.map((threadKey, index) => [threadKey, index]),
+      );
+      const orderedSelectedThreads = [...selectedThreads].sort(
+        (a, b) =>
+          (orderedThreadKeyIndex.get(scopedThreadKey(scopeThreadRef(a.environmentId, a.id))) ??
+            Infinity) -
+          (orderedThreadKeyIndex.get(scopedThreadKey(scopeThreadRef(b.environmentId, b.id))) ??
+            Infinity),
+      );
+      const copyValues = collectBulkCopyValues(
+        orderedSelectedThreads.map((thread) => ({
+          id: thread.id,
+          branch: thread.branch,
+          workspacePath:
+            thread.worktreePath ??
+            projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
+            null,
+        })),
+      );
+      const copyMenuItem = buildBulkCopyContextMenuItem(copyValues);
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
       // The native menu renders outside our DOM entirely; hold the peeked
       // panel open for as long as it's up.
@@ -3913,6 +3959,7 @@ export default function Sidebar() {
               allUnread
                 ? { id: "mark-read", label: `Mark read (${count})` }
                 : { id: "mark-unread", label: `Mark unread (${count})` },
+              ...(copyMenuItem ? [copyMenuItem] : []),
               { id: "delete", label: `Delete (${count})`, destructive: true },
             ],
             position,
@@ -4035,6 +4082,32 @@ export default function Sidebar() {
         clearSelection();
         return;
       }
+      // Copy is read-only: it doesn't clear the selection, since the user may
+      // want to run another bulk action on the same rows next.
+      if (clicked.value === "copy-paths") {
+        copyBulkValuesToClipboard(copyValues.paths.join("\n"), {
+          noun: "path",
+          pluralNoun: "paths",
+          count: copyValues.paths.length,
+        });
+        return;
+      }
+      if (clicked.value === "copy-branches") {
+        copyBulkValuesToClipboard(copyValues.branches.join("\n"), {
+          noun: "branch",
+          pluralNoun: "branches",
+          count: copyValues.branches.length,
+        });
+        return;
+      }
+      if (clicked.value === "copy-thread-ids") {
+        copyBulkValuesToClipboard(copyValues.threadIds.join("\n"), {
+          noun: "thread ID",
+          pluralNoun: "thread IDs",
+          count: copyValues.threadIds.length,
+        });
+        return;
+      }
       if (clicked.value !== "delete") return;
       if (confirmThreadDelete) {
         const confirmed = await settlePromise(() =>
@@ -4080,10 +4153,12 @@ export default function Sidebar() {
       attemptUnpin,
       clearSelection,
       confirmThreadDelete,
+      copyBulkValuesToClipboard,
       deleteThread,
       markThreadManuallyUnread,
       markThreadRead,
       performSnooze,
+      projectByKey,
       removeFromSelection,
       serverConfigs,
       updateThreadMetadata,
