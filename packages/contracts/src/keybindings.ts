@@ -61,6 +61,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.version.toggle",
   "sidebar.sort.toggle",
   "sidebarAutoHide.toggle",
+  "navigation.back",
+  "navigation.forward",
   "terminal.toggle",
   "shell.openInTerminal",
   "terminal.split",

@@ -1,6 +1,5 @@
 import {
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
-  DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
   DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -13,7 +12,6 @@ const defaults: HomeListOptions = {
     DEFAULT_SIDEBAR_PROJECT_SORT_ORDER === "manual"
       ? "updated_at"
       : DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
-  threadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
   v2ThreadSortOrder: DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
 };
 
@@ -29,5 +27,11 @@ describe("home list options", () => {
     expect(
       hasCustomHomeListOptions({ ...defaults, selectedProjectKey: "environment-1:project-1" }),
     ).toBe(true);
+  });
+
+  it("marks a non-default v2 thread order as customized", () => {
+    const other =
+      DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER === "created_at" ? "updated_at" : "created_at";
+    expect(hasCustomHomeListOptions({ ...defaults, v2ThreadSortOrder: other })).toBe(true);
   });
 });

@@ -216,7 +216,7 @@ export function SnoozeDateTimePicker(props: {
       <PopoverPopup
         align="start"
         className="w-[min(34rem,calc(100vw-2rem))] rounded-lg"
-        viewportClassName="p-3"
+        padding="compact"
       >
         <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
           <div>

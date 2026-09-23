@@ -170,7 +170,6 @@ export function AssistantSelectionToolbar({
         variant="glass"
         disabled={tooLong}
         aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-        className="rounded-full px-2.5"
         onPointerDown={(event) => event.preventDefault()}
         onClick={cite}
       >
@@ -191,7 +190,6 @@ export function AssistantSelectionToolbar({
                 ? "Remove bookmark"
                 : "Bookmark selection"
           }
-          className="rounded-full px-2.5"
           onPointerDown={(event) => event.preventDefault()}
           onClick={toggleBookmark}
         >

@@ -124,6 +124,12 @@ Codex, Claude, and Antigravity CLI are on by default. Cursor, Grok Build, Apple 
 and managed Antigravity are off by default. Turn them on in **Settings** > **Providers** when you
 want to use them.
 
+T3 Code warns when a provider version has known compatibility problems with your
+release. Check **Settings → Providers** on that environment for the recommended
+version or range. When its package manager supports installing a specific version,
+you can install the recommendation there. Otherwise use the provider's installer
+on the environment's machine. An unlisted version is unverified.
+
 When a provider CLI is behind its latest release, its provider card shows the
 available version. **Update now** appears only when T3 Code can tell which
 installer owns the CLI (its own update command, Homebrew, or a global npm, pnpm,

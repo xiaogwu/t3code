@@ -1,14 +1,8 @@
 import type { MenuAction } from "@react-native-menu/menu";
-import { DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER } from "@t3tools/contracts";
 import { useCallback, useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { MaterialThreadListToolbar } from "./MaterialThreadListToolbar";
-import {
-  hasCustomHomeListOptions,
-  PROJECT_SORT_OPTIONS,
-  THREAD_SORT_OPTIONS,
-} from "./home-list-options";
+import { hasCustomHomeListOptions, THREAD_SORT_OPTIONS } from "./home-list-options";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -18,14 +12,9 @@ function checkedMenuState(checked: boolean) {
 }
 
 export function HomeHeader(props: HomeHeaderProps) {
-  // Thread List v2 ignores project sorting, but its thread sort remains
-  // meaningful and must still count as a customized list option.
-  const threadListV2Enabled = useThreadListV2Enabled();
-  const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null ||
-      props.selectedProjectKey !== null ||
-      props.v2ThreadSortOrder !== DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER
-    : hasCustomHomeListOptions(props);
+  // The list's project layout is fixed, but its thread sort (the fork's
+  // Sidebar v2 thread order) is meaningful and counts as a customized option.
+  const hasCustomListOptions = hasCustomHomeListOptions(props);
   const menuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -64,43 +53,22 @@ export function HomeHeader(props: HomeHeaderProps) {
               ],
             },
           ] satisfies MenuAction[])),
-      ...(threadListV2Enabled
-        ? []
-        : ([
-            {
-              id: "project-sort",
-              title: "Sort projects",
-              subactions: PROJECT_SORT_OPTIONS.map((option) => ({
-                id: `project-sort:${option.value}`,
-                title: option.label,
-                state: checkedMenuState(props.projectSortOrder === option.value),
-              })),
-            },
-          ] satisfies MenuAction[])),
-      // Thread sort applies under both list versions, but each keeps its own
-      // stored order so switching versions never rewrites the other's choice.
       {
         id: "thread-sort",
         title: "Sort threads",
         subactions: THREAD_SORT_OPTIONS.map((option) => ({
           id: `thread-sort:${option.value}`,
           title: option.label,
-          state: checkedMenuState(
-            (threadListV2Enabled ? props.v2ThreadSortOrder : props.threadSortOrder) ===
-              option.value,
-          ),
+          state: checkedMenuState(props.v2ThreadSortOrder === option.value),
         })),
       },
     ],
     [
       props.environments,
-      props.projectSortOrder,
       props.projects,
       props.selectedEnvironmentId,
       props.selectedProjectKey,
-      props.threadSortOrder,
       props.v2ThreadSortOrder,
-      threadListV2Enabled,
     ],
   );
   const handleMenuAction = useCallback(
@@ -135,25 +103,13 @@ export function HomeHeader(props: HomeHeaderProps) {
         return;
       }
 
-      const projectSort = PROJECT_SORT_OPTIONS.find(
-        (option) => id === `project-sort:${option.value}`,
-      );
-      if (projectSort) {
-        props.onProjectSortOrderChange(projectSort.value);
-        return;
-      }
-
       const threadSort = THREAD_SORT_OPTIONS.find((option) => id === `thread-sort:${option.value}`);
       if (threadSort) {
-        if (threadListV2Enabled) {
-          props.onV2ThreadSortOrderChange(threadSort.value);
-        } else {
-          props.onThreadSortOrderChange(threadSort.value);
-        }
+        props.onV2ThreadSortOrderChange(threadSort.value);
         return;
       }
     },
-    [props, threadListV2Enabled],
+    [props],
   );
 
   return (

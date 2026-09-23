@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  SidebarThreadSortOrder,
-  SidebarV2ThreadSortOrder,
-} from "@t3tools/contracts";
-import type { HomeProjectSortOrder } from "./homeThreadList";
+import type { EnvironmentId, SidebarV2ThreadSortOrder } from "@t3tools/contracts";
 import type {
   HomeListFilterMenuEnvironment,
   HomeListFilterMenuProject,
@@ -17,16 +12,12 @@ export interface HomeHeaderProps {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
-  readonly projectSortOrder: HomeProjectSortOrder;
-  readonly threadSortOrder: SidebarThreadSortOrder;
-  /** Thread List v2's own thread order, kept apart from `threadSortOrder` so
-      switching list versions never rewrites the other version's choice. */
+  /** The thread list's own thread order (the fork's Sidebar v2 thread sort),
+      independent of the web's legacy `sidebarThreadSortOrder`. */
   readonly v2ThreadSortOrder: SidebarV2ThreadSortOrder;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
-  readonly onProjectSortOrderChange: (sortOrder: HomeProjectSortOrder) => void;
-  readonly onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
   readonly onV2ThreadSortOrderChange: (sortOrder: SidebarV2ThreadSortOrder) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;

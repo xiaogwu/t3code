@@ -1,9 +1,7 @@
-import { DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER } from "@t3tools/contracts";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useCallback, useRef } from "react";
 import type { SearchBarCommands } from "react-native-screens";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import {
@@ -11,11 +9,7 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
-import {
-  hasCustomHomeListOptions,
-  PROJECT_SORT_OPTIONS,
-  THREAD_SORT_OPTIONS,
-} from "./home-list-options";
+import { hasCustomHomeListOptions, THREAD_SORT_OPTIONS } from "./home-list-options";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -23,23 +17,15 @@ export type { HomeHeaderEnvironment } from "./HomeHeader.types";
 export function HomeHeader(props: HomeHeaderProps) {
   const searchBarRef = useRef<SearchBarCommands>(null);
   const iconColor = useUniwindTheme()["--color-icon"];
-  // Thread List v2 ignores project sorting, but its thread sort remains
-  // meaningful and must still count as a customized list option.
-  const threadListV2Enabled = useThreadListV2Enabled();
-  const hasCustomListOptions = threadListV2Enabled
-    ? props.selectedEnvironmentId !== null ||
-      props.selectedProjectKey !== null ||
-      props.v2ThreadSortOrder !== DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER
-    : hasCustomHomeListOptions(props);
+  // The list's project layout is fixed, but its thread sort (the fork's
+  // Sidebar v2 thread order) is meaningful and counts as a customized option.
+  const hasCustomListOptions = hasCustomHomeListOptions(props);
   const focusSearch = useCallback(() => {
     searchBarRef.current?.focus();
     return searchBarRef.current !== null;
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
-  const filterMenu = buildHomeListFilterMenu({
-    ...props,
-    listOrganization: !threadListV2Enabled,
-  });
+  const filterMenu = buildHomeListFilterMenu(props);
 
   return (
     <>
@@ -153,35 +139,13 @@ export function HomeHeader(props: HomeHeaderProps) {
               </NativeHeaderToolbar.Menu>
             ) : null}
 
-            {threadListV2Enabled ? null : (
-              <NativeHeaderToolbar.Menu title="Sort projects">
-                <NativeHeaderToolbar.Label>Sort projects</NativeHeaderToolbar.Label>
-                {PROJECT_SORT_OPTIONS.map((option) => (
-                  <NativeHeaderToolbar.MenuAction
-                    key={option.value}
-                    isOn={props.projectSortOrder === option.value}
-                    onPress={() => props.onProjectSortOrderChange(option.value)}
-                  >
-                    <NativeHeaderToolbar.Label>{option.label}</NativeHeaderToolbar.Label>
-                  </NativeHeaderToolbar.MenuAction>
-                ))}
-              </NativeHeaderToolbar.Menu>
-            )}
-
             <NativeHeaderToolbar.Menu title="Sort threads">
               <NativeHeaderToolbar.Label>Sort threads</NativeHeaderToolbar.Label>
               {THREAD_SORT_OPTIONS.map((option) => (
                 <NativeHeaderToolbar.MenuAction
                   key={option.value}
-                  isOn={
-                    (threadListV2Enabled ? props.v2ThreadSortOrder : props.threadSortOrder) ===
-                    option.value
-                  }
-                  onPress={() =>
-                    threadListV2Enabled
-                      ? props.onV2ThreadSortOrderChange(option.value)
-                      : props.onThreadSortOrderChange(option.value)
-                  }
+                  isOn={props.v2ThreadSortOrder === option.value}
+                  onPress={() => props.onV2ThreadSortOrderChange(option.value)}
                 >
                   <NativeHeaderToolbar.Label>{option.label}</NativeHeaderToolbar.Label>
                 </NativeHeaderToolbar.MenuAction>
