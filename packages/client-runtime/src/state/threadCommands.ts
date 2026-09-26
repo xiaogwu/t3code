@@ -77,6 +77,7 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 export type {
   AddThreadBookmarkInput,
   ArchiveThreadInput,
+  CancelAgentSettleInput,
   CreateThreadInput,
   DeleteThreadInput,
   InterruptThreadTurnInput,

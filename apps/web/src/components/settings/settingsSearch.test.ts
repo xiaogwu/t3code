@@ -195,6 +195,9 @@ describe("searchSettings", () => {
       canManageLocalBackend: false,
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: false,
+      hasAgentThreadSettle: false,
+      hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
     };
     const itemIds = (macAvailable: boolean) =>
       filterAvailableSettingsSearchItems({
@@ -263,6 +266,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasMacProviderSettingsEnvironment: false,
     };
 
     expect(
@@ -289,6 +293,8 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
       hasAgentThreadRename: false,
+      hasMacProviderSettingsEnvironment: false,
+      hasAgentThreadSnooze: false,
     };
 
     expect(
@@ -316,6 +322,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasMacProviderSettingsEnvironment: false,
     };
 
     expect(
