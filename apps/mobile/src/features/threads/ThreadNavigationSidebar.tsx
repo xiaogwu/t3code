@@ -1,3 +1,4 @@
+import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
 import type {
@@ -54,7 +55,7 @@ import {
 } from "../home/WorkspaceConnectionTitle";
 import { SidebarHeaderActions } from "./sidebar-header-actions";
 import { MaterialThreadListToolbar } from "../home/MaterialThreadListToolbar";
-import { useMaterialToolbarHeight } from "../../components/useMaterialToolbarHeight";
+import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLayout";
 import { useMaterialFabScroll } from "../home/MaterialFabScrollContext";
 import { SidebarFilterButton } from "./sidebar-filter-button";
 import { createSidebarHeaderItems } from "./sidebar-native-header-items";
@@ -138,6 +139,7 @@ function ThreadNavigationSidebarPane(
   const drawerColor = materialTheme["--color-drawer"];
 
   const insets = useSafeAreaInsets();
+  const { fabClearance } = useAndroidControlSizing();
   const projects = useProjects();
   const threads = useThreadShells();
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
@@ -155,6 +157,7 @@ function ThreadNavigationSidebarPane(
     unsettleThread,
     pinThread,
     unpinThread,
+    setThreadAutoSettle,
     moveThread,
     renameThread,
     regenerateThreadTitle,
@@ -335,6 +338,15 @@ function ThreadNavigationSidebarPane(
     const supported = new Set<EnvironmentId>();
     for (const [environmentId, config] of serverConfigs) {
       if (config.environment.capabilities.threadPinning === true) {
+        supported.add(environmentId);
+      }
+    }
+    return supported;
+  }, [serverConfigs]);
+  const autoSettleOptOutEnvironmentIds = useMemo(() => {
+    const supported = new Set<EnvironmentId>();
+    for (const [environmentId, config] of serverConfigs) {
+      if (config.environment.capabilities.threadAutoSettleOptOut === true) {
         supported.add(environmentId);
       }
     }
@@ -619,14 +631,14 @@ function ThreadNavigationSidebarPane(
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
-  const materialToolbarHeight = useMaterialToolbarHeight();
+  const { height, paddingTop, paddingBottom } = useMaterialToolbarLayout();
   // The sticky header (title row, search field, optional connection status)
   // is measured so the list inset always matches its real height — no
   // hardcoded per-variant constants.
   const stickyHeaderHeight =
     measuredHeaderHeight ??
     (Platform.OS === "android"
-      ? Math.max(insets.top, 12) + materialToolbarHeight + 8
+      ? paddingTop + height + paddingBottom
       : insets.top + SIDEBAR_STICKY_HEADER_HEIGHT);
   const topListInset = stickyHeaderHeight + 6;
   const handleStickyHeaderLayout = useCallback((event: LayoutChangeEvent) => {
@@ -792,6 +804,7 @@ function ThreadNavigationSidebarPane(
               onSettleThread={settleThread}
               snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
               pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}
+              autoSettleOptOutSupported={autoSettleOptOutEnvironmentIds.has(thread.environmentId)}
               reorderSupported={
                 item.item.pinned
                   ? pinReorderEnvironmentIds.has(thread.environmentId)
@@ -805,6 +818,7 @@ function ThreadNavigationSidebarPane(
               onUnsettleThread={unsettleThread}
               onPinThread={pinThread}
               onUnpinThread={unpinThread}
+              onSetThreadAutoSettle={setThreadAutoSettle}
               onMoveThread={moveThread}
               onSwipeableClose={handleSwipeableClose}
               onSwipeableWillOpen={handleSwipeableWillOpen}
@@ -856,6 +870,8 @@ function ThreadNavigationSidebarPane(
       pinReorderEnvironmentIds,
       pinThread,
       pinningEnvironmentIds,
+      autoSettleOptOutEnvironmentIds,
+      setThreadAutoSettle,
       projectByKey,
       projectTitleByProjectKey,
       regenerateThreadTitle,
@@ -1061,7 +1077,7 @@ function ThreadNavigationSidebarPane(
                   {
                     paddingBottom:
                       Platform.OS === "android"
-                        ? Math.max(insets.bottom, 16) + 148 - insets.bottom
+                        ? Math.max(insets.bottom, 16) + fabClearance - insets.bottom
                         : 16 + insets.bottom,
                     paddingTop: Platform.OS === "android" ? 6 : topListInset,
                   },

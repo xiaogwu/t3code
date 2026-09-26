@@ -20,6 +20,7 @@ import {
   ThreadPinReorderedPayload as ContractsThreadPinReorderedPayloadSchema,
   ThreadBookmarkAddedPayload as ContractsThreadBookmarkAddedPayloadSchema,
   ThreadBookmarkRemovedPayload as ContractsThreadBookmarkRemovedPayloadSchema,
+  ThreadAutoSettleSetPayload as ContractsThreadAutoSettleSetPayloadSchema,
   ThreadPullRequestLinkedPayload as ContractsThreadPullRequestLinkedPayloadSchema,
   ThreadPullRequestUnlinkedPayload as ContractsThreadPullRequestUnlinkedPayloadSchema,
   ThreadPullRequestSyncedPayload as ContractsThreadPullRequestSyncedPayloadSchema,
@@ -59,6 +60,7 @@ export const ThreadUnpinnedPayload = ContractsThreadUnpinnedPayloadSchema;
 export const ThreadPinReorderedPayload = ContractsThreadPinReorderedPayloadSchema;
 export const ThreadBookmarkAddedPayload = ContractsThreadBookmarkAddedPayloadSchema;
 export const ThreadBookmarkRemovedPayload = ContractsThreadBookmarkRemovedPayloadSchema;
+export const ThreadAutoSettleSetPayload = ContractsThreadAutoSettleSetPayloadSchema;
 export const ThreadPullRequestLinkedPayload = ContractsThreadPullRequestLinkedPayloadSchema;
 export const ThreadPullRequestUnlinkedPayload = ContractsThreadPullRequestUnlinkedPayloadSchema;
 export const ThreadPullRequestSyncedPayload = ContractsThreadPullRequestSyncedPayloadSchema;

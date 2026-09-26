@@ -51,21 +51,21 @@ function Surface({
         surfaceColors,
         "relative isolate border-0 bg-transparent shadow-none [--chat-composer-attached-tint:transparent]",
         variantColors[variant],
+        // The mask cut-off (1rem) bleeds one pixel past the seam (1rem + 1px): a cut-off
+        // that lands off the device-pixel grid otherwise exposes a row of chat text where
+        // the composer's surface starts. The composer covers the extra row, so the
+        // overlap never shows.
         placement === "attached"
-          ? "[--chat-composer-attachment-overlap:calc(1rem+1px)] before:rounded-t-[16px]"
-          : "[--chat-composer-attachment-overlap:0px] before:rounded-[1rem]",
+          ? "[--chat-composer-attachment-overlap:calc(1rem+1px)] before:rounded-t-2xl before:mask-t-from-transparent before:mask-t-from-4 before:mask-t-to-black before:mask-t-to-4"
+          : "[--chat-composer-attachment-overlap:0px] before:rounded-2xl",
         "before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:border before:border-(--chat-composer-attached-outline)",
         // Opaque, like the composer itself. Banners, the command menu and the prompt
         // history palette all render on this surface directly over the virtualized
         // thread scroller, and sampling their backdrop makes Chromium repaint the
         // whole surface when scrolling becomes idle, which reads as a flicker.
-        "before:bg-(--chat-composer-attached-surface) before:bg-[linear-gradient(var(--chat-composer-attached-tint),var(--chat-composer-attached-tint))]",
-        // The mask cut-off bleeds one pixel past the seam: a cut-off that lands off
-        // the device-pixel grid otherwise exposes a row of chat text where the
-        // composer's surface starts. The composer covers the extra row, so the
-        // overlap never shows.
-        "before:mask-[linear-gradient(to_top,transparent_0_calc(var(--chat-composer-attachment-overlap)-1px),black_calc(var(--chat-composer-attachment-overlap)-1px))] before:shadow-[0_12px_28px_-18px_rgb(0_0_0/40%)] dark:before:shadow-[0_14px_32px_-18px_rgb(0_0_0/75%)]",
-        "dark:before:bg-[linear-gradient(var(--chat-composer-attached-tint),var(--chat-composer-attached-tint)),linear-gradient(to_top,transparent_0_var(--chat-composer-attachment-overlap),rgb(0_0_0/18%)_var(--chat-composer-attachment-overlap),transparent_calc(var(--chat-composer-attachment-overlap)+10px))]",
+        "before:bg-(--chat-composer-attached-surface) before:bg-linear-to-b before:from-(--chat-composer-attached-tint) before:to-(--chat-composer-attached-tint)",
+        "before:shadow-composer dark:before:shadow-composer-dark",
+        "dark:before:bg-composer-seam-above",
         className,
       )}
       {...props}
@@ -94,7 +94,7 @@ function Peek({
       className={cn(
         surfaceColors,
         neutralOutline,
-        "absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-[0_6px_18px_rgb(0_0_0/6%)]",
+        "absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-md",
         "bg-(--chat-composer-attached-surface)",
         "transition-opacity duration-150 ease-out focus-visible:outline-2 focus-visible:outline-ring",
         peekBorder[variant],
@@ -163,7 +163,7 @@ function Root({
   return (
     <Surface
       className={cn(
-        "min-w-0 px-1 pt-(--composer-banner-padding-block) pb-[calc(var(--chat-composer-attachment-overlap)+var(--composer-banner-padding-block))] text-xs/4 [--composer-banner-icon-column:--spacing(7)] [--composer-banner-padding-block:--spacing(1)] sm:[--composer-banner-icon-column:--spacing(6)]",
+        "min-w-0 px-1 py-(--composer-banner-padding-block) after:block after:h-(--chat-composer-attachment-overlap) text-xs/4 [--composer-banner-icon-column:--spacing(7)] [--composer-banner-padding-block:--spacing(1)] sm:[--composer-banner-icon-column:--spacing(6)]",
         density === "comfortable" && "[--composer-banner-padding-block:--spacing(1.25)]",
         density === "spacious" && "px-3 [--composer-banner-padding-block:--spacing(3)]",
         width === "content" ? "w-fit max-w-full flex-none" : "@container",
@@ -191,7 +191,7 @@ function Row({
     className: cn(
       "group/banner-row grid min-h-(--composer-banner-icon-column) w-full min-w-0 grid-cols-[var(--composer-banner-icon-column)_minmax(0,1fr)_auto] items-center gap-x-1 text-start",
       "not-has-[>[data-slot=composer-banner-actions]]:grid-cols-[var(--composer-banner-icon-column)_minmax(0,1fr)]",
-      "[&:is(button)]:cursor-pointer [&:is(button)]:rounded-[0.5rem] [&:is(button)]:focus-visible:outline-2 [&:is(button)]:focus-visible:-outline-offset-2 [&:is(button)]:focus-visible:outline-ring",
+      "[&:is(button)]:cursor-pointer [&:is(button)]:rounded-md [&:is(button)]:focus-visible:outline-2 [&:is(button)]:focus-visible:-outline-offset-2 [&:is(button)]:focus-visible:outline-ring",
       layout === "wrap-actions" &&
         "@max-[400px]:*:data-[slot=composer-banner-content]:min-h-(--composer-banner-icon-column)",
       layout === "wrap-actions-narrow" &&
@@ -308,15 +308,7 @@ function Count({ className, ...props }: ComponentProps<"span">) {
 }
 
 function Body({ className, ...props }: ComponentProps<"div">) {
-  return (
-    <div
-      className={cn(
-        "min-w-0 ps-[calc(var(--composer-banner-icon-column)+(--spacing(1)))]",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <div className={cn("min-w-0 ps-8 sm:ps-7", className)} {...props} />;
 }
 
 function Dot({ className, ...props }: ComponentProps<"span">) {

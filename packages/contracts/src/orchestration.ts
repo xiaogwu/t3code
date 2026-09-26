@@ -883,6 +883,10 @@ export const OrchestrationThread = Schema.Struct({
   // Manual Active placement. Keyless threads retain their creation/re-entry
   // order above the arranged run. Settling clears this slot.
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Set while the user has turned automatic settlement off for this thread.
+  // Survives manual settle, un-settle, and activity: only the user clears it.
+  // Optional so payloads from older servers still decode.
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   // Which code path last set `title`: a direct client rename ("manual") vs
@@ -986,6 +990,7 @@ export const OrchestrationThreadShell = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  autoSettleDisabledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])).pipe(
     Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
@@ -1346,6 +1351,14 @@ const ThreadBookmarkRemoveCommand = Schema.Struct({
   bookmarkId: ThreadBookmarkId,
 });
 
+const ThreadAutoSettleSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.auto-settle.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // false turns automatic settlement off for this thread, true turns it back on.
+  enabled: Schema.Boolean,
+});
+
 const ThreadActiveReorderCommand = Schema.Struct({
   type: Schema.Literal("thread.active.reorder"),
   commandId: CommandId,
@@ -1564,6 +1577,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadBookmarkAddCommand,
   ThreadBookmarkRemoveCommand,
+  ThreadAutoSettleSetCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
@@ -1600,6 +1614,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadBookmarkAddCommand,
   ThreadBookmarkRemoveCommand,
+  ThreadAutoSettleSetCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
@@ -1846,6 +1861,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.pin-reordered",
   "thread.bookmark.added",
   "thread.bookmark.removed",
+  "thread.auto-settle-set",
   "thread.meta-updated",
   "thread.pull-request-linked",
   "thread.pull-request-unlinked",
@@ -2014,6 +2030,13 @@ export const ThreadBookmarkAddedPayload = Schema.Struct({
 export const ThreadBookmarkRemovedPayload = Schema.Struct({
   threadId: ThreadId,
   bookmarkId: ThreadBookmarkId,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAutoSettleSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  // Null re-enables automatic settlement.
+  autoSettleDisabledAt: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
@@ -2305,6 +2328,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.bookmark.removed"),
     payload: ThreadBookmarkRemovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.auto-settle-set"),
+    payload: ThreadAutoSettleSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

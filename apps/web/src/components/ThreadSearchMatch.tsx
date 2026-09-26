@@ -64,7 +64,7 @@ export function ThreadSearchMatchContent(props: { match: ThreadSearchMatch }) {
   const isUser = props.match.source === "user";
   return (
     <>
-      <span className={isUser ? "text-blue-400" : "text-emerald-400"}>
+      <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>
         {isUser ? "You:" : "Agent:"}
       </span>{" "}
       <HighlightedSearchText text={props.match.snippet} query={props.match.query} />

@@ -147,6 +147,7 @@ export function applyThreadDetailEvent(
           unsettledAt: null,
           activeOrderKey: null,
           ...CLEARED_AGENT_SETTLE,
+          autoSettleDisabledAt: null,
           snoozedUntil: null,
           snoozedAt: null,
           snoozedTurnId: null,
@@ -316,6 +317,16 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           pinOrderKey: event.payload.orderKey,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.auto-settle-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          autoSettleDisabledAt: event.payload.autoSettleDisabledAt,
           updatedAt: event.payload.updatedAt,
         },
       };

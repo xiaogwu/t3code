@@ -69,7 +69,6 @@ import {
   use,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -268,6 +267,7 @@ import {
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { ComputerUseAppIcon } from "~/components/Icons";
 
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
@@ -292,6 +292,7 @@ interface TimelineRowSharedState {
   onNavigateToReplySource: (messageId: MessageId, replyTo?: MessageReplyReference) => boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
+  onRunShellCommand: ((command: string) => void) | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
@@ -364,7 +365,7 @@ function TimelineLoadEarlierHeader({
   fade: boolean;
 }) {
   return (
-    <div className={fade ? "pt-[var(--workspace-titlebar-scroll-fade-height)]" : "pt-3 sm:pt-4"}>
+    <div className={fade ? "pt-(--workspace-titlebar-scroll-fade-height)" : "pt-3 sm:pt-4"}>
       <div className="mx-auto w-full max-w-3xl pb-2">
         <button
           type="button"
@@ -462,6 +463,7 @@ interface MessagesTimelineProps {
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
+  onRunShellCommand?: (command: string) => void;
   isRevertingCheckpoint: boolean;
   workingStepLabel?: string | null;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -543,6 +545,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   supportsConversationRollback,
   onRevertToTurnCount,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
+  onRunShellCommand,
   isRevertingCheckpoint,
   workingStepLabel = null,
   onImageExpand,
@@ -1262,6 +1265,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onNavigateToReplySource,
       onRevertToTurnCount,
       onUseArtifactTemplate,
+      onRunShellCommand,
       onImageExpand,
       onFileOpen,
       onFileDownload,
@@ -1302,6 +1306,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onNavigateToReplySource,
       onRevertToTurnCount,
       onUseArtifactTemplate,
+      onRunShellCommand,
       onImageExpand,
       onFileOpen,
       onFileDownload,
@@ -1708,7 +1713,7 @@ function TimelineMinimap({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full transition-[background-color,width] duration-150",
+                    "pointer-events-none absolute left-0 h-0.5 -translate-y-1/2 rounded-full transition-[width,background-color] duration-150",
                     // Bookmarks read in the accent colour and skip the in-view
                     // treatment, so they stay distinguishable from the prompt
                     // that happens to be on screen.
@@ -2113,7 +2118,7 @@ function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
 
   if (asset === null && src === null) {
     return (
-      <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border border-border/80 bg-black px-2 py-3 text-center text-[11px] text-white/70">
+      <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg border border-border/80 bg-black px-2 py-3 text-center text-2xs text-white/70">
         {file.name}
       </div>
     );
@@ -2340,7 +2345,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                     />
                   </button>
                 ) : (
-                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-[11px]">
+                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-2xs">
                     {image.name}
                   </div>
                 )}
@@ -2623,6 +2628,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             onReplyToBlock={(reply) => ctx.onReplyToAssistantMessage(reply.messageId, reply)}
             headingLevelOffset={MESSAGE_HEADING_LEVEL}
             onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+            onRunShellCommand={ctx.onRunShellCommand}
             onImageExpand={ctx.onImageExpand}
           />
         </AssistantCitationSource>
@@ -3007,7 +3013,7 @@ function ReasoningTraceBlock({
           className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-start text-sm leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
-            <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
+            <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-2 opacity-70" />
           </span>
           <span
             ref={streaming ? observeVisibleAnimation : undefined}
@@ -3080,7 +3086,7 @@ const ReasoningTimelineRow = memo(function ReasoningTimelineRow({
         className="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 py-0.5 text-start transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
-          <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-[1.8] opacity-70" />
+          <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-2 opacity-70" />
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="relative min-w-0 flex-1 truncate text-secondary-label text-sm leading-relaxed">
@@ -3453,7 +3459,7 @@ function LiveActivityContent({
           <ToolActivityIconView
             icon={toolIcon}
             fallbackName={iconName}
-            className="block size-4 shrink-0 stroke-[1.8]"
+            className="block size-4 shrink-0 stroke-2"
             muted={!highlighted}
           />
         </span>
@@ -3574,7 +3580,7 @@ function WorkGroupToggleTimelineRow({
           fallbackName={
             row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)
           }
-          className="size-4 shrink-0 stroke-[1.8]"
+          className="size-4 shrink-0 stroke-2"
           muted
         />
       </span>
@@ -3790,7 +3796,7 @@ function UserMessagePreviewAnnotationDetails(props: {
             {props.record.comment}
           </div>
         ) : null}
-        <div className="mt-1 flex items-center gap-2 text-secondary-label text-[10px]">
+        <div className="mt-1 flex items-center gap-2 text-secondary-label text-3xs">
           {props.record.targetSummary ? (
             <span className="truncate">{props.record.targetSummary}</span>
           ) : null}
@@ -3822,7 +3828,7 @@ function UserMessagePreviewAnnotationDetails(props: {
                     ) : null}
                   </div>
                   {element.htmlPreview?.trim() ? (
-                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/60 px-2 py-1.5 text-[10px] leading-relaxed">
+                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/60 px-2 py-1.5 text-3xs leading-relaxed">
                       {element.htmlPreview.trim()}
                     </pre>
                   ) : null}
@@ -3830,7 +3836,7 @@ function UserMessagePreviewAnnotationDetails(props: {
               );
             })}
             {(props.record.elements?.length ?? 0) > visibleElements.length ? (
-              <div className="text-secondary-label text-[10px]">
+              <div className="text-secondary-label text-3xs">
                 {(props.record.elements?.length ?? 0) - visibleElements.length} more selected
                 elements
               </div>
@@ -3856,7 +3862,7 @@ function UserMessageElementDetails({
         <div className="truncate text-message-foreground text-xs font-medium">
           {record.pageTitle?.trim() || record.pageUrl}
         </div>
-        <div className="mt-0.5 truncate text-secondary-label text-[10px]">{record.pageUrl}</div>
+        <div className="mt-0.5 truncate text-secondary-label text-3xs">{record.pageUrl}</div>
       </div>
       <div className="space-y-2 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2 text-xs">
@@ -4258,7 +4264,7 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
         <div className="text-message-foreground text-xs font-medium">
           {formatWorkspaceRelativePath(comment.filePath, ctx.workspaceRoot)}
         </div>
-        <div className="text-secondary-label text-[11px]">
+        <div className="text-secondary-label text-2xs">
           {comment.sectionTitle} · {comment.rangeLabel}
         </div>
       </div>
@@ -4391,30 +4397,6 @@ function BrowserAppIcon({ className }: { className: string }) {
   );
 }
 
-function ComputerUseAppIcon({ className }: { className: string }) {
-  const gradientId = `${useId().replaceAll(":", "")}-computer-use-app-gradient`;
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <defs>
-        <linearGradient id={gradientId} x1="2" y1="2" x2="22" y2="22">
-          <stop offset="0" stopColor="#00dff0" />
-          <stop offset="0.42" stopColor="#3b9cff" />
-          <stop offset="0.72" stopColor="#b044f5" />
-          <stop offset="1" stopColor="#ff78b6" />
-        </linearGradient>
-      </defs>
-      <rect x="1" y="1" width="22" height="22" rx="5" fill={`url(#${gradientId})`} />
-      <path
-        d="m7.2 6.2 10.5 4.1-4.2 2.1-2 4.7z"
-        fill="white"
-        stroke="#315cff"
-        strokeWidth="1.1"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function ToolActivityIconView(props: {
   icon: ToolActivityIcon | undefined;
   fallbackName: WorkEntryIconName;
@@ -4422,7 +4404,7 @@ function ToolActivityIconView(props: {
   muted: boolean;
 }) {
   const { resolvedTheme } = use(TimelineRowCtx);
-  const fallbackClassName = cn(props.className, props.muted && "opacity-70 light:brightness-[.6]");
+  const fallbackClassName = cn(props.className, props.muted && "opacity-70 light:brightness-60");
   if (!props.icon) {
     return <WorkEntryIcon name={props.fallbackName} className={fallbackClassName} />;
   }
@@ -4482,7 +4464,7 @@ function NativeAppToolActivityIcon(props: {
     return (
       <WorkEntryIcon
         name={props.fallbackName}
-        className={cn(props.className, props.muted && "opacity-70 light:brightness-[.6]")}
+        className={cn(props.className, props.muted && "opacity-70 light:brightness-60")}
       />
     );
   }
@@ -4527,14 +4509,14 @@ function ToolActivityImageIcon(props: {
       {displayedSrc === null ? (
         <WorkEntryIcon
           name={props.fallbackName}
-          className={cn(props.className, props.muted && "opacity-70 light:brightness-[.6]")}
+          className={cn(props.className, props.muted && "opacity-70 light:brightness-60")}
         />
       ) : null}
       {displayedSrc ? (
         <span
           className={cn(
             props.className,
-            "inline-block overflow-hidden rounded-[3px] bg-background",
+            "inline-block overflow-hidden rounded-xs bg-background",
             props.muted && "opacity-70",
           )}
         >
@@ -4544,7 +4526,7 @@ function ToolActivityImageIcon(props: {
             aria-hidden
             decoding="async"
             referrerPolicy="no-referrer"
-            className={cn("block size-full object-contain", props.muted && "light:brightness-[.6]")}
+            className={cn("block size-full object-contain", props.muted && "light:brightness-60")}
             onError={() => handleLoadError(displayedSrc)}
           />
         </span>
@@ -4698,7 +4680,7 @@ function buildToolCallExpandedBody(
 }
 
 const toolCallExpandedBodyClassName =
-  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-[length:var(--font-size-code,0.6875rem)] leading-relaxed select-text";
+  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
 
 function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   if (
@@ -4981,12 +4963,12 @@ function AgentSpawnMemberRow({
             {agent.title}
           </span>
           {role ? (
-            <span className="max-w-28 shrink-0 truncate rounded-sm border border-border/60 px-1 font-mono text-[.65rem] text-muted-foreground">
+            <span className="max-w-28 shrink-0 truncate rounded-sm border border-border/60 px-1 font-mono text-3xs text-muted-foreground">
               {role}
             </span>
           ) : null}
         </p>
-        <span className="shrink-0 font-mono text-[.7rem] tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
           {statusLabel}
         </span>
       </div>
@@ -5165,7 +5147,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           <ToolActivityIconView
             icon={entryToolIcon}
             fallbackName={entryIconName}
-            className="block size-4 shrink-0 stroke-[1.8]"
+            className="block size-4 shrink-0 stroke-2"
             muted
           />
         </span>

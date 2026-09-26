@@ -80,6 +80,7 @@ import {
   type ProjectionSnapshotCounts,
   type ProjectionThreadCheckpointContext,
   type ProjectionThreadDetailQuery,
+  type ProjectionThreadPullRequests,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -675,6 +676,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          auto_settle_disabled_at AS "autoSettleDisabledAt",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           title_provenance AS "titleProvenance",
@@ -726,6 +728,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          auto_settle_disabled_at AS "autoSettleDisabledAt",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           title_provenance AS "titleProvenance",
@@ -809,6 +812,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          auto_settle_disabled_at AS "autoSettleDisabledAt",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           title_provenance AS "titleProvenance",
@@ -908,6 +912,41 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE threads.deleted_at IS NULL
           AND threads.archived_at IS NULL
         ORDER BY links.thread_id ASC, links.linked_at ASC, links.number ASC
+      `,
+  });
+
+  // One row per link, in the shell snapshot's thread order and link order.
+  const listActiveThreadPullRequestSyncRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadPullRequestDbRowSchema.mapFields(
+      Struct.assign({
+        projectId: ProjectionThread.fields.projectId,
+        settledOverride: ProjectionThread.fields.settledOverride,
+        settledAt: ProjectionThread.fields.settledAt,
+      }),
+    ),
+    execute: () =>
+      sql`
+        SELECT
+          links.thread_id AS "threadId",
+          threads.project_id AS "projectId",
+          threads.settled_override AS "settledOverride",
+          threads.settled_at AS "settledAt",
+          links.host,
+          links.repository,
+          links.number,
+          links.url,
+          links.source,
+          links.linked_at AS "linkedAt",
+          links.snapshot_json AS "snapshot",
+          links.stack_json AS "stack"
+        FROM projection_thread_pull_requests links
+        INNER JOIN projection_threads threads
+          ON threads.thread_id = links.thread_id
+        WHERE threads.deleted_at IS NULL
+          AND threads.archived_at IS NULL
+        ORDER BY threads.project_id ASC, threads.created_at ASC, threads.thread_id ASC,
+          links.linked_at ASC, links.number ASC
       `,
   });
 
@@ -1412,6 +1451,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",
+          auto_settle_disabled_at AS "autoSettleDisabledAt",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           title_provenance AS "titleProvenance",
@@ -2532,6 +2572,7 @@ pending_approval_requests AS (
                 pinnedAt: row.pinnedAt,
                 pinOrderKey: row.pinOrderKey ?? null,
                 activeOrderKey: row.activeOrderKey ?? null,
+                autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
                 ...mapTitlePolicyFields(row),
                 titleState: row.titleState,
@@ -2813,6 +2854,7 @@ pending_approval_requests AS (
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   activeOrderKey: row.activeOrderKey ?? null,
+                  autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
                   ...mapTitlePolicyFields(row),
                   titleState: row.titleState,
@@ -2978,6 +3020,7 @@ pending_approval_requests AS (
                         pinnedAt: row.pinnedAt,
                         pinOrderKey: row.pinOrderKey ?? null,
                         activeOrderKey: row.activeOrderKey ?? null,
+                        autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                         titleRegeneration: mapTitleRegeneration(row),
                         ...mapTitlePolicyFields(row),
                         titleState: row.titleState,
@@ -3011,6 +3054,35 @@ pending_approval_requests AS (
           }
           return toPersistenceSqlError("ProjectionSnapshotQuery.getShellSnapshot:query")(error);
         }),
+      );
+
+  const listThreadsWithPullRequests: ProjectionSnapshotQueryShape["listThreadsWithPullRequests"] =
+    () =>
+      listActiveThreadPullRequestSyncRows(undefined).pipe(
+        Effect.map((rows) => {
+          const threads = new Map<
+            ThreadId,
+            ProjectionThreadPullRequests & { readonly pullRequests: Array<ThreadPullRequestLink> }
+          >();
+          for (const row of rows) {
+            const thread = threads.get(row.threadId) ?? {
+              id: row.threadId,
+              projectId: row.projectId,
+              settledOverride: row.settledOverride,
+              settledAt: row.settledAt,
+              pullRequests: [],
+            };
+            thread.pullRequests.push(mapPullRequestRow(row));
+            threads.set(row.threadId, thread);
+          }
+          return [...threads.values()];
+        }),
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.listThreadsWithPullRequests:query",
+            "ProjectionSnapshotQuery.listThreadsWithPullRequests:decodeRows",
+          ),
+        ),
       );
 
   const getArchivedShellSnapshot: ProjectionSnapshotQueryShape["getArchivedShellSnapshot"] = () =>
@@ -3149,6 +3221,7 @@ pending_approval_requests AS (
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
                   activeOrderKey: row.activeOrderKey ?? null,
+                  autoSettleDisabledAt: row.autoSettleDisabledAt ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
                   ...mapTitlePolicyFields(row),
                   titleState: row.titleState,
@@ -3516,6 +3589,7 @@ pending_approval_requests AS (
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         bookmarks: [],
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
+        autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         ...mapTitlePolicyFields(threadRow.value),
         titleState: threadRow.value.titleState,
@@ -3824,6 +3898,7 @@ pending_approval_requests AS (
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
+        autoSettleDisabledAt: threadRow.value.autoSettleDisabledAt ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         ...mapTitlePolicyFields(threadRow.value),
         titleState: threadRow.value.titleState,
@@ -4015,6 +4090,7 @@ pending_approval_requests AS (
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
+    listThreadsWithPullRequests,
     getArchivedShellSnapshot,
     getDeletedWorktreeThreads,
     searchThreads,

@@ -4896,13 +4896,11 @@ const listThreadIds = vi.fn(() =>
   Effect.succeed([activeSessionThreadId, historicalSessionThreadId]),
 );
 const getBinding = vi.fn((threadId: ThreadId) =>
-  Effect.succeed(
-    Option.some({
-      threadId,
-      provider: CODEX_DRIVER,
-      providerInstanceId: codexInstanceId,
-    }),
-  ),
+  Effect.succeedSome({
+    threadId,
+    provider: CODEX_DRIVER,
+    providerInstanceId: codexInstanceId,
+  }),
 );
 const boundedListing = makeProviderServiceLayer({
   directory: {
@@ -4998,6 +4996,7 @@ describe("agent browser access", () => {
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
         getDeletedWorktreeThreads: () => Effect.die("unused"),
+        listThreadsWithPullRequests: () => Effect.die("unused"),
         getArchivedShellSnapshot: () => Effect.die("unused"),
         getSnapshotSequence: () => Effect.die("unused"),
         getCounts: () => Effect.die("unused"),

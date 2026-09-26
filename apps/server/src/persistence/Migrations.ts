@@ -78,6 +78,9 @@ import Migration0059 from "./Migrations/059_ProjectionThreadTitleState.ts";
 // Upstream shipped this as 053, where the fork already has
 // ProjectionThreadsActiveOrderKey, so it lands at the end too.
 import Migration0060 from "./Migrations/060_PullRequestFilesViewed.ts";
+// Upstream shipped this as 054, where the fork already has
+// ProjectionThreadPullRequests, so it lands at the end too.
+import Migration0061 from "./Migrations/061_ProjectionThreadsAutoSettleDisabledAt.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -150,6 +153,7 @@ const migrationEntries = [
   [58, "ProjectionThreadsSnoozedTurn", Migration0058],
   [59, "ProjectionThreadTitleState", Migration0059],
   [60, "PullRequestFilesViewed", Migration0060],
+  [61, "ProjectionThreadsAutoSettleDisabledAt", Migration0061],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
