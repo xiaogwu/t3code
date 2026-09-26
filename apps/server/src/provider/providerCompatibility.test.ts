@@ -54,6 +54,9 @@ const provider: ServerProvider = {
 describe("provider compatibility", () => {
   it("bundles a compatibility policy for every built-in harness", () => {
     for (const builtIn of BUILT_IN_DRIVERS) {
+      // Fork-only driver: upstream's manifest carries no policy for it, so it shows no
+      // compatibility badge rather than one with an invented version range.
+      if (builtIn.driverKind === "gemini") continue;
       assert.isDefined(
         resolveProviderCompatibility(
           ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
