@@ -87,6 +87,7 @@ function readInitialThreadSidebarWidth(): number {
 }
 
 function SidebarControl() {
+  const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar, peeked, peekPanelHandlers } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
@@ -96,7 +97,9 @@ function SidebarControl() {
   const stageBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
   );
-  const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
+  const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
+    context: { usagePageOpen },
+  });
   const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
   const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarV2ThreadSortOrder);
 
@@ -118,7 +121,7 @@ function SidebarControl() {
         // available everywhere else, including the plain-text composer.
         return;
       }
-      const command = resolveShortcutCommand(event, keybindings);
+      const command = resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } });
       if (
         command !== "sidebar.toggle" &&
         command !== "sidebar.version.toggle" &&
@@ -155,6 +158,7 @@ function SidebarControl() {
     sidebarThreadSortOrder,
     toggleSidebar,
     updateClientSettings,
+    usagePageOpen,
   ]);
 
   return (
@@ -385,6 +389,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           // rail, so there is no longer an `icon` mode to lose the race against.
           collapsible="offcanvas"
           data-app-sidebar=""
+          role="navigation"
+          aria-label={isOnSettings ? "Settings" : "Threads"}
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: THREAD_SIDEBAR_MIN_WIDTH,
