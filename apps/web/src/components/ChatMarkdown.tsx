@@ -1899,13 +1899,27 @@ function leadingExternalLinkTextLength(text: string): number {
   return Math.min(text.length, 1);
 }
 
+/**
+ * Splits a URL where a line may break: before each run of `/ . ? # & = - _ ~ %`,
+ * so a wrapped line starts with the delimiter the way style guides break URLs.
+ * A segment too long for the line still falls back to the root `overflow-wrap`.
+ */
+export function externalLinkBreakSegments(text: string): string[] {
+  return text.match(/[/.?#&=\-_~%]*[^/.?#&=\-_~%]*/g)?.filter((segment) => segment !== "") ?? [];
+}
+
 function breakableExternalLinkText(text: string): ReactNode[] {
-  return Array.from(text, (character, index) => (
-    <React.Fragment key={`${index}:${character}`}>
-      {character}
-      <wbr />
-    </React.Fragment>
-  ));
+  let offset = 0;
+  return externalLinkBreakSegments(text).map((segment) => {
+    const start = offset;
+    offset += segment.length;
+    return (
+      <React.Fragment key={start}>
+        {start > 0 ? <wbr /> : null}
+        {segment}
+      </React.Fragment>
+    );
+  });
 }
 
 function plainHastText(node: unknown): string | null {
