@@ -50,6 +50,11 @@ describe("formatProviderSkillDisplayName", () => {
       }),
     ).toBe("Review Follow Up");
   });
+
+  it("keeps initialisms uppercase in a title-cased skill name", () => {
+    expect(formatProviderSkillDisplayName({ name: "pr-review" })).toBe("PR Review");
+    expect(formatProviderSkillDisplayName({ name: "test-ios_api" })).toBe("Test iOS API");
+  });
 });
 
 describe("dedupeProviderSkillsByName", () => {

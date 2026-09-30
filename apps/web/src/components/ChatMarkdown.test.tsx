@@ -62,6 +62,7 @@ vi.mock("~/lib/openPullRequestLink", () => ({
 
 import ChatMarkdown, {
   canUseMarkdownFileShellActions,
+  externalLinkBreakSegments,
   hasMarkdownFilePrimaryAction,
   shouldUseMarkdownFileBrowserPrimaryAction,
 } from "./ChatMarkdown";
@@ -456,6 +457,30 @@ describe("ChatMarkdown streaming", () => {
       await act(async () => renderer?.unmount());
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("externalLinkBreakSegments", () => {
+  it("breaks a URL only before delimiter runs", () => {
+    expect(externalLinkBreakSegments("prodgit.apple.com/content-engineering/pull/460")).toEqual([
+      "prodgit",
+      ".apple",
+      ".com",
+      "/content",
+      "-engineering",
+      "/pull",
+      "/460",
+    ]);
+    expect(externalLinkBreakSegments("example.com/a//b?x=1&y=2")).toEqual([
+      "example",
+      ".com",
+      "/a",
+      "//b",
+      "?x",
+      "=1",
+      "&y",
+      "=2",
+    ]);
   });
 });
 
