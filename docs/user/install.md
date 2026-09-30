@@ -115,19 +115,21 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-| Provider            | CLI                                                                                                        | Default binary     | Log in with                        |
-| ------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------ | ---------------------------------- |
-| Codex               | [Codex CLI](https://developers.openai.com/codex/cli)                                                       | `codex`            | `codex login`                      |
-| Claude              | [Claude Code](https://claude.com/product/claude-code)                                                      | `claude`           | `claude auth login`                |
-| Cursor              | [Cursor CLI](https://cursor.com/cli)                                                                       | `cursor-agent`     | `agent login`                      |
-| Grok Build          | [Grok Build CLI](https://x.ai/cli)                                                                         | `grok`             | `grok login`                       |
-| Apple Gemini        | Apple Gemini CLI                                                                                           | `apple-gemini`     | existing Apple auth                |
-| OpenCode            | [OpenCode](https://opencode.ai)                                                                            | `opencode`         | `opencode auth login`              |
-| Antigravity managed | [Official ACP agent](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json) | Managed by T3 Code | **Sign in with Google** in T3 Code |
+| Provider     | Install and authenticate                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex        | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
+| Claude       | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
+| Cursor       | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
+| Grok Build   | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
+| Apple Gemini | Install Apple Gemini CLI (`apple-gemini`); it uses your existing Apple auth. Off by default: turn it on in **Settings** > **Providers**.                  |
+| OpenCode     | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
+| Antigravity  | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
 
-Codex, Claude, and Antigravity CLI are on by default. Cursor, Grok Build, Apple Gemini, OpenCode,
-and managed Antigravity are off by default. Turn them on in **Settings** > **Providers** when you
-want to use them.
+Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
+**Binary path** in provider settings, especially when using a version manager.
+Cursor's executable is `cursor-agent`, although its login command is
+`agent login`. Codex connected through ChatGPT and Antigravity can use their
+managed runtimes without a `PATH` entry.
 
 T3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
