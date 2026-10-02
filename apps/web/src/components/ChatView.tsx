@@ -336,6 +336,7 @@ import {
   useQueuedMessageStore,
 } from "../queuedMessageStore";
 import { sendQueuedMessage } from "./chat/sendQueuedMessage";
+import { subscribeToThreadScrollRequests } from "./chat/threadScrollRequest";
 import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
@@ -5506,6 +5507,20 @@ export default function ChatView(props: ChatViewProps) {
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
+  // Shared by the thread.scrollToTop/End shortcuts and command palette items.
+  const scrollTimelineTo = useEffectEvent((target: "top" | "end") => {
+    if (target === "end") {
+      timelineScrollIntentRef.current = "toward-end";
+      composerRef.current?.restoreAfterTimelineReachedEnd();
+      scrollToEnd(true);
+      return;
+    }
+    timelineScrollIntentRef.current = "away-from-end";
+    composerRef.current?.collapseForTimelineScrollKey("Home");
+    cancelTimelineLiveFollowForUserNavigation();
+    void legendListRef.current?.scrollToIndex({ index: 0, animated: true });
+  });
+  useEffect(() => subscribeToThreadScrollRequests(scrollTimelineTo), []);
   useLayoutEffect(() => {
     if (timelineScrollModeRef.current !== "anchoring-new-turn") {
       return;
@@ -7085,6 +7100,13 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) copyActiveThreadReference();
+        return;
+      }
+
+      if (command === "thread.scrollToTop" || command === "thread.scrollToEnd") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) scrollTimelineTo(command === "thread.scrollToTop" ? "top" : "end");
         return;
       }
 
