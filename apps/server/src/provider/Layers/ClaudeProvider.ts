@@ -417,6 +417,8 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
   return yield* spawnAndCollect(claudeSettings.binaryPath, command);
 });
 
+const VERSION_PROBE_RETRY_DELAY_MS = 2_000;
+
 export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(function* (
   claudeSettings: ClaudeSettings,
   resolveCapabilities?: (
@@ -458,11 +460,19 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const versionProbe = yield* runClaudeCommand(
-    claudeSettings,
-    ["--version"],
-    resolvedEnvironment,
-  ).pipe(Effect.timeoutOption(DEFAULT_TIMEOUT_MS), Effect.result);
+  const probeVersion = runClaudeCommand(claudeSettings, ["--version"], resolvedEnvironment).pipe(
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    Effect.result,
+  );
+  let versionProbe = yield* probeVersion;
+
+  // Spawns can be slow right after the machine wakes from sleep, so a single
+  // timeout gets one more attempt. Spawn failures and non-zero exits do not retry.
+  if (Result.isSuccess(versionProbe) && Option.isNone(versionProbe.success)) {
+    yield* Effect.logWarning("Claude Agent CLI version probe timed out; retrying once.");
+    yield* Effect.sleep(VERSION_PROBE_RETRY_DELAY_MS);
+    versionProbe = yield* probeVersion;
+  }
 
   if (Result.isFailure(versionProbe)) {
     const error = versionProbe.failure;
@@ -487,6 +497,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   }
 
   if (Option.isNone(versionProbe.success)) {
+    yield* Effect.logWarning("Claude Agent CLI version probe timed out.");
     return buildServerProvider({
       presentation: CLAUDE_PRESENTATION,
       enabled: claudeSettings.enabled,
