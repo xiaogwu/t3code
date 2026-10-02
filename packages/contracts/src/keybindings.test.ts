@@ -146,6 +146,18 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadCopyReference.command, "thread.copyReference");
 
+    for (const [key, command] of [
+      ["mod+alt+arrowup", "thread.scrollToTop"],
+      ["mod+alt+arrowdown", "thread.scrollToEnd"],
+    ] as const) {
+      const parsedThreadScroll = yield* decode(KeybindingRule, {
+        key,
+        command,
+        when: "!terminalFocus",
+      });
+      assert.strictEqual(parsedThreadScroll.command, command);
+    }
+
     const parsedPullRequestCopyNumber = yield* decode(KeybindingRule, {
       key: "mod+shift+k",
       command: "pullRequest.copyNumber",

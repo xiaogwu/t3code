@@ -48,7 +48,9 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  ArrowDownToLineIcon,
   ArrowLeftIcon,
+  ArrowUpToLineIcon,
   ArchiveIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
@@ -218,6 +220,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
+import { requestThreadScroll } from "./chat/threadScrollRequest";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
@@ -2180,6 +2183,26 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null) {
     const thread = activeThread;
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:scroll-thread-to-top",
+        searchTerms: ["scroll", "top", "start", "beginning", "first"],
+        title: "Scroll to top of thread",
+        icon: <ArrowUpToLineIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.scrollToTop",
+        run: async () => requestThreadScroll("top"),
+      },
+      {
+        kind: "action",
+        value: "action:scroll-thread-to-end",
+        searchTerms: ["scroll", "end", "bottom", "latest", "last"],
+        title: "Scroll to end of thread",
+        icon: <ArrowDownToLineIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.scrollToEnd",
+        run: async () => requestThreadScroll("end"),
+      },
+    );
     actionItems.push({
       kind: "action",
       value: "action:restart-agent-session",
@@ -3270,6 +3293,15 @@ function OpenCommandPaletteDialog(props: {
       if (matchingItem) {
         executeItem(matchingItem);
       }
+      return;
+    }
+    if (command === "thread.scrollToTop" || command === "thread.scrollToEnd") {
+      event.preventDefault();
+      event.stopPropagation();
+      const matchingItem = displayedGroups
+        .flatMap((group) => group.items)
+        .find((item) => item.shortcutCommand === command);
+      if (matchingItem) executeItem(matchingItem);
       return;
     }
     if (command === "thread.copyReference") {

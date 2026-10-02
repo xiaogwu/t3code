@@ -41,6 +41,8 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.next",
   "thread.readState.toggle",
   "thread.copyReference",
+  "thread.scrollToTop",
+  "thread.scrollToEnd",
   "thread.settle",
   "thread.pin",
   "thread.undo",

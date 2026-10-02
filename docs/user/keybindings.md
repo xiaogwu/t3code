@@ -119,6 +119,11 @@ shortcut the browser leaves alone, such as `alt+w`.
 request is available. Its default shortcut is `mod+shift+c`, and it does not replace terminal copy
 while the terminal has focus.
 
+`thread.scrollToTop` and `thread.scrollToEnd` scroll the chat timeline to its first message or back to
+the live end, and work while the composer has focus. Their defaults are `mod+alt+arrowup` and
+`mod+alt+arrowdown`, and they do not run while the terminal has focus. Both are also in the command
+palette.
+
 `thread.settle` settles the active thread or restores it when it is already settled. Its default
 shortcut is `mod+shift+s`, and it does not run while the terminal has focus.
 
