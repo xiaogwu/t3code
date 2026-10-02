@@ -526,9 +526,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly activationKey?: string;
   readonly searchMatch?: EnvironmentThreadSearchMatch;
   readonly searchQuery?: string;
-  readonly simultaneousSwipeGesture?: ComponentProps<
-    typeof ThreadSwipeable
-  >["simultaneousWithExternalGesture"];
+  readonly simultaneousSwipeGesture?: ComponentProps<typeof ThreadSwipeable>["simultaneousWith"];
 }) {
   const navigation = useNavigation();
   const { width: windowWidth } = useWindowDimensions();
@@ -1195,7 +1193,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         primaryAction={primaryAction}
         secondaryAction={secondaryAction}
         resetKey={`${thread.environmentId}:${thread.id}:${variant}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}`}
-        simultaneousWithExternalGesture={props.simultaneousSwipeGesture}
+        simultaneousWith={props.simultaneousSwipeGesture}
         threadTitle={thread.title}
       >
         {(close) => (

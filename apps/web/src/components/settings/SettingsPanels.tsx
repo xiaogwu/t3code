@@ -585,6 +585,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sidebarV2ThreadSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder
         ? ["Sort threads"]
         : []),
+      ...(settings.sidebarWorkingShelfEnabled !==
+      DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
+        ? ["Working section"]
+        : []),
       ...(settings.sidebarAutoSettleAfterDays !==
       DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
         ? ["Auto-settle inactive threads"]
@@ -708,6 +712,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
+      settings.sidebarWorkingShelfEnabled,
       settings.sidebarThreadPreviewCount,
       settings.sidebarV2ThreadSortOrder,
       settings.showSkillsInSlashMenu,
@@ -807,6 +812,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
+      sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
@@ -2467,6 +2473,33 @@ export function GeneralSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("working-shelf")}
+          description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you."
+          resetAction={
+            settings.sidebarWorkingShelfEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
+              <SettingResetButton
+                label="working section"
+                onClick={() =>
+                  updateSettings({
+                    sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarWorkingShelfEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
+              }
+              aria-label="Working section (beta)"
+            />
           }
         />
 
