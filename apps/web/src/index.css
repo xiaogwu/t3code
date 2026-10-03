@@ -1985,6 +1985,12 @@ code {
   white-space: nowrap;
 }
 
+/* Expanded: cells wrap so the table fits the chat column instead of
+   scrolling sideways. */
+.chat-markdown .chat-markdown-table-container[data-expanded="true"] table {
+  min-width: 0;
+}
+
 .chat-markdown .chat-markdown-table-container[data-expanded="true"] td {
   max-width: 24rem;
   overflow-wrap: anywhere;
