@@ -8,11 +8,11 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
-layer("055_OrchestrationV2 application event source", (it) => {
+layer("062_OrchestrationV2 application event source", (it) => {
   it.effect("baselines current V1 project state in the shared event log", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 49 });
+      yield* runMigrations({ toMigrationInclusive: 53 });
       yield* sql`
         INSERT INTO projection_projects (
           project_id,

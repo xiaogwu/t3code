@@ -26,16 +26,8 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../../persistence/Migrations.ts";
+import { migrationEntries, runMigrations } from "../../persistence/Migrations.ts";
 import { makeSqlitePersistenceLive } from "../../persistence/Layers/Sqlite.ts";
-import Migration0042 from "../../persistence/Migrations/042_ProjectionThreadLinkedPullRequest.ts";
-import Migration0043 from "../../persistence/Migrations/043_ProjectionThreadsUnsettledAt.ts";
-import Migration0044 from "../../persistence/Migrations/044_ClearAutomaticProjectModelDefaults.ts";
-import Migration0045 from "../../persistence/Migrations/045_ProjectionProjectsAutoPull.ts";
-import Migration0046 from "../../persistence/Migrations/046_RepairAutomaticSettlementTimestamps.ts";
-import Migration0047 from "../../persistence/Migrations/047_ProjectionProjectIcon.ts";
-import Migration0048 from "../../persistence/Migrations/048_ProjectionThreadBranchPullRequest.ts";
-import Migration0049 from "../../persistence/Migrations/049_ProjectionThreadsActiveOrderKey.ts";
 import { CodexProviderCapabilitiesV2 } from "../Adapters/CodexAdapterV2.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as EventSink from "../EventSink.ts";
@@ -112,16 +104,8 @@ const seedV1Database = (fixturePath: string, workspace: string) =>
           payload_json TEXT NOT NULL
         )
       `;
-      const tailMigrations = [
-        [42, "ProjectionThreadLinkedPullRequest", Migration0042],
-        [43, "ProjectionThreadsUnsettledAt", Migration0043],
-        [44, "ClearAutomaticProjectModelDefaults", Migration0044],
-        [45, "ProjectionProjectsAutoPull", Migration0045],
-        [46, "RepairAutomaticSettlementTimestamps", Migration0046],
-        [47, "ProjectionProjectIcon", Migration0047],
-        [48, "ProjectionThreadBranchPullRequest", Migration0048],
-        [49, "ProjectionThreadsActiveOrderKey", Migration0049],
-      ] as const;
+      // Fork ids 42-53 end at the same schema as upstream's 42-49 tail.
+      const tailMigrations = migrationEntries.filter(([id]) => id >= 42 && id <= 53);
       for (const [id, name, migration] of tailMigrations) {
         yield* migration;
         yield* sql`
@@ -934,10 +918,10 @@ describe("orchestration v2 legacy v1 cutover", () => {
             "41:ThreadSummaryTimeline (this build: AuthSessionClientConnection)",
           ]);
           assert.equal(firstBoot.migration41Name, "ThreadSummaryTimeline");
-          // The skipped migration's columns never landed; the schema gap is
-          // what the startup warning points at.
-          assert.notInclude(firstBoot.authSessionColumnNames, "client_surface");
-          assert.notInclude(firstBoot.authSessionColumnNames, "client_app_version");
+          // The fork's 044 ReconcileForkMigrationCollisions adds the skipped
+          // migration's columns back, so the warning names no schema gap here.
+          assert.include(firstBoot.authSessionColumnNames, "client_surface");
+          assert.include(firstBoot.authSessionColumnNames, "client_app_version");
 
           assert.equal(firstBoot.importRows.length, ALL_THREADS.length);
           const unhydratedRows = firstBoot.importRows.filter(
