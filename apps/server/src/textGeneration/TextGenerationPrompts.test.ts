@@ -199,6 +199,9 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain("User message:");
     expect(result.prompt).toContain("Investigate reconnect regressions after session restore");
     expect(result.prompt).not.toContain("Attachment metadata:");
+    expect(result.prompt).toContain(
+      "Omit PR numbers unless the request is work on a pull request and includes its URL;",
+    );
   });
 
   it("includes attachment metadata when attachments are provided", () => {
@@ -231,6 +234,9 @@ describe("buildThreadTitlePrompt", () => {
       "Regenerate the title for an existing T3 Code thread so the user can recognize it weeks later.",
     );
     expect(result.prompt).toContain('The previous title was "Investigate reconnect regressions".');
+    expect(result.prompt).toContain(
+      "Omit PR numbers unless the thread is doing work on a pull request and contains its URL;",
+    );
     expect(result.prompt).toContain("Thread contents:");
     expect(result.prompt).toContain("The remaining issue is stale session state");
   });

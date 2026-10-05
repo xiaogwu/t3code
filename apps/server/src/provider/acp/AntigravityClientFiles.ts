@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import type * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -35,6 +36,7 @@ const resolveClientFilePath = Effect.fn("AntigravityClientFiles.resolveClientFil
     const outside = EffectAcpErrors.AcpRequestError.invalidParams(
       `Path '${input.requestPath}' is outside the session workspace.`,
     );
+    let uncanonicalized = false;
     const real = yield* input.fileSystem.realPath(resolved).pipe(
       Effect.catch(() =>
         Effect.gen(function* () {
@@ -48,15 +50,25 @@ const resolveClientFilePath = Effect.fn("AntigravityClientFiles.resolveClientFil
           if (entryExists) return yield* outside;
           const parent = yield* input.fileSystem
             .realPath(path.dirname(resolved))
-            .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
-          return path.join(parent, path.basename(resolved));
+            .pipe(Effect.option);
+          if (Option.isNone(parent)) {
+            // A new file can have a missing parent, so there is nothing to
+            // canonicalize yet. Keep the original root spelling for the lexical
+            // containment check below.
+            uncanonicalized = true;
+            return resolved;
+          }
+          return path.join(parent.value, path.basename(resolved));
         }),
       ),
     );
     const roots = yield* Effect.forEach(input.allowedRoots, (root) =>
       input.fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root)),
     );
-    if (!roots.some((root) => isInsideRoot(path, root, real))) {
+    const insideRoot =
+      roots.some((root) => isInsideRoot(path, root, real)) ||
+      (uncanonicalized && input.allowedRoots.some((root) => isInsideRoot(path, root, real)));
+    if (!insideRoot) {
       return yield* outside;
     }
     return real;

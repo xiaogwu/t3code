@@ -349,6 +349,7 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
             );
           }).pipe(Effect.scoped),
         );
+      const openCodePrelaunchCommand = effectiveConfig.prelaunchCommand.trim();
       const serverOwner = yield* OpenCodeServerOwner.make({
         binaryPath: effectiveConfig.binaryPath,
         directory: serverConfig.cwd,
@@ -356,6 +357,7 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
           ? { serverPassword: effectiveConfig.serverPassword }
           : {}),
         environment: processEnv,
+        ...(openCodePrelaunchCommand ? { prelaunch: { command: openCodePrelaunchCommand } } : {}),
       });
       const textGeneration = selectOpenCodeRuntimeTextGeneration(
         runtimeProbe,

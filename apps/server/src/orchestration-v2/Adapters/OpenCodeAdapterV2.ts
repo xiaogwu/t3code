@@ -954,11 +954,21 @@ export function makeOpenCodeAdapterV2(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? serverConfig.cwd;
+        const prelaunchCommand = options.settings.prelaunchCommand.trim();
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
           environment: options.environment,
+          ...(prelaunchCommand
+            ? {
+                prelaunch: {
+                  command: prelaunchCommand,
+                  // Lets the command skip setup a remote model does not need.
+                  model: input.modelSelection.model,
+                },
+              }
+            : {}),
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,

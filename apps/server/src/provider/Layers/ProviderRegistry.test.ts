@@ -268,26 +268,52 @@ function failingSpawnerLayer(description: string) {
   );
 }
 
+const hangingScopedHandle = (killCalls: Ref.Ref<number>) =>
+  Effect.gen(function* () {
+    const handle = ChildProcessSpawner.makeHandle({
+      pid: ChildProcessSpawner.ProcessId(1),
+      exitCode: Effect.never,
+      isRunning: Effect.succeed(true),
+      kill: () => Ref.update(killCalls, (current) => current + 1),
+      unref: Effect.succeed(Effect.void),
+      stdin: Sink.drain,
+      stdout: Stream.never,
+      stderr: Stream.never,
+      all: Stream.never,
+      getInputFd: () => Sink.drain,
+      getOutputFd: () => Stream.empty,
+    });
+    yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
+    return handle;
+  });
+
 function hangingScopedSpawnerLayer(killCalls: Ref.Ref<number>) {
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make(() =>
+    ChildProcessSpawner.make(() => hangingScopedHandle(killCalls)),
+  );
+}
+
+/** Hangs the first `hangCount` `--version` spawns, then answers like a healthy Claude CLI. */
+function claudeVersionHangsSpawnerLayer(hangCount: number, versionCalls: Ref.Ref<number>) {
+  return Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make((command) =>
       Effect.gen(function* () {
-        const handle = ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(1),
-          exitCode: Effect.never,
-          isRunning: Effect.succeed(true),
-          kill: () => Ref.update(killCalls, (current) => current + 1),
-          unref: Effect.succeed(Effect.void),
-          stdin: Sink.drain,
-          stdout: Stream.never,
-          stderr: Stream.never,
-          all: Stream.never,
-          getInputFd: () => Sink.drain,
-          getOutputFd: () => Stream.empty,
-        });
-        yield* Effect.addFinalizer(() => handle.kill().pipe(Effect.ignore));
-        return handle;
+        const joined = (command as unknown as { args: ReadonlyArray<string> }).args.join(" ");
+        if (joined === "--version") {
+          const call = yield* Ref.updateAndGet(versionCalls, (current) => current + 1);
+          if (call <= hangCount) return yield* hangingScopedHandle(yield* Ref.make(0));
+          return mockHandle({ stdout: "1.0.0\n", stderr: "", code: 0 });
+        }
+        if (joined === "auth status") {
+          return mockHandle({
+            stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+            stderr: "",
+            code: 0,
+          });
+        }
+        throw new Error(`Unexpected args: ${joined}`);
       }),
     ),
   );
@@ -2662,7 +2688,13 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
               ChildProcessSpawner.make((command) => {
                 if (command._tag !== "StandardCommand") return spawner.spawn(command);
-                spawnedCommands.push(command.command);
+                // Only the codex probes this test is about. A machine with Homebrew
+                // also spawns `brew` here from AntigravityInstallation, which CI
+                // never sees because it has no Homebrew, so recording every command
+                // made the assertions below machine-dependent.
+                if (command.command === firstMissing || command.command === secondMissing) {
+                  spawnedCommands.push(command.command);
+                }
                 const beforeSpawn =
                   command.command === secondMissing
                     ? Deferred.succeed(secondProbeStarted, undefined).pipe(
@@ -2922,6 +2954,51 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
     // ── checkClaudeProviderStatus tests ──────────────────────────
 
     describe("checkClaudeProviderStatus", () => {
+      it.effect("retries the --version probe once after a timeout", () =>
+        Effect.gen(function* () {
+          const versionCalls = yield* Ref.make(0);
+          const statusFiber = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities(),
+          ).pipe(Effect.provide(claudeVersionHangsSpawnerLayer(1, versionCalls)), Effect.forkChild);
+
+          yield* Effect.yieldNow;
+          // 4s probe timeout, then the 2s retry delay; the second probe answers immediately.
+          yield* TestClock.adjust("7 seconds");
+          yield* Effect.yieldNow;
+
+          const status = yield* Fiber.join(statusFiber);
+          assert.notStrictEqual(status.status, "error");
+          assert.strictEqual(status.version, "1.0.0");
+          assert.strictEqual(yield* Ref.get(versionCalls), 2);
+        }),
+      );
+
+      it.effect("reports the timeout error when the retried --version probe also hangs", () =>
+        Effect.gen(function* () {
+          const versionCalls = yield* Ref.make(0);
+          const statusFiber = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities(),
+          ).pipe(
+            Effect.provide(claudeVersionHangsSpawnerLayer(Infinity, versionCalls)),
+            Effect.forkChild,
+          );
+
+          yield* Effect.yieldNow;
+          yield* TestClock.adjust("11 seconds");
+          yield* Effect.yieldNow;
+
+          const status = yield* Fiber.join(statusFiber);
+          assert.strictEqual(status.status, "error");
+          assert.strictEqual(
+            status.message,
+            "Claude Agent CLI is installed but failed to run. Timed out while running command.",
+          );
+          assert.strictEqual(yield* Ref.get(versionCalls), 2);
+        }),
+      );
+
       it.effect("returns ready when claude is installed and authenticated", () =>
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(
