@@ -15,6 +15,7 @@ import {
   ImageIcon,
   InfoIcon,
   LightbulbIcon,
+  ListTodoIcon,
   MailIcon,
   Maximize2Icon,
   MessageSquareIcon,
@@ -62,6 +63,7 @@ import React, {
   Suspense,
   type CSSProperties,
   type ComponentProps,
+  type ElementType,
   type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -757,7 +759,6 @@ function readInitialWordWrapSetting(): boolean {
 
 function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const tableRef = useRef<HTMLTableElement | null>(null);
   const [expanded, setExpanded] = useState(readInitialWordWrapSetting);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -765,26 +766,6 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
   const copyLabel = copied ? "Copied" : "Copy table";
 
   function toggleExpanded() {
-    const table = tableRef.current;
-    if (!table) return;
-
-    if (!expanded) {
-      const rows = [...table.rows];
-      const columnWidths = rows.reduce<number[]>((widths, row) => {
-        [...row.cells].forEach((cell, columnIndex) => {
-          widths[columnIndex] = Math.max(
-            widths[columnIndex] ?? 0,
-            cell.getBoundingClientRect().width,
-          );
-        });
-        return widths;
-      }, []);
-
-      [...(table.tHead?.rows[0]?.cells ?? [])].forEach((cell, columnIndex) => {
-        cell.style.minWidth = `${columnWidths[columnIndex] ?? cell.getBoundingClientRect().width}px`;
-      });
-    }
-
     setExpanded((value) => !value);
   }
 
@@ -831,9 +812,7 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
       data-expanded={expanded ? "true" : "false"}
     >
       <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
-        <table ref={tableRef} {...props}>
-          {children}
-        </table>
+        <table {...props}>{children}</table>
       </ScrollArea>
       <div className="mt-0.5 flex items-center justify-between select-none">
         <Tooltip>
@@ -1430,16 +1409,37 @@ const MARKDOWN_LINK_FAVICON_CLASS_NAME = "block size-full shrink-0 select-none";
 /** Hosts whose favicon request already failed this session — skip straight to the globe. */
 const failedFaviconHosts = new Set<string>();
 
-/** Sites whose brand mark (drawn in `currentColor`) replaces the fetched favicon so it follows the theme. */
-function brandLinkIcon(host: string): typeof GitHubIcon | null {
+/**
+ * The rem-open bridge's origin (`~/.claude/tools/rem-open-bridge`). A click there opens a
+ * Reminders task, so the whole origin — port included — is the match: `127.0.0.1` on its own is
+ * every local dev server.
+ */
+const REMINDERS_BRIDGE_ORIGIN = "http://127.0.0.1:17429/";
+
+/**
+ * Marks whose glyph (drawn in `currentColor`) replaces the fetched favicon so it follows the theme.
+ * Mixed component shapes — a hand-drawn `Icon` and a Lucide one — so the slot is typed by the one
+ * prop it passes, the way `getSourceControlPresentation` does it.
+ */
+function brandLinkIcon(
+  host: string,
+  href: string | undefined,
+): ElementType<{ className?: string }> | null {
+  if (href?.startsWith(REMINDERS_BRIDGE_ORIGIN)) return ListTodoIcon;
   const hostname = host.toLowerCase();
   if (hostname === "github.com" || hostname.endsWith(".github.com")) return GitHubIcon;
   return null;
 }
 
-const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({ host }: { host: string }) {
+const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({
+  host,
+  href,
+}: {
+  host: string;
+  href: string | undefined;
+}) {
   const [failedHost, setFailedHost] = useState<string | null>(null);
-  const BrandIcon = brandLinkIcon(host);
+  const BrandIcon = brandLinkIcon(host, href);
   const faviconUrl = BrandIcon ? null : faviconUrlForOrigin(`https://${host}`);
   return (
     <span
@@ -1887,13 +1887,27 @@ function leadingExternalLinkTextLength(text: string): number {
   return Math.min(text.length, 1);
 }
 
+/**
+ * Splits a URL where a line may break: before each run of `/ . ? # & = - _ ~ %`,
+ * so a wrapped line starts with the delimiter the way style guides break URLs.
+ * A segment too long for the line still falls back to the root `overflow-wrap`.
+ */
+export function externalLinkBreakSegments(text: string): string[] {
+  return text.match(/[/.?#&=\-_~%]*[^/.?#&=\-_~%]*/g)?.filter((segment) => segment !== "") ?? [];
+}
+
 function breakableExternalLinkText(text: string): ReactNode[] {
-  return Array.from(text, (character, index) => (
-    <React.Fragment key={`${index}:${character}`}>
-      {character}
-      <wbr />
-    </React.Fragment>
-  ));
+  let offset = 0;
+  return externalLinkBreakSegments(text).map((segment) => {
+    const start = offset;
+    offset += segment.length;
+    return (
+      <React.Fragment key={start}>
+        {start > 0 ? <wbr /> : null}
+        {segment}
+      </React.Fragment>
+    );
+  });
 }
 
 function plainHastText(node: unknown): string | null {
@@ -2011,10 +2025,12 @@ function handleMarkdownFragmentClick(event: ReactMouseEvent<HTMLAnchorElement>, 
 
 function MarkdownExternalLinkContent({
   host,
+  href,
   plainText,
   children,
 }: {
   host: string;
+  href: string | undefined;
   plainText: string | null;
   children: ReactNode;
 }) {
@@ -2023,7 +2039,7 @@ function MarkdownExternalLinkContent({
     return (
       <>
         <span className="whitespace-nowrap">
-          <MarkdownLinkFavicon host={host} />
+          <MarkdownLinkFavicon host={host} href={href} />
           {plainText.slice(0, leadingLength)}
         </span>
         {breakableExternalLinkText(plainText.slice(leadingLength))}
@@ -2039,7 +2055,7 @@ function MarkdownExternalLinkContent({
     return (
       <>
         <span className="whitespace-nowrap">
-          <MarkdownLinkFavicon host={host} />
+          <MarkdownLinkFavicon host={host} href={href} />
           {firstChild.slice(0, leadingLength)}
         </span>
         {breakableExternalLinkText(firstChild.slice(leadingLength))}
@@ -2051,7 +2067,7 @@ function MarkdownExternalLinkContent({
   return (
     <>
       <span className="whitespace-nowrap">
-        <MarkdownLinkFavicon host={host} />
+        <MarkdownLinkFavicon host={host} href={href} />
         {firstChild}
       </span>
       {childNodes.slice(1)}
@@ -3192,7 +3208,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
           }}
         >
           {faviconHost && hastHasText(node) && !isPullRequestAutolink ? (
-            <MarkdownExternalLinkContent host={faviconHost} plainText={plainHastText(node)}>
+            <MarkdownExternalLinkContent
+              host={faviconHost}
+              href={href}
+              plainText={plainHastText(node)}
+            >
               {linkChildren}
             </MarkdownExternalLinkContent>
           ) : (

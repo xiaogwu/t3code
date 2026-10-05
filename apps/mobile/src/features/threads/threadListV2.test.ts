@@ -348,6 +348,18 @@ describe("resolveThreadListV2SnoozeGateExpiryMs", () => {
 });
 
 describe("sortThreadsForListV2", () => {
+  const sortable = (input: {
+    id: string;
+    createdAt: string;
+    updatedAt?: string;
+    latestUserMessageAt?: string | null;
+  }) => ({
+    id: input.id,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt ?? input.createdAt,
+    latestUserMessageAt: input.latestUserMessageAt ?? null,
+  });
+
   it("honors a saved active order and leaves new threads above it", () => {
     const sorted = sortThreadsForListV2([
       { id: "newer-arranged", createdAt: "2026-06-01T12:00:00.000Z", activeOrderKey: "t" },
@@ -358,12 +370,66 @@ describe("sortThreadsForListV2", () => {
   });
 
   it("orders by creation time, newest first, ignoring activity", () => {
-    const sorted = sortThreadsForListV2([
-      { id: "oldest", createdAt: "2026-06-01T08:00:00.000Z" },
-      { id: "newest", createdAt: "2026-06-01T12:00:00.000Z" },
-      { id: "middle", createdAt: "2026-06-01T10:00:00.000Z" },
-    ]);
+    const sorted = sortThreadsForListV2(
+      [
+        sortable({ id: "oldest", createdAt: "2026-06-01T08:00:00.000Z" }),
+        sortable({ id: "newest", createdAt: "2026-06-01T12:00:00.000Z" }),
+        sortable({ id: "middle", createdAt: "2026-06-01T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
     expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  it("orders by latest user message when the sort order is updated_at", () => {
+    const threads = [
+      sortable({
+        id: "stale",
+        createdAt: "2026-06-01T12:00:00.000Z",
+        latestUserMessageAt: "2026-06-01T09:00:00.000Z",
+      }),
+      sortable({
+        id: "chatty",
+        createdAt: "2026-06-01T10:00:00.000Z",
+        latestUserMessageAt: "2026-06-01T15:00:00.000Z",
+      }),
+    ];
+    expect(sortThreadsForListV2(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "chatty",
+      "stale",
+    ]);
+    expect(sortThreadsForListV2(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "stale",
+      "chatty",
+    ]);
+  });
+
+  it("breaks ties by id so the order is stable", () => {
+    const sorted = sortThreadsForListV2(
+      [
+        sortable({ id: "b", createdAt: "2026-06-01T10:00:00.000Z" }),
+        sortable({ id: "a", createdAt: "2026-06-01T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
+    expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+
+  it("surfaces an un-settled thread at the top via its re-entry stamp", () => {
+    const sorted = sortThreadsForListV2(
+      [
+        {
+          id: "old-unsettled",
+          createdAt: "2026-06-01T08:00:00.000Z",
+          updatedAt: "2026-06-01T08:00:00.000Z",
+          unsettledAt: "2026-06-01T13:00:00.000Z",
+        },
+        sortable({ id: "newest", createdAt: "2026-06-01T12:00:00.000Z" }),
+        sortable({ id: "middle", createdAt: "2026-06-01T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
+    expect(sorted.map((thread) => thread.id)).toEqual(["old-unsettled", "newest", "middle"]);
   });
 });
 

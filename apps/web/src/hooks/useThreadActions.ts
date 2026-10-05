@@ -243,6 +243,38 @@ export function useAcknowledgeThreadWoke() {
   );
 }
 
+/**
+ * Manual read-state actions for sidebar menus and the read-state toggle
+ * keybinding. Mark unread pairs the synced watermark rewind with a sticky
+ * browser-local flag, so the Unread pill survives the next visit even when the
+ * thread has no completion to rewind past. Mark read clears that flag and
+ * records the visit (server-side where visits are tracked).
+ */
+export function useThreadReadStateActions() {
+  const markThreadUnread = useMarkThreadUnread();
+  const recordThreadVisit = useAcknowledgeThreadWoke();
+  const markThreadManuallyUnreadLocal = useUiStateStore((state) => state.markThreadManuallyUnread);
+  const markThreadReadLocal = useUiStateStore((state) => state.markThreadRead);
+  const markThreadManuallyUnread = useCallback(
+    (target: ScopedThreadRef) => {
+      markThreadManuallyUnreadLocal(scopedThreadKey(target));
+      markThreadUnread(target);
+    },
+    [markThreadManuallyUnreadLocal, markThreadUnread],
+  );
+  const markThreadRead = useCallback(
+    (target: ScopedThreadRef, visitedAt: string) => {
+      markThreadReadLocal(scopedThreadKey(target), visitedAt);
+      recordThreadVisit(target, visitedAt);
+    },
+    [markThreadReadLocal, recordThreadVisit],
+  );
+  return useMemo(
+    () => ({ markThreadManuallyUnread, markThreadRead }),
+    [markThreadManuallyUnread, markThreadRead],
+  );
+}
+
 export function useThreadActions() {
   const closeTerminal = useAtomCommand(terminalEnvironment.close);
   const archiveThreadMutation = useAtomCommand(threadEnvironment.archive, {

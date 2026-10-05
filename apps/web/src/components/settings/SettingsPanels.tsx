@@ -1,17 +1,28 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
-import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  CheckIcon,
+  ChevronRightIcon,
+  PlusIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  EXTERNAL_TERMINALS,
   type BackgroundActivityProfile,
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   type DesktopUpdateChannel,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
+  type SidebarV2ThreadSortOrder,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -100,6 +111,7 @@ import { isMacPlatform } from "../../lib/utils";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { SIDEBAR_V2_THREAD_SORT_LABELS } from "../sidebar/SidebarSortMenu";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import {
@@ -523,6 +535,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationFallbackModelsDirty = !Equal.equals(
+    settings.textGenerationFallbackModelSelections,
+    DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+  );
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = useMemo(
@@ -563,6 +579,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
         ? ["Project order"]
+        : []),
+      ...(settings.sidebarV2ThreadSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder
+        ? ["Sort threads"]
         : []),
       ...(settings.sidebarWorkingShelfEnabled !==
       DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
@@ -646,6 +665,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
+      ...(isTextGenerationFallbackModelsDirty ? ["Text generation fallback models"] : []),
       ...getChangedBrowserSettingLabels(settings),
       ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
         ? ["Agent browser access"]
@@ -653,6 +673,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       isTextGenerationModelDirty,
+      isTextGenerationFallbackModelsDirty,
       isBackgroundActivityDirty,
       settings.browserDefaultViewport,
       settings.browserDefaultZoomFactor,
@@ -705,6 +726,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectSortOrder,
       settings.sidebarWorkingShelfEnabled,
       settings.sidebarThreadPreviewCount,
+      settings.sidebarV2ThreadSortOrder,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.notificationMode,
@@ -803,6 +825,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
+      sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -823,6 +846,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      textGenerationFallbackModelSelections:
+        DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -1498,6 +1523,20 @@ export function AppearanceSettingsPanel() {
         />
       </SettingsSection>
 
+      <SettingsSection id="appearance-sidebar" title="Sidebar">
+        <SettingsRow
+          {...searchableSetting("sidebar-auto-hide")}
+          description="Hide the main sidebar until you point at the window's edge."
+          control={
+            <Switch
+              checked={settings.sidebarAutoHide}
+              onCheckedChange={(checked) => updateSettings({ sidebarAutoHide: Boolean(checked) })}
+              aria-label="Auto-hide sidebar"
+            />
+          }
+        />
+      </SettingsSection>
+
       <TypographySection />
     </SettingsPageContainer>
   );
@@ -2023,7 +2062,6 @@ function FontFamilySettingsRow({
 }
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 3;
-
 function AutoSettleDaysInput({
   value,
   onCommit,
@@ -2224,6 +2262,35 @@ export function GeneralSettingsPanel() {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const isTextGenerationFallbackModelsDirty = !Equal.equals(
+    settings.textGenerationFallbackModelSelections,
+    DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+  );
+  // A new fallback slot defaults to an instance nothing else in the chain uses. Defaulting to the
+  // primary would look configured while doing nothing: the server dedupes an entry that repeats
+  // the selection before it.
+  const nextFallbackModelSelection = useMemo(() => {
+    const used = new Set<ProviderInstanceId>([
+      textGenInstanceId,
+      ...settings.textGenerationFallbackModelSelections.map((entry) => entry.instanceId),
+    ]);
+    const unused = textGenerationModelInstanceEntries.find(
+      (entry) => entry.enabled && entry.isAvailable && !used.has(entry.instanceId),
+    );
+    if (!unused) {
+      return createModelSelection(textGenInstanceId, textGenModel);
+    }
+    const model =
+      DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[unused.driverKind] ??
+      unused.models[0]?.slug ??
+      textGenModel;
+    return createModelSelection(unused.instanceId, model);
+  }, [
+    settings.textGenerationFallbackModelSelections,
+    textGenerationModelInstanceEntries,
+    textGenInstanceId,
+    textGenModel,
+  ]);
   const textGenerationModelDisabledReason = useScopedModelDisabledReason(
     settings,
     textGenerationModelInstanceEntries,
@@ -2234,6 +2301,9 @@ export function GeneralSettingsPanel() {
   const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
+  const mixedTextGenerationFallbackModels = useScopedSettingsMixed([
+    "textGenerationFallbackModelSelections",
+  ]);
   const backgroundActivityDescription =
     backgroundActivityProfileOption === "advanced"
       ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
@@ -2249,6 +2319,45 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
+        <SettingsRow
+          {...searchableSetting("external-terminal")}
+          title="External terminal"
+          description="Choose the native terminal opened by Open Worktree in External Terminal. Automatic uses a host-appropriate fallback."
+          resetAction={
+            settings.externalTerminal !== DEFAULT_UNIFIED_SETTINGS.externalTerminal ? (
+              <SettingResetButton
+                label="external terminal"
+                onClick={() =>
+                  updateSettings({ externalTerminal: DEFAULT_UNIFIED_SETTINGS.externalTerminal })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.externalTerminal}
+              onValueChange={(value) => {
+                if (EXTERNAL_TERMINALS.some((terminal) => terminal.id === value)) {
+                  updateSettings({ externalTerminal: value as typeof settings.externalTerminal });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="External terminal">
+                <SelectValue>
+                  {EXTERNAL_TERMINALS.find((terminal) => terminal.id === settings.externalTerminal)
+                    ?.label ?? "Automatic"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {EXTERNAL_TERMINALS.map((terminal) => (
+                  <SelectItem hideIndicator key={terminal.id} value={terminal.id}>
+                    {terminal.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
@@ -2355,6 +2464,51 @@ export function GeneralSettingsPanel() {
               }
               aria-label="Snooze limited threads"
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("thread-sorting")}
+          description="Choose how threads are ordered in the sidebar."
+          resetAction={
+            settings.sidebarV2ThreadSortOrder !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder ? (
+              <SettingResetButton
+                label="thread sorting"
+                onClick={() =>
+                  updateSettings({
+                    sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarV2ThreadSortOrder}
+              onValueChange={(value) => {
+                if (value === "updated_at" || value === "created_at") {
+                  updateSettings({ sidebarV2ThreadSortOrder: value });
+                }
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Sort threads">
+                <SelectValue>
+                  {SIDEBAR_V2_THREAD_SORT_LABELS[settings.sidebarV2ThreadSortOrder]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {(
+                  Object.entries(SIDEBAR_V2_THREAD_SORT_LABELS) as Array<
+                    [SidebarV2ThreadSortOrder, string]
+                  >
+                ).map(([value, label]) => (
+                  <SelectItem hideIndicator key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 
@@ -3319,6 +3473,118 @@ export function GeneralSettingsPanel() {
                     }}
                   />
                 ) : null}
+              </div>
+            )
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["textGenerationFallbackModelSelections"]}
+          {...searchableSetting("text-generation-fallback-models")}
+          description="Tried in order when the text generation model fails, for example when its subscription limit is reached."
+          resetAction={
+            hasServerTargets && isTextGenerationFallbackModelsDirty ? (
+              <SettingResetButton
+                label="text generation fallback models"
+                onClick={() =>
+                  updateSettings({
+                    textGenerationFallbackModelSelections:
+                      DEFAULT_UNIFIED_SETTINGS.textGenerationFallbackModelSelections,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            !hasServerTargets ? (
+              <span className="text-sm text-muted-foreground">
+                Connect an environment to choose its text generation model.
+              </span>
+            ) : !hasTextGenerationProvider ? (
+              <span className="text-sm text-muted-foreground">
+                No text generation providers available.
+              </span>
+            ) : (
+              <div className="flex flex-col items-end gap-1.5">
+                {settings.textGenerationFallbackModelSelections.map((fallback, index) => (
+                  <div
+                    key={`${fallback.instanceId}:${fallback.model}:${index}`}
+                    className="flex flex-wrap items-center justify-end gap-1.5"
+                  >
+                    <ProviderModelPicker
+                      activeInstanceId={fallback.instanceId}
+                      model={fallback.model}
+                      lockedProvider={null}
+                      instanceEntries={textGenerationModelInstanceEntries}
+                      modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                      {...(mixedTextGenerationFallbackModels ? { triggerLabel: "Mixed" } : {})}
+                      getModelDisabledReason={textGenerationModelDisabledReason}
+                      {...(environmentId
+                        ? {
+                            onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
+                              void navigate({
+                                to: "/settings/providers",
+                                search: { environmentId, instanceId },
+                              });
+                            },
+                          }
+                        : {})}
+                      onInstanceModelChange={(instanceId, model) => {
+                        const reason = textGenerationModelDisabledReason(instanceId, model);
+                        if (reason) {
+                          toastManager.add({
+                            type: "error",
+                            title: "Fallback model not saved",
+                            description: reason,
+                          });
+                          return;
+                        }
+                        updateSettings({
+                          textGenerationFallbackModelSelections:
+                            settings.textGenerationFallbackModelSelections.map(
+                              (entry, entryIndex) =>
+                                entryIndex === index
+                                  ? createModelSelection(instanceId, model)
+                                  : entry,
+                            ),
+                        });
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="icon-micro"
+                      variant="ghost-destructive"
+                      onClick={() =>
+                        updateSettings({
+                          textGenerationFallbackModelSelections:
+                            settings.textGenerationFallbackModelSelections.filter(
+                              (_, entryIndex) => entryIndex !== index,
+                            ),
+                        })
+                      }
+                      aria-label={`Remove fallback model ${index + 1}`}
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    updateSettings({
+                      textGenerationFallbackModelSelections: [
+                        ...settings.textGenerationFallbackModelSelections,
+                        nextFallbackModelSelection,
+                      ],
+                    })
+                  }
+                >
+                  <PlusIcon className="size-3" />
+                  Add fallback
+                </Button>
               </div>
             )
           }

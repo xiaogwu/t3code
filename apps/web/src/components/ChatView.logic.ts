@@ -72,6 +72,25 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
+export function observeThreadCompletionReadability(
+  acknowledge: () => void,
+  isReadable: () => boolean,
+  subscribeToFocus: (listener: () => void) => () => void,
+  subscribeToVisibility: (listener: () => void) => () => void,
+): () => void {
+  const acknowledgeIfReadable = () => {
+    if (isReadable()) acknowledge();
+  };
+  const unsubscribeFromFocus = subscribeToFocus(acknowledgeIfReadable);
+  const unsubscribeFromVisibility = subscribeToVisibility(acknowledgeIfReadable);
+  acknowledgeIfReadable();
+
+  return () => {
+    unsubscribeFromFocus();
+    unsubscribeFromVisibility();
+  };
+}
+
 export function agentControlledBrowserCloseConfirmation(
   surfaces: readonly RightPanelSurface[],
   desktopByTabId: Readonly<Record<string, Pick<DesktopPreviewOverlay, "controller"> | undefined>>,
@@ -127,6 +146,9 @@ interface ProactivePanelObservation {
   targetKey: string | null | undefined;
   userActionTurnId: RunId | null;
   userActionRevision: number;
+  /** True only when this observation is the same thread starting a new turn, so a
+      caller can lift a user's earlier panel dismissal without reacting to a thread switch. */
+  newTurn: boolean;
 }
 
 /** Capture user intent before loading or metadata writes can defer panel activation. */
@@ -144,6 +166,7 @@ export function observeProactivePanelUserChoice(
     userActionTurnId: input.runningTurnId ?? (sameThread ? previous.userActionTurnId : null),
     userActionRevision:
       !sameThread || newTurn ? input.userActionRevision : previous.userActionRevision,
+    newTurn,
   };
 }
 

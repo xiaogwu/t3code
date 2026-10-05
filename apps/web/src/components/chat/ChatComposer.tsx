@@ -124,9 +124,11 @@ import {
   usePromptStashStore,
   type PromptStashEntry,
 } from "../../promptStashStore";
+import { type PromptHistoryEntry, usePromptHistoryStore } from "../../promptHistoryStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
 import { useComposerMenuState } from "./useComposerMenuState";
+import { ComposerPromptHistorySearch } from "./ComposerPromptHistorySearch";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import { useComposerFocusState } from "./useComposerFocusState";
 import { useComposerMultilinePrompt } from "./useComposerMultilinePrompt";
@@ -2357,6 +2359,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hasWrappedPrompt = useComposerMultilinePrompt(composerMenuAnchor);
   const hasMultilinePrompt = prompt.includes("\n") || hasWrappedPrompt;
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
+  const [isPromptHistorySearchOpen, setIsPromptHistorySearchOpen] = useState(false);
   const [isTasksDrawerOpen, setIsTasksDrawerOpen] = useState(false);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
     key: 0,
@@ -2392,6 +2395,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerScrollGestureRef = useRef(createComposerScrollGestureState());
   const stashPulseKeyRef = useRef(0);
   const stashPulseTimeoutRef = useRef<number | null>(null);
+  const promptHistoryIndexRef = useRef(-1);
+  const promptHistoryTextRef = useRef<string | null>(null);
   /**
    * Snapshots currently being encoded, keyed by target+prompt+image ids.
    * Keyed rather than boolean so a genuinely different prompt (or a different
@@ -3317,6 +3322,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Sync refs back to parent
   // ------------------------------------------------------------------
   useEffect(() => {
+    if (promptHistoryTextRef.current !== null && prompt !== promptHistoryTextRef.current) {
+      promptHistoryIndexRef.current = -1;
+      promptHistoryTextRef.current = null;
+    }
     promptRef.current = prompt;
     setComposerCursor((existing) => clampCollapsedComposerCursor(prompt, existing));
   }, [prompt, promptRef]);
@@ -3437,6 +3446,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Reset compositor state on thread/draft change
   // ------------------------------------------------------------------
   useEffect(() => {
+    promptHistoryIndexRef.current = -1;
+    promptHistoryTextRef.current = null;
+    setIsPromptHistorySearchOpen(false);
     setComposerHighlightedItemId(null);
     setComposerHighlightedSearchKey(null);
     setComposerSubmissionError(null);
@@ -4328,6 +4340,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Callbacks: command key
   // ------------------------------------------------------------------
   const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem = false) => {
+    if (key === "HistorySearch") {
+      if (
+        isComposerApprovalState ||
+        activePendingProgress !== null ||
+        pendingUserInputs.length > 0
+      ) {
+        return false;
+      }
+      setComposerTrigger(null);
+      setIsStashMenuOpen(false);
+      setIsTasksDrawerOpen(false);
+      setIsPromptHistorySearchOpen(true);
+      return true;
+    }
     const submissionIntent = composerSubmissionIntentForKey({
       event,
       keybindings,
@@ -4414,6 +4440,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Files remain tied to the environment that owns their uploaded bytes.
   const stashQueue = usePromptStashStore((state) => state.entries);
+  const promptHistoryEntries = usePromptHistoryStore((state) => state.entries);
+  const restorePromptHistoryEntry = useCallback(
+    (entry: PromptHistoryEntry) => {
+      promptRef.current = entry.text;
+      setComposerDraftPrompt(composerDraftTarget, entry.text);
+      setComposerCursor(collapseExpandedComposerCursor(entry.text, entry.text.length));
+      setComposerTrigger(null);
+      promptHistoryIndexRef.current = promptHistoryEntries.indexOf(entry);
+      promptHistoryTextRef.current = entry.text;
+      setIsPromptHistorySearchOpen(false);
+      window.requestAnimationFrame(() => composerEditorRef.current?.focusAtEnd());
+    },
+    [composerDraftTarget, promptHistoryEntries, promptRef, setComposerDraftPrompt],
+  );
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
   const takeStashEntry = usePromptStashStore((state) => state.takeEntry);
   const finalizeStashEntryImages = usePromptStashStore((state) => state.finalizeEntryImages);
@@ -5017,6 +5057,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const toggleStashMenu = useCallback(() => {
+    setIsPromptHistorySearchOpen(false);
     if (isComposerCollapsedMobile) {
       expandMobileComposer();
       setIsStashMenuOpen(true);
@@ -5025,6 +5066,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsStashMenuOpen((open) => !open);
   }, [expandMobileComposer, isComposerCollapsedMobile]);
   const toggleTasksDrawer = useCallback(() => {
+    setIsPromptHistorySearchOpen(false);
     setIsTasksDrawerOpen((open) => !open);
   }, []);
   const hasBannerItems = props.bannerItems.length > 0;
@@ -5551,10 +5593,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     if (composerMenuOpen) {
       setIsStashMenuOpen(false);
+      setIsPromptHistorySearchOpen(false);
     }
   }, [composerMenuOpen]);
   useEffect(() => {
     setIsStashMenuOpen(false);
+    setIsPromptHistorySearchOpen(false);
   }, [prompt]);
 
   useEffect(() => {
@@ -6843,6 +6887,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onRestore={restoreStashEntry}
                     onDelete={deleteStashEntry}
                     onClose={() => setIsStashMenuOpen(false)}
+                  />
+                </ComposerCommandMenuLayer>
+              )}
+
+              {isPromptHistorySearchOpen && !composerMenuOpen && !isComposerApprovalState && (
+                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
+                  <ComposerPromptHistorySearch
+                    entries={promptHistoryEntries}
+                    onSelect={restorePromptHistoryEntry}
+                    onClose={() => {
+                      setIsPromptHistorySearchOpen(false);
+                      window.requestAnimationFrame(() => composerEditorRef.current?.focusAtEnd());
+                    }}
                   />
                 </ComposerCommandMenuLayer>
               )}

@@ -20,10 +20,14 @@ type WhenToken =
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
+  { key: "mod+alt+b", command: "sidebar.version.toggle" },
+  { key: "mod+alt+s", command: "sidebar.sort.toggle" },
   { key: "mod+[", command: "navigation.back", when: "!terminalFocus" },
   { key: "mod+]", command: "navigation.forward", when: "!terminalFocus" },
   { key: "mod+j", command: "terminal.toggle" },
-  { key: "mod+alt+b", command: "rightPanel.toggle" },
+  { key: "mod+shift+t", command: "shell.openInTerminal", when: "!terminalFocus" },
+  // Moved off mod+alt+b, which now switches sidebar versions.
+  { key: "mod+shift+b", command: "rightPanel.toggle" },
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
   { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
@@ -80,7 +84,10 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+o", command: "editor.openFavorite" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
+  { key: "mod+alt+u", command: "thread.readState.toggle" },
   { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
+  { key: "mod+alt+arrowup", command: "thread.scrollToTop", when: "!terminalFocus" },
+  { key: "mod+alt+arrowdown", command: "thread.scrollToEnd", when: "!terminalFocus" },
   { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
   { key: "mod+z", command: "thread.undo", when: "!terminalFocus && !editableFocus" },

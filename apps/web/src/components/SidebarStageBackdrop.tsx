@@ -109,6 +109,7 @@ function NightlySkyArt({ compact = false }: { compact?: boolean }) {
   return (
     <svg
       data-stage-art="nightly"
+      data-stage-artwork="nightly"
       className="h-full w-full"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
@@ -220,10 +221,13 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
   const rulerId = `${idPrefix}-stage-bp-ruler`;
   const glowsId = `${idPrefix}-stage-bp-glows`;
   const annotationsId = `${idPrefix}-stage-bp-annotations`;
+  const arrowStartId = `${idPrefix}-stage-bp-arrow-start`;
+  const arrowEndId = `${idPrefix}-stage-bp-arrow-end`;
 
   return (
     <svg
       data-stage-art="blueprint"
+      data-stage-artwork="dev"
       className="h-full w-full"
       fill="none"
       preserveAspectRatio="xMinYMin slice"
@@ -292,20 +296,23 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
           />
           <stop offset="1" style={{ stopColor: "var(--stage-art-bottom)" }} stopOpacity="0" />
         </radialGradient>
-        <pattern id={minorGridId} width="8" height="8" patternUnits="userSpaceOnUse">
+        {/* Half upstream's grid pitch with thinner strokes: at the stage's actual
+            rendered height the 8/32 pitch reads as a wash rather than drafting
+            paper. Color stays on --stage-art-grid-line so each theme still owns it. */}
+        <pattern id={minorGridId} width="4" height="4" patternUnits="userSpaceOnUse">
           <path
-            d="M8 0H0V8"
+            d="M4 0H0V4"
             style={{ stroke: "var(--stage-art-grid-line)" }}
             strokeOpacity="0.14"
-            strokeWidth="0.5"
+            strokeWidth="0.35"
           />
         </pattern>
-        <pattern id={majorGridId} width="32" height="32" patternUnits="userSpaceOnUse">
+        <pattern id={majorGridId} width="16" height="16" patternUnits="userSpaceOnUse">
           <path
-            d="M32 0H0V32"
+            d="M16 0H0V16"
             style={{ stroke: "var(--stage-art-grid-line)" }}
             strokeOpacity="0.26"
-            strokeWidth="0.6"
+            strokeWidth="0.5"
           />
         </pattern>
         <pattern id={rulerId} width="32" height="6" patternUnits="userSpaceOnUse">
@@ -321,6 +328,36 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
           <rect width="768" height="96" fill={`url(#${celesteGlowId})`} />
           <rect width="768" height="96" fill={`url(#${violetGlowId})`} />
         </pattern>
+        <marker
+          id={arrowStartId}
+          markerHeight="5"
+          markerUnits="strokeWidth"
+          markerWidth="5"
+          orient="auto"
+          refX="1.2"
+          refY="2.5"
+        >
+          <path
+            d="M4.5 0.6L1 2.5L4.5 4.4"
+            style={{ stroke: "var(--stage-art-line)" }}
+            strokeWidth="0.8"
+          />
+        </marker>
+        <marker
+          id={arrowEndId}
+          markerHeight="5"
+          markerUnits="strokeWidth"
+          markerWidth="5"
+          orient="auto"
+          refX="3.8"
+          refY="2.5"
+        >
+          <path
+            d="M0.5 0.6L4 2.5L0.5 4.4"
+            style={{ stroke: "var(--stage-art-line)" }}
+            strokeWidth="0.8"
+          />
+        </marker>
         <pattern id={annotationsId} width="768" height="96" patternUnits="userSpaceOnUse">
           <g
             style={{ stroke: "var(--stage-art-line)" }}
@@ -328,7 +365,13 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
             strokeOpacity="0.6"
             strokeWidth="0.7"
           >
-            <path d="M180 64H264" strokeDasharray="5 4" />
+            {/* Arrowheads instead of upstream's dashed run: this is the one
+                dimension line that reads as a measurement, so it gets terminators. */}
+            <path
+              d="M180 64H264"
+              markerEnd={`url(#${arrowEndId})`}
+              markerStart={`url(#${arrowStartId})`}
+            />
             <path d="M180 61V67M264 61V67" />
             <path d="M276 10V44" strokeDasharray="4 4" strokeOpacity="0.5" />
             <path d="M273 10H279M273 44H279" strokeOpacity="0.5" />
@@ -336,7 +379,12 @@ function DevBlueprintArt({ compact = false }: { compact?: boolean }) {
             <path d="M348 27V33M428 27V33" strokeOpacity="0.5" />
             <path d="M512 48V80" strokeDasharray="5 3" strokeOpacity="0.45" />
             <path d="M509 48H515M509 80H515" strokeOpacity="0.45" />
-            <path d="M590 70H724" strokeDasharray="7 4" strokeOpacity="0.55" />
+            <path
+              d="M590 70H724"
+              markerEnd={`url(#${arrowEndId})`}
+              markerStart={`url(#${arrowStartId})`}
+              strokeOpacity="0.55"
+            />
             <path d="M590 67V73M724 67V73" strokeOpacity="0.55" />
           </g>
 

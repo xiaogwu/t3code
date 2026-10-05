@@ -100,6 +100,7 @@ describe("searchSettings", () => {
     expect(searchSettings("Google sign in")[0]?.id).toBe("providers");
     expect(searchSettings("authorized clients")[0]?.id).toBe("connections-environment");
     expect(searchSettings("administrative access")[0]?.id).toBe("connections-environment");
+    expect(searchSettings("sort threads")[0]?.id).toBe("thread-sorting");
   });
 
   it("lists thread confirmations in panel order", () => {
@@ -240,9 +241,20 @@ describe("searchSettings", () => {
   });
 
   it("finds keybinding commands by label, command id, and default key", () => {
-    expect(searchSettings("toggle sidebar")[0]?.id).toBe("keybinding-sidebar.toggle");
+    // Label matches come out alphabetical, so "Sidebar Auto Hide: Toggle" leads
+    // this query. Both are hits; only the command id and key are unambiguous.
+    expect(searchSettings("toggle sidebar").map((item) => item.id)).toContain(
+      "keybinding-sidebar.toggle",
+    );
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
+    expect(searchSettings("sidebar.sort.toggle")[0]?.id).toBe("keybinding-sidebar.sort.toggle");
+    expect(searchSettings("thread sort order").map((item) => item.id)).toContain(
+      "keybinding-sidebar.sort.toggle",
+    );
+    expect(searchSettings("mod+alt+s").map((item) => item.id)).toContain(
+      "keybinding-sidebar.sort.toggle",
+    );
     expect(searchSettings("copy link")[0]).toMatchObject({
       id: "keybinding-thread.copyReference",
       to: "/settings/keybindings",

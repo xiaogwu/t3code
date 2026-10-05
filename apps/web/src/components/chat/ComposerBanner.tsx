@@ -51,18 +51,21 @@ function Surface({
         surfaceColors,
         "relative isolate border-0 bg-transparent shadow-none [--chat-composer-attached-tint:transparent]",
         variantColors[variant],
-        // The mask cut-off (1rem) bleeds one pixel past the seam (1rem + 1px): Chromium
-        // drops the last device-pixel row of a filtered backdrop when the cut-off lands
-        // off the device-pixel grid, and the composer's surface starts exactly there.
-        // The composer's own glass covers the extra row, so the overlap never shows.
+        // The mask cut-off (1rem) bleeds one pixel past the seam (1rem + 1px): a cut-off
+        // that lands off the device-pixel grid otherwise exposes a row of chat text where
+        // the composer's surface starts. The composer covers the extra row, so the
+        // overlap never shows.
         placement === "attached"
           ? "[--chat-composer-attachment-overlap:calc(1rem+1px)] before:rounded-t-2xl before:mask-t-from-transparent before:mask-t-from-4 before:mask-t-to-black before:mask-t-to-4"
           : "[--chat-composer-attachment-overlap:0px] before:rounded-2xl",
         "before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:border before:border-(--chat-composer-attached-outline)",
-        "before:bg-(--chat-composer-attached-surface)/(--glass-opacity) before:bg-linear-to-b before:from-(--chat-composer-attached-tint) before:to-(--chat-composer-attached-tint) before:backdrop-blur-(--glass-blur) before:backdrop-saturate-(--glass-saturation)",
+        // Opaque, like the composer itself. Banners, the command menu and the prompt
+        // history palette all render on this surface directly over the virtualized
+        // thread scroller, and sampling their backdrop makes Chromium repaint the
+        // whole surface when scrolling becomes idle, which reads as a flicker.
+        "before:bg-(--chat-composer-attached-surface) before:bg-linear-to-b before:from-(--chat-composer-attached-tint) before:to-(--chat-composer-attached-tint)",
         "before:shadow-composer dark:before:shadow-composer-dark",
-        "dark:supports-[(backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px))]:before:bg-composer-seam-above",
-        "not-supports-[((backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px)))]:before:bg-(--chat-composer-attached-surface)",
+        "dark:before:bg-composer-seam-above",
         className,
       )}
       {...props}
@@ -92,8 +95,7 @@ function Peek({
         surfaceColors,
         neutralOutline,
         "absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-md",
-        "bg-(--chat-composer-attached-surface)/(--glass-opacity) backdrop-blur-(--glass-blur) backdrop-saturate-(--glass-saturation)",
-        "not-supports-[((backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px)))]:bg-(--chat-composer-attached-surface)",
+        "bg-(--chat-composer-attached-surface)",
         "transition-opacity duration-150 ease-out focus-visible:outline-2 focus-visible:outline-ring",
         peekBorder[variant],
         className,

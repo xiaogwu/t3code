@@ -1,0 +1,48 @@
+# Refuse to push `integration` when it carries a fork merge commit that
+# docs/fork-features.md does not cite. This is step 4 of the workflow in that
+# file; the index went stale twice because the step was left for later.
+#
+# Only fork merges are checked. Upstream nightly and reconciliation merges do
+# not get rows, and a feature committed straight onto `integration` has no
+# merge commit to notice.
+
+index=docs/fork-features.md
+zero=0000000000000000000000000000000000000000
+missing=""
+
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+  refs/heads/integration) ;;
+  *) continue ;;
+  esac
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  # Read the index as it will exist on the remote, not as it sits on disk.
+  rows=$(git show "$local_sha:$index" 2>/dev/null || true)
+
+  for sha in $(git rev-list --merges "$range" 2>/dev/null); do
+    subject=$(git log -1 --format=%s "$sha")
+    case "$subject" in
+    "merge: upstream"* | "merge: reconcile"* | "Merge "*) continue ;;
+    esac
+    short=$(git rev-parse --short=9 "$sha")
+    case "$rows" in
+    *"$short"*) ;;
+    *) missing="$missing $short" ;;
+    esac
+  done
+done
+
+if [ -n "$missing" ]; then
+  echo "pre-push: docs/fork-features.md has no row for:"
+  for short in $missing; do
+    echo "  $short $(git log -1 --format=%s "$short")"
+  done
+  echo "Add each row (step 4 in docs/fork-features.md), commit it, then push again."
+  exit 1
+fi

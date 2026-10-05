@@ -623,6 +623,27 @@ describe("ClientSettings sidebar", () => {
     expect(decoded).not.toHaveProperty("sidebarV2ConfiguredByUser");
   });
 
+  it("orders the default sidebar's threads by creation date, independently of legacy", () => {
+    const settings = decodeClientSettings({});
+    // The default sidebar shipped as a static board; legacy is a recency list.
+    // Sharing one key would have reordered every existing sidebar on upgrade.
+    expect(settings.sidebarV2ThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarThreadSortOrder).toBe("updated_at");
+  });
+
+  it("keeps the two sidebar versions' thread orders independent", () => {
+    const settings = decodeClientSettings({
+      sidebarThreadSortOrder: "created_at",
+      sidebarV2ThreadSortOrder: "updated_at",
+    });
+    expect(settings.sidebarThreadSortOrder).toBe("created_at");
+    expect(settings.sidebarV2ThreadSortOrder).toBe("updated_at");
+
+    const patch = decodeClientSettingsPatch({ sidebarV2ThreadSortOrder: "updated_at" });
+    expect(patch.sidebarV2ThreadSortOrder).toBe("updated_at");
+    expect(patch.sidebarThreadSortOrder).toBeUndefined();
+  });
+
   it("drops the retired compact sidebar keys for users who opted in", () => {
     const stored = { compactSidebarEnabled: true, sidebarCompactThreadRows: true };
     const decoded = decodeClientSettings(stored);
@@ -642,6 +663,13 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettings({}).confirmThreadUnpin).toBe(false);
     expect(decodeClientSettingsPatch({ confirmThreadUnpin: true }).confirmThreadUnpin).toBe(true);
     expect(() => decodeClientSettingsPatch({ confirmThreadUnpin: "yes" })).toThrow();
+  });
+
+  it("keeps auto-hide off by default and patchable", () => {
+    expect(decodeClientSettings({}).sidebarAutoHide).toBe(false);
+    expect(decodeClientSettings({ sidebarAutoHide: true }).sidebarAutoHide).toBe(true);
+    expect(decodeClientSettingsPatch({ sidebarAutoHide: true }).sidebarAutoHide).toBe(true);
+    expect(() => decodeClientSettingsPatch({ sidebarAutoHide: "yes" })).toThrow();
   });
 });
 
@@ -746,6 +774,20 @@ describe("ClientSettings pull request merge methods", () => {
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
+  });
+
+  it("defaults text generation fallbacks to empty and round-trips a configured list", () => {
+    // A settings.json written before the key existed has to keep behaving exactly as it did.
+    expect(decodeServerSettings({}).textGenerationFallbackModelSelections).toEqual([]);
+
+    const fallbacks = [
+      { instanceId: "claude", model: "sonnet" },
+      { instanceId: "opencode", model: "openai/gpt-5", options: [{ id: "agent", value: "build" }] },
+    ];
+    expect(
+      decodeServerSettings({ textGenerationFallbackModelSelections: fallbacks })
+        .textGenerationFallbackModelSelections,
+    ).toEqual(fallbacks);
   });
 
   it("decodes a fully empty config (legacy on-disk shape) without complaint", () => {

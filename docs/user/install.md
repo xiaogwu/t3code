@@ -70,6 +70,10 @@ The `.deb` updates itself like the other desktop builds. It asks for your
 password to install each update. If your desktop has no password prompt, the
 update fails. Download the new `.deb` and install it the same way.
 
+On macOS, the running app's Dock icon follows the colors of the active T3 Code theme, including
+whether that theme's light or dark half is showing. Finder and Launchpad continue to show the
+installed build's regular app icon.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
@@ -111,15 +115,16 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-| Provider    | Install and authenticate                                                                                                                                  |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex       | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
-| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
-| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
-| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
-| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
-| Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
-| Pi          | Install [Pi](https://pi.dev), then run `pi` once to finish its login or API-key setup.                                                                    |
+| Provider     | Install and authenticate                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex        | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
+| Claude       | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
+| Cursor       | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
+| Grok Build   | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
+| Apple Gemini | Install Apple Gemini CLI (`apple-gemini`); it uses your existing Apple auth. Off by default: turn it on in **Settings** > **Providers**.                  |
+| OpenCode     | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
+| Antigravity  | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
+| Pi           | Install [Pi](https://pi.dev), then run `pi` once to finish its login or API-key setup.                                                                    |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.

@@ -52,6 +52,13 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Pull request sync    | The worker that refreshes each distinct linked review once per cadence and discovers native stack layers. Explicit refreshes and failed stack reads trigger another read.                |
 | Current pull request | The link used by single-review controls and older clients. Open work takes precedence; a completed single chain points at its top layer. Unrelated terminal links use the latest update. |
 
+## Appearance
+
+| Term              | Meaning                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Environment theme | A theme an environment publishes for clients to follow, stored under that environment's T3 home. The server watches the theme files and streams changes to connected clients. See [environment themes](../user/environment-theme.md).                                                                                                                                    |
+| Default theme     | The environment's selected theme, stored in `settings.json` with its set-generation. Web and desktop clients apply each new generation once, while mobile retains its own appearance setting. Selecting a published environment theme is how a desktop can ship T3 Code already matching its surrounding system. See [environment themes](../user/environment-theme.md). |
+
 ## Composer context
 
 | Term                 | Meaning                                                                                                                             |

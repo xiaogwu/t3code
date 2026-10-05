@@ -2,6 +2,7 @@ import type { DesktopBridge } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { resolveThemeDockIconPalette, syncDesktopDockIconPreference } from "../desktopDockIcon";
 import {
   applyThemePalette,
   CUSTOM_THEMES_STORAGE_KEY,
@@ -136,6 +137,7 @@ let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let snapshotStale = true;
 let lastDesktopTheme: "light" | "dark" | "system" | null = null;
+let lastDesktopDockIconTheme: string | null = null;
 let lastAppliedTheme: Omit<ThemeSnapshot, "resolvedTheme"> | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
 
@@ -330,6 +332,13 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
   const followSystem = appearanceMode === "system";
   const systemDark = followSystem ? getSystemDark() : false;
   const themeHalves = readStoredThemeHalves();
+  const resolvedAppearance = resolveThemeAppearance(
+    theme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+  );
   if (
     lastAppliedTheme?.theme === theme &&
     lastAppliedTheme.systemDark === systemDark &&
@@ -338,24 +347,23 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     themeHalvesSignature(lastAppliedTheme.themeHalves) === themeHalvesSignature(themeHalves)
   ) {
     syncDesktopTheme(theme, followSystem, appearanceMode);
+    syncDesktopDockIcon(
+      resolveThemeHalf(theme, themeHalves, resolvedAppearance),
+      resolvedAppearance,
+    );
     return;
   }
 
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const resolvedAppearance = resolveThemeAppearance(
-    theme,
-    systemDark,
-    followSystem,
-    appearanceMode,
-    themeHalves,
-  );
-  applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
+  const resolvedTheme = resolveThemeHalf(theme, themeHalves, resolvedAppearance);
+  applyThemePalette(resolvedTheme, resolvedAppearance);
   document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
   syncBrowserChromeTheme();
   syncDesktopTheme(theme, followSystem, appearanceMode);
+  syncDesktopDockIcon(resolvedTheme, resolvedAppearance);
   if (suppressTransitions) {
     // Force a reflow so the no-transitions class takes effect before removal
     void document.documentElement.offsetHeight;
@@ -363,6 +371,35 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
       document.documentElement.classList.remove("no-transitions");
     });
   }
+}
+
+export function syncDesktopDockIcon(theme: Theme, appearance: ThemeAppearance): void {
+  if (typeof window === "undefined") return;
+  const bridge = window.desktopBridge;
+  const palette = resolveThemeDockIconPalette(theme, appearance);
+  // Keyed on the palette actually drawn, so a theme with only one half does
+  // not redraw an identical tile every time the appearance flips.
+  const signature = palette
+    ? `${theme}|${palette.appearance}|${JSON.stringify(palette.colors)}`
+    : null;
+  if (
+    !bridge ||
+    typeof bridge.setDockIcon !== "function" ||
+    signature === null ||
+    lastDesktopDockIconTheme === signature
+  ) {
+    return;
+  }
+
+  lastDesktopDockIconTheme = signature;
+  void syncDesktopDockIconPreference(bridge, theme, appearance).catch((cause: unknown) => {
+    console.error("Failed to sync the selected theme to the desktop Dock icon.", {
+      theme,
+      appearance,
+      ...safeErrorLogAttributes(cause),
+    });
+    if (lastDesktopDockIconTheme === signature) lastDesktopDockIconTheme = null;
+  });
 }
 
 export async function syncDesktopThemePreference(

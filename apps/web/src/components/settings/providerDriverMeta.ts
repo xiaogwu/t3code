@@ -5,6 +5,7 @@ import {
   CodexSettings,
   CursorSettings,
   GrokSettings,
+  GeminiSettings,
   OpenCodeSettings,
   PiSettings,
   ProviderDriverKind,
@@ -75,6 +76,12 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     value: ProviderDriverKind.make("grok"),
     label: "Grok",
     settingsSchema: GrokSettings,
+  },
+  {
+    value: ProviderDriverKind.make("gemini"),
+    label: "Apple Gemini",
+    badgeLabel: "Early Access",
+    settingsSchema: GeminiSettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),

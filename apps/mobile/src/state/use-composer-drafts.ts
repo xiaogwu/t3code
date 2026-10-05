@@ -13,6 +13,8 @@ import {
   ProviderOptionSelection as ProviderOptionSelectionSchema,
   RuntimeMode as RuntimeModeSchema,
   type EnvironmentId,
+  MessageId,
+  type MessageId as MessageIdType,
   type ModelSelection,
   type ProjectId,
   type ProviderInteractionMode,
@@ -328,6 +330,7 @@ export interface ComposerDraft {
   readonly text: string;
   readonly context?: OrchestrationMessageContext;
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
+  readonly replyToMessageId?: MessageIdType;
   readonly importedShareIds?: ReadonlyArray<string>;
   readonly modelSelection?: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
@@ -363,7 +366,12 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection" | "project"
+  | "modelSelection"
+  | "runtimeMode"
+  | "interactionMode"
+  | "workspaceSelection"
+  | "replyToMessageId"
+  | "project"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -390,6 +398,7 @@ const ComposerDraftSchema = Schema.Struct({
   text: Schema.String,
   context: Schema.optional(PersistedComposerContextSchema),
   attachments: Schema.Array(DraftComposerAttachmentSchema),
+  replyToMessageId: Schema.optional(MessageId),
   importedShareIds: Schema.optional(Schema.Array(Schema.String)),
   modelSelection: Schema.optional(ModelSelectionSchema),
   runtimeMode: Schema.optional(RuntimeModeSchema),
@@ -561,6 +570,7 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
   return (
     draft.text.length === 0 &&
     draft.attachments.length === 0 &&
+    draft.replyToMessageId === undefined &&
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
@@ -1528,6 +1538,7 @@ export function clearComposerDraftContentState(
     importedShareIds: _importedShareIds,
     context: _context,
     modelSelection,
+    replyToMessageId: _replyToMessageId,
     workspaceSelection,
     project: _project,
     ...retained

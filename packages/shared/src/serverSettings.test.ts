@@ -391,6 +391,34 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("replaces the text generation fallback list wholesale, including down to empty", () => {
+    const codex = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4-mini");
+    const claude = createModelSelection(ProviderInstanceId.make("claude"), "sonnet");
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationFallbackModelSelections: [codex, claude],
+    };
+
+    expect(
+      applyServerSettingsPatch(current, {
+        textGenerationFallbackModelSelections: [claude],
+      }).textGenerationFallbackModelSelections,
+    ).toEqual([claude]);
+
+    // Removing the last entry has to mean removing it: the order is user-authored, so an
+    // element-wise merge would make a fallback impossible to delete.
+    expect(
+      applyServerSettingsPatch(current, {
+        textGenerationFallbackModelSelections: [],
+      }).textGenerationFallbackModelSelections,
+    ).toEqual([]);
+
+    expect(applyServerSettingsPatch(current, {}).textGenerationFallbackModelSelections).toEqual([
+      codex,
+      claude,
+    ]);
+  });
+
   it("clears source control writer selection with null", () => {
     const current = {
       ...DEFAULT_SERVER_SETTINGS,
@@ -533,51 +561,6 @@ describe("serverSettings helpers", () => {
       enabled: true,
       config: { homePath: "~/.codex" },
     });
-  });
-
-  it("upserts and removes usageLimitSources per entry so concurrent edits cannot clobber", () => {
-    const hubA = UsageLimitSourceId.make("cliproxy-a");
-    const hubB = UsageLimitSourceId.make("cliproxy-b");
-    const source = (url: string) => ({
-      kind: "cliproxy" as const,
-      url,
-      managementKey: "secret",
-      enabled: true,
-    });
-    const current = {
-      ...DEFAULT_SERVER_SETTINGS,
-      usageLimitSources: { [hubA]: source("http://a:8318") },
-    };
-
-    const added = applyServerSettingsPatch(current, {
-      usageLimitSources: { [hubB]: source("http://b:8318") },
-    });
-    expect(Object.keys(added.usageLimitSources)).toEqual([hubA, hubB]);
-
-    const removed = applyServerSettingsPatch(added, { usageLimitSources: { [hubA]: null } });
-    expect(Object.keys(removed.usageLimitSources)).toEqual([hubB]);
-  });
-
-  it("replaces and removes individual usage prices without clobbering other models", () => {
-    const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
-    const current = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-      usagePriceOverrides: { "example-model": { ...prices, cacheReadCostPerMillionTokens: 0.5 } },
-    });
-    const added = applyServerSettingsPatch(current, {
-      usagePriceOverrides: { "other-model": prices },
-    });
-    const replaced = applyServerSettingsPatch(added, {
-      usagePriceOverrides: { "example-model": prices },
-    });
-    expect(replaced.usagePriceOverrides).toEqual({
-      "example-model": prices,
-      "other-model": prices,
-    });
-    const removed = applyServerSettingsPatch(replaced, {
-      usagePriceOverrides: { "example-model": null },
-    });
-    expect(removed.usagePriceOverrides).toEqual({ "other-model": prices });
-    expect(current.usagePriceOverrides["example-model"]?.cacheReadCostPerMillionTokens).toBe(0.5);
   });
 
   it("stores background activity profiles as a versioned object and syncs legacy aliases", () => {

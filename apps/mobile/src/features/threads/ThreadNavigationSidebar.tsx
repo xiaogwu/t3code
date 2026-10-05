@@ -38,7 +38,11 @@ import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
-import { useHomeListOptions } from "../home/home-list-options";
+import {
+  hasCustomHomeListOptions,
+  THREAD_SORT_OPTIONS,
+  useHomeListOptions,
+} from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
@@ -90,6 +94,7 @@ interface ThreadNavigationSidebarProps {
   readonly onOpenEnvironmentSettings: () => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
+  readonly onSnoozeFor: (thread: EnvironmentThreadShell) => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onRequestVisibility: () => void;
@@ -173,7 +178,8 @@ function ThreadNavigationSidebarPane(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const { options, setSelectedEnvironmentId } = useHomeListOptions(availableEnvironmentIds);
+  const { options, setSelectedEnvironmentId, setV2ThreadSortOrder } =
+    useHomeListOptions(availableEnvironmentIds);
   const searchEnvironmentIds = useMemo(
     () =>
       options.selectedEnvironmentId === null
@@ -365,6 +371,7 @@ function ThreadNavigationSidebarPane(
       matchedThreadKeys,
       settlementEnvironmentIds,
       snoozeEnvironmentIds,
+      threadSortOrder: options.v2ThreadSortOrder,
       queuedThreadKeys,
       settledLimit: settledVisibleCount,
       now: new Date().toISOString(),
@@ -381,6 +388,7 @@ function ThreadNavigationSidebarPane(
     settledShelfExpanded,
     props.selectedThreadKey,
     options.selectedEnvironmentId,
+    options.v2ThreadSortOrder,
     props.searchQuery,
     matchedThreadKeys,
     settledVisibleCount,
@@ -501,6 +509,17 @@ function ThreadNavigationSidebarPane(
               ],
             },
           ] satisfies MenuAction[])),
+      // The project layout is fixed, but the fork's Sidebar v2 thread order
+      // within it stays user-selectable.
+      {
+        id: "thread-sort",
+        title: "Sort threads",
+        subactions: THREAD_SORT_OPTIONS.map((option) => ({
+          id: `thread-sort:${option.value}`,
+          title: option.label,
+          state: options.v2ThreadSortOrder === option.value ? "on" : "off",
+        })),
+      },
     ],
     [environments, options, projectFilterOptions, selectedProjectKey],
   );
@@ -529,8 +548,15 @@ function ThreadNavigationSidebarPane(
         }
         return;
       }
+      const threadSort = THREAD_SORT_OPTIONS.find(
+        (option) => `thread-sort:${option.value}` === event,
+      );
+      if (threadSort) {
+        setV2ThreadSortOrder(threadSort.value);
+        return;
+      }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId],
+    [environments, projectFilterOptions, setSelectedEnvironmentId, setV2ThreadSortOrder],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -717,6 +743,7 @@ function ThreadNavigationSidebarPane(
               canMoveUp={item.canMoveUp}
               canMoveDown={item.canMoveDown}
               onSnoozeThread={snoozeThread}
+              onSnoozeFor={props.onSnoozeFor}
               onUnsnoozeThread={unsnoozeThread}
               onUnsettleThread={unsettleThread}
               onPinThread={pinThread}
@@ -802,9 +829,9 @@ function ThreadNavigationSidebarPane(
       unsnoozeThread,
     ],
   );
-  // The list ignores sort/group options, so only the environment and project
-  // filters can light the "customized" state.
-  const filterCustomized = options.selectedEnvironmentId !== null || selectedProjectKey !== null;
+  // The project layout is fixed, but a non-default thread order still counts
+  // as a customized list option alongside the environment/project filters.
+  const filterCustomized = hasCustomHomeListOptions({ ...options, selectedProjectKey });
   const filterIcon = filterCustomized
     ? "line.3.horizontal.decrease.circle.fill"
     : "line.3.horizontal.decrease.circle";
@@ -815,10 +842,19 @@ function ThreadNavigationSidebarPane(
         projects: projectFilterOptions,
         selectedEnvironmentId: options.selectedEnvironmentId,
         selectedProjectKey,
+        v2ThreadSortOrder: options.v2ThreadSortOrder,
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
+        onV2ThreadSortOrderChange: setV2ThreadSortOrder,
       }),
-    [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
+    [
+      environments,
+      options,
+      projectFilterOptions,
+      selectedProjectKey,
+      setSelectedEnvironmentId,
+      setV2ThreadSortOrder,
+    ],
   );
   const nativeHeaderItems = useMemo(
     () =>
@@ -1028,7 +1064,10 @@ function ThreadNavigationSidebarPane(
             />
             <View className="flex-row items-center gap-2.5">
               <ControlPillMenu actions={listMenuActions} onPressAction={handleListMenuAction}>
-                <SidebarFilterButton accessibilityLabel="Filter threads" icon={filterIcon} />
+                <SidebarFilterButton
+                  accessibilityLabel="Filter and sort threads"
+                  icon={filterIcon}
+                />
               </ControlPillMenu>
               <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
             </View>

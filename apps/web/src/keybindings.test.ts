@@ -89,8 +89,9 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("b"), command: "sidebar.toggle" },
+  { shortcut: modShortcut("b", { altKey: true }), command: "sidebar.version.toggle" },
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
-  { shortcut: modShortcut("b", { altKey: true }), command: "rightPanel.toggle" },
+  { shortcut: modShortcut("b", { shiftKey: true }), command: "rightPanel.toggle" },
   {
     shortcut: modShortcut("d"),
     command: "terminal.split",
@@ -153,6 +154,16 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("c", { shiftKey: true }),
     command: "thread.copyReference",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("arrowup", { altKey: true }),
+    command: "thread.scrollToTop",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("arrowdown", { altKey: true }),
+    command: "thread.scrollToEnd",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
@@ -275,6 +286,50 @@ describe("copy thread reference shortcut", () => {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
+    );
+  });
+});
+
+describe("thread scroll shortcuts", () => {
+  it.each([
+    ["MacIntel", { metaKey: true }],
+    ["Linux", { ctrlKey: true }],
+  ] as const)("resolves Mod+Alt+Arrow with the composer focused on %s", (platform, modifier) => {
+    for (const [key, command] of [
+      ["ArrowUp", "thread.scrollToTop"],
+      ["ArrowDown", "thread.scrollToEnd"],
+    ] as const) {
+      assert.equal(
+        resolveShortcutCommand(event({ key, altKey: true, ...modifier }), DEFAULT_BINDINGS, {
+          platform,
+          context: { terminalFocus: false, editableFocus: true },
+        }),
+        command,
+      );
+    }
+  });
+
+  it("leaves caret and selection arrows alone", () => {
+    for (const input of [
+      event({ key: "ArrowUp", metaKey: true }),
+      event({ key: "ArrowDown", metaKey: true, shiftKey: true }),
+    ]) {
+      assert.isNull(
+        resolveShortcutCommand(input, DEFAULT_BINDINGS, {
+          platform: "MacIntel",
+          context: { editableFocus: true },
+        }),
+      );
+    }
+  });
+
+  it("does not run while the terminal has focus", () => {
+    assert.isNull(
+      resolveShortcutCommand(
+        event({ key: "ArrowUp", metaKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "MacIntel", context: { terminalFocus: true } },
+      ),
     );
   });
 });
@@ -423,11 +478,19 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "MacIntel"),
       "⌘B",
     );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.version.toggle", "MacIntel"),
+      "⌥⌘B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.version.toggle", "Linux"),
+      "Ctrl+Alt+B",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.toggle", "MacIntel"),
-      "⌥⌘B",
+      "⇧⌘B",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "commandPalette.toggle", "MacIntel"),
@@ -1018,7 +1081,15 @@ describe("resolveShortcutCommand", () => {
         DEFAULT_BINDINGS,
         { platform: "MacIntel" },
       ),
-      "rightPanel.toggle",
+      "sidebar.version.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "Linux" },
+      ),
+      "sidebar.version.toggle",
     );
   });
 

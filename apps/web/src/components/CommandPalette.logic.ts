@@ -133,6 +133,9 @@ export interface CommandPaletteItem {
   readonly searchTerms: ReadonlyArray<string>;
   readonly title: ReactNode;
   readonly description?: ReactNode;
+  readonly titleTooltip?: string;
+  readonly descriptionTooltip?: string;
+  readonly contentTooltip?: string;
   readonly threadContentMatch?: CommandPaletteThreadContentMatch;
   readonly timestamp?: string;
   readonly searchRecency?: number;
@@ -143,6 +146,11 @@ export interface CommandPaletteItem {
   /** Optional content rendered inline after the title text (before the timestamp). */
   readonly titleTrailingContent?: ReactNode;
   readonly shortcutCommand?: KeybindingCommand;
+  /** State metadata used exclusively by root-palette thread filters. */
+  readonly threadState?: {
+    readonly completed: boolean;
+    readonly unread: boolean;
+  };
   /** Sorts after every other match in its group; see `SettingsSearchItem.secondary`. */
   readonly secondary?: boolean;
 }
@@ -245,6 +253,37 @@ export function enumerateCommandPaletteItems(
 
 export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-browse";
 
+export type ThreadStateFilter = "completed" | "unread";
+
+export interface ParsedThreadStateFilterQuery {
+  readonly searchQuery: string;
+  readonly stateFilters: ReadonlySet<ThreadStateFilter>;
+}
+
+/** Splits root-palette thread-state tokens from the text sent to title/content search. */
+export function parseThreadStateFilterQuery(query: string): ParsedThreadStateFilterQuery {
+  const stateFilters = new Set<ThreadStateFilter>();
+  const searchQuery = query
+    .replace(/(^|\s)is:(completed|unread)(?=\s|$)/gi, (_match, prefix: string, state: string) => {
+      stateFilters.add(state.toLowerCase() as ThreadStateFilter);
+      return prefix;
+    })
+    .trim()
+    .replace(/\s+/g, " ");
+
+  return { searchQuery, stateFilters };
+}
+
+export function toggleThreadStateFilterQuery(query: string, filter: ThreadStateFilter): string {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const token = `is:${filter}`;
+  const hasFilter = tokens.some((candidate) => candidate.toLowerCase() === token);
+  const nextTokens = hasFilter
+    ? tokens.filter((candidate) => candidate.toLowerCase() !== token)
+    : [...tokens, token];
+  return nextTokens.join(" ");
+}
+
 // A project as the palette shows it. `displayName` is the grouped label (for
 // example "owner/repo" when projects are merged across machines). Keep `title`
 // as the real project title: the automatic project icon is derived from it, and
@@ -287,6 +326,9 @@ export function buildProjectActionItems(input: {
     ],
     title: project.displayName,
     description: input.renderDescription?.(project) ?? project.workspaceRoot,
+    titleTooltip: project.title,
+    // The rendered description may be a node, so the tooltip keeps the full path.
+    descriptionTooltip: project.workspaceRoot,
     icon: input.icon(project),
     ...(input.shortcutCommand !== undefined ? { shortcutCommand: input.shortcutCommand } : {}),
     run: async () => {
@@ -326,6 +368,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   /** Optional rich description (e.g. favicon + workspace icons). Falls back to text. */
   renderDescription?: (thread: TThread, meta: { projectTitle: string | undefined }) => ReactNode;
   getContentMatch?: (thread: TThread) => CommandPaletteThreadContentMatch | undefined;
+  getThreadState?: (thread: TThread) => CommandPaletteItem["threadState"];
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
 }): CommandPaletteActionItem[] {
@@ -353,6 +396,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     const leadingContent = input.renderLeadingContent?.(thread);
     const trailingContent = input.renderTrailingContent?.(thread);
     const contentMatch = input.getContentMatch?.(thread);
+    const threadState = input.getThreadState?.(thread);
     const description = input.renderDescription
       ? input.renderDescription(thread, { projectTitle })
       : descriptionParts.join(` · `);
@@ -372,6 +416,8 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         ],
         title: thread.title,
         description,
+        titleTooltip: thread.title,
+        descriptionTooltip: description,
         timestamp: formatRelativeTimeLabel(
           thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
         ),
@@ -381,6 +427,8 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
       leadingContent ? { titleLeadingContent: leadingContent } : {},
       trailingContent ? { titleTrailingContent: trailingContent } : {},
       contentMatch ? { threadContentMatch: contentMatch } : {},
+      threadState ? { threadState } : {},
+      contentMatch ? { contentTooltip: contentMatch.snippet } : {},
       {
         run: async () => {
           await input.runThread(thread);
@@ -447,10 +495,29 @@ export function filterCommandPaletteGroups(input: {
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
-  const searchQuery = isActionsFilter ? input.query.slice(1) : input.query;
+  const parsedThreadStateQuery =
+    !isActionsFilter && !input.isInSubmenu
+      ? parseThreadStateFilterQuery(input.query)
+      : {
+          searchQuery: isActionsFilter ? input.query.slice(1) : input.query,
+          stateFilters: new Set<ThreadStateFilter>(),
+        };
+  const searchQuery = parsedThreadStateQuery.searchQuery;
   const normalizedQuery = normalizeSearchText(searchQuery);
+  const hasThreadStateFilters = parsedThreadStateQuery.stateFilters.size > 0;
+  const matchesThreadStateFilters = (item: CommandPaletteActionItem): boolean => {
+    if (!item.threadState) return false;
+    for (const filter of parsedThreadStateQuery.stateFilters) {
+      if (!item.threadState[filter]) return false;
+    }
+    return true;
+  };
 
   if (normalizedQuery.length === 0) {
+    if (hasThreadStateFilters) {
+      const items = input.threadSearchItems.filter(matchesThreadStateFilters);
+      return items.length > 0 ? [{ value: "threads-search", label: "Threads", items }] : [];
+    }
     if (isActionsFilter) {
       return input.activeGroups.filter((group) => group.value === "actions");
     }
@@ -458,7 +525,7 @@ export function filterCommandPaletteGroups(input: {
   }
   const queryTokens = normalizedQuery.split(" ");
 
-  let baseGroups = [...input.activeGroups];
+  let baseGroups = hasThreadStateFilters ? [] : [...input.activeGroups];
   if (isActionsFilter) {
     baseGroups = baseGroups.filter((group) => group.value === "actions");
   } else if (!input.isInSubmenu) {
@@ -467,7 +534,7 @@ export function filterCommandPaletteGroups(input: {
 
   const searchableGroups = [...baseGroups];
   if (!input.isInSubmenu && !isActionsFilter) {
-    if (input.projectSearchItems.length > 0) {
+    if (!hasThreadStateFilters && input.projectSearchItems.length > 0) {
       searchableGroups.push({
         value: "projects-search",
         label: "Projects",
@@ -481,11 +548,14 @@ export function filterCommandPaletteGroups(input: {
         items: input.settingsSearchItems,
       });
     }
-    if (input.threadSearchItems.length > 0) {
+    const threadItems = hasThreadStateFilters
+      ? input.threadSearchItems.filter(matchesThreadStateFilters)
+      : input.threadSearchItems;
+    if (threadItems.length > 0) {
       searchableGroups.push({
         value: "threads-search",
         label: "Threads",
-        items: input.threadSearchItems,
+        items: threadItems,
       });
     }
   }

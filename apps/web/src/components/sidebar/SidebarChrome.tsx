@@ -60,17 +60,22 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         variant={backdropVariant ? "media-navigation" : "ghost"}
         className="relative top-auto z-10 translate-y-0 md:hidden"
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
+      {/* Brand and pill share a container whose padding already absorbs the
+          traffic-light inset, so the pill's query sees the space actually left
+          in the titlebar rather than the whole sidebar width. */}
+      <div className="@container/sidebar-title relative z-10 flex min-w-0 flex-1 items-center ps-[var(--workspace-titlebar-content-left)]">
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        {pillLabel ? (
+          <Badge
+            className="ml-1 hidden @[7rem]/sidebar-title:inline-flex"
+            data-environment-identification="pill"
+            size="sm"
+            variant="secondary"
+          >
+            {pillLabel}
+          </Badge>
+        ) : null}
+      </div>
     </div>
   );
 });
@@ -80,7 +85,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Link
       aria-label="Go to threads"
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 hidden h-7 w-fit min-w-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"

@@ -47,20 +47,35 @@ function HighlightedSearchText(props: { text: string; query: string }) {
   );
 }
 
-export function ThreadSearchMatchExcerpt(props: {
-  match: {
-    readonly source: "user" | "assistant";
-    readonly snippet: string;
-    readonly query: string;
-  };
-}) {
+export interface ThreadSearchMatch {
+  readonly source: "user" | "assistant";
+  readonly snippet: string;
+  readonly query: string;
+}
+
+export const THREAD_SEARCH_MATCH_EXCERPT_CLASS = "truncate text-xs text-muted-foreground/85";
+
+/**
+ * The speaker label and highlighted snippet, without a wrapper. Callers that
+ * need their own wrapper - the command palette wraps it to add an overflow
+ * tooltip - render this directly instead of ThreadSearchMatchExcerpt.
+ */
+export function ThreadSearchMatchContent(props: { match: ThreadSearchMatch }) {
   const isUser = props.match.source === "user";
   return (
-    <span className="truncate text-xs text-muted-foreground/85">
+    <>
       <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>
         {isUser ? "You:" : "Agent:"}
       </span>{" "}
       <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
+    </>
+  );
+}
+
+export function ThreadSearchMatchExcerpt(props: { match: ThreadSearchMatch }) {
+  return (
+    <span className={THREAD_SEARCH_MATCH_EXCERPT_CLASS}>
+      <ThreadSearchMatchContent match={props.match} />
     </span>
   );
 }

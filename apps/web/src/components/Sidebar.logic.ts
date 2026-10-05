@@ -11,7 +11,10 @@ import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-searc
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
-import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  planPinnedReorder,
+  sortActiveThreadsByOrderKey,
+} from "@t3tools/client-runtime/state/thread-sort";
 import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
@@ -123,6 +126,37 @@ export function useRetainedValue<T>(key: string | null, value: T | null): T | nu
 // dragging; replaying their committed DOM order would animate the drop twice.
 export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
+
+// What a pinned card's useSortable() call is given. Extracted from Sidebar.tsx
+// so the two halves below can be asserted: they are the fork's fix for a
+// reorder reading as though it had been rejected, and upstream keeps landing
+// its own partial version on top of them (see #7676).
+export type PinnedSortableAnimationOptions = {
+  readonly animateLayoutChanges: AnimateLayoutChanges;
+  readonly transition: null;
+};
+
+export const PINNED_SORTABLE_ANIMATION_OPTIONS: PinnedSortableAnimationOptions = {
+  // No layout-change animation. dnd-kit's default FLIP fires on drop, and
+  // because the row is already in its new slot (the optimistic order lands in
+  // the same commit) the animation starts by offsetting the row back to where
+  // it was dragged from — it reads as the drop being rejected. The reorder is a
+  // discrete edit, so land it discretely.
+  //
+  // Upstream #7676 shipped `animatePinnedLayoutChanges` above for the same
+  // post-drop reshuffle, but it only returns false once sorting has ended and
+  // still runs dnd-kit's default FLIP while `isSorting` is true. That half is
+  // incompatible with `transition: null` below: a derived FLIP transform with
+  // no transition to play it out is a one-frame offset and then a snap. This
+  // predicate is the strict superset, so it stays.
+  animateLayoutChanges: () => false,
+  // No transition on the displacement transforms either: the cards other than
+  // the dragged one swap places instantly instead of sliding. With a transition
+  // they are still mid-slide when the drop lands, which is what made a finished
+  // reorder look like it was undoing itself. Upstream has no equivalent for
+  // this half, so a resolution that takes upstream's predicate alone drops it.
+  transition: null,
+};
 
 // Rows and section markers share one sortable list. The separators resolve
 // the lifecycle action; Sidebar.drag previews the resulting layout. Pinned
@@ -517,9 +551,12 @@ export async function archiveSelectedThreadEntries<
 export function buildMultiSelectThreadContextMenuItems(input: {
   count: number;
   hasRunningThread: boolean;
-}): readonly ContextMenuItem<"mark-unread" | "archive" | "delete">[] {
+  allUnread: boolean;
+}): readonly ContextMenuItem<"mark-read" | "mark-unread" | "archive" | "delete">[] {
   return [
-    { id: "mark-unread", label: `Mark unread (${input.count})` },
+    input.allUnread
+      ? { id: "mark-read", label: `Mark read (${input.count})` }
+      : { id: "mark-unread", label: `Mark unread (${input.count})` },
     {
       id: "archive",
       label: `Archive (${input.count})`,
@@ -589,11 +626,51 @@ export function buildBulkUnpinContextMenuItem(input: {
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
 }
 
+export interface BulkCopyValues {
+  paths: readonly string[];
+  branches: readonly string[];
+  threadIds: readonly string[];
+}
+
+/** Collects copy values in sidebar order; paths and branches are de-duplicated. */
+export function collectBulkCopyValues(
+  threads: readonly { id: string; branch: string | null; workspacePath: string | null }[],
+): BulkCopyValues {
+  const paths = new Set<string>();
+  const branches = new Set<string>();
+  const threadIds: string[] = [];
+  for (const thread of threads) {
+    if (thread.workspacePath !== null) paths.add(thread.workspacePath);
+    if (thread.branch !== null) branches.add(thread.branch);
+    threadIds.push(thread.id);
+  }
+  return { paths: [...paths], branches: [...branches], threadIds };
+}
+
+/** Returns null only if every list is empty (not possible in practice: threadIds is never empty). */
+export function buildBulkCopyContextMenuItem(
+  values: BulkCopyValues,
+): ContextMenuItem<"copy" | "copy-paths" | "copy-branches" | "copy-thread-ids"> | null {
+  const children: ContextMenuItem<"copy-paths" | "copy-branches" | "copy-thread-ids">[] = [];
+  if (values.paths.length > 0) {
+    children.push({ id: "copy-paths", label: `Paths (${values.paths.length})` });
+  }
+  if (values.branches.length > 0) {
+    children.push({ id: "copy-branches", label: `Branches (${values.branches.length})` });
+  }
+  if (values.threadIds.length > 0) {
+    children.push({ id: "copy-thread-ids", label: `Thread IDs (${values.threadIds.length})` });
+  }
+  if (children.length === 0) return null;
+  return { id: "copy", label: "Copy", separatorBefore: true, children };
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
     | "Connecting"
     | "Completed"
+    | "Unread"
     | "Pending Approval"
     | "Awaiting Input"
     | "Waiting"
@@ -610,6 +687,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Connecting: 3,
   Waiting: 2.5,
   "Plan Ready": 2,
+  Unread: 1.5,
   Completed: 1,
 };
 
@@ -622,6 +700,7 @@ type ThreadStatusInput = Pick<
   | "latestRun"
   | "runtime"
 > & {
+  isManuallyUnread?: boolean | undefined;
   lastVisitedAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
 };
@@ -1037,7 +1116,47 @@ export function firstValidTimestampMs(
   return 0;
 }
 
-export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
+/**
+ * Default sidebar thread order. `"created_at"` is the original behaviour:
+ * static creation order, newest on top, where activity NEVER reorders the
+ * list, except that an un-settle re-entry stamp surfaces a thread at the top.
+ * `"updated_at"` opts into the legacy sidebar's "Last user message" ordering
+ * for users who want the list to track recency instead.
+ *
+ * Status (including pending approval) is carried by each card's edge strip,
+ * not by position, under either order.
+ *
+ * The id tie-break is ASCENDING, unlike the shared `sortThreads` helper. That
+ * is deliberate: this sidebar has always tie-broken this way and the order is
+ * only required to be stable, not to match the legacy sidebar.
+ */
+export function sortThreadsForSidebar<
+  T extends {
+    readonly id: string;
+    readonly createdAt: string;
+    readonly updatedAt?: string;
+    readonly latestUserMessageAt?: string | null;
+    readonly unsettledAt?: string | null | undefined;
+    readonly activeOrderKey?: string | null | undefined;
+  },
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
+  const activeOrder = sortActiveThreadsByOrderKey(threads);
+  if (sortOrder === "created_at") return activeOrder;
+
+  const timestamps = new Map(
+    activeOrder.map((thread) => [
+      thread,
+      getThreadSortTimestamp(
+        { ...thread, updatedAt: thread.updatedAt ?? thread.createdAt },
+        sortOrder,
+      ),
+    ]),
+  );
+  return activeOrder.toSorted(
+    (left, right) =>
+      timestamps.get(right)! - timestamps.get(left)! || left.id.localeCompare(right.id),
+  );
+}
 
 // Pinned-reorder key math and the keyed sort live in client-runtime
 // (state/thread-sort) so web and mobile compute identical pinned orders.
@@ -1230,6 +1349,17 @@ export function resolveThreadStatusPill(input: {
       label: "Plan Ready",
       colorClass: "text-violet-600 dark:text-violet-300/90",
       dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      pulse: false,
+    };
+  }
+
+  // A manual unread mark outranks Completed so the pill survives the visit
+  // that would otherwise clear it.
+  if (thread.isManuallyUnread) {
+    return {
+      label: "Unread",
+      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
       pulse: false,
     };
   }

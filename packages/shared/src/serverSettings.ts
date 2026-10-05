@@ -277,7 +277,7 @@ export function applyServerSettingsPatch(
     backgroundActivityProfile,
     backgroundActivity,
     worktreeCleanup: worktreeCleanupPatch,
-    // Merged per entry below; its `null` removals must not reach deepMerge.
+    // Merged per entry below; their `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
     // Entry replacement: deepMerge would keep keys the client meant to clear.
@@ -396,6 +396,11 @@ export function applyServerSettingsPatch(
       : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
+      : {}),
+    // Whole-array replace: the list is the user-authored fallback order, so
+    // removing an entry has to mean removing it.
+    ...(patch.textGenerationFallbackModelSelections !== undefined
+      ? { textGenerationFallbackModelSelections: patch.textGenerationFallbackModelSelections }
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
     ...(providerHealthRefreshInterval !== undefined ? { providerHealthRefreshInterval } : {}),

@@ -25,7 +25,14 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import {
+  toggleLegacySidebarPreference,
+  toggleSidebarThreadSortPreference,
+  useClientSettings,
+  useEnvironmentIdentificationMode,
+  useLegacySidebarEnabled,
+  useUpdateClientSettings,
+} from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -36,6 +43,7 @@ import { useThreadVisitedMigration } from "../hooks/useThreadVisitedMigration";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarEdgeTrigger } from "./SidebarEdgeTrigger";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
@@ -82,8 +90,10 @@ function readInitialThreadSidebarWidth(): number {
 function SidebarControl() {
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, peeked, peekPanelHandlers } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
+  const legacySidebarEnabled = useLegacySidebarEnabled();
+  const updateClientSettings = useUpdateClientSettings();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const stageBackdropVariant = useSidebarStageBackdropVariant(
     environmentIdentificationMode === "artwork",
@@ -91,6 +101,8 @@ function SidebarControl() {
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
     context: { usagePageOpen },
   });
+  const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
+  const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarV2ThreadSortOrder);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -110,29 +122,65 @@ function SidebarControl() {
         // available everywhere else, including the plain-text composer.
         return;
       }
+      const command = resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } });
       if (
-        resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } }) !==
-        "sidebar.toggle"
-      )
+        command !== "sidebar.toggle" &&
+        command !== "sidebar.version.toggle" &&
+        command !== "sidebar.sort.toggle" &&
+        command !== "sidebarAutoHide.toggle"
+      ) {
         return;
+      }
 
       event.preventDefault();
       event.stopPropagation();
-      toggleSidebar();
+      if (command === "sidebar.toggle") {
+        toggleSidebar();
+        return;
+      }
+      if (command === "sidebarAutoHide.toggle") {
+        void updateClientSettings({ sidebarAutoHide: !sidebarAutoHide });
+        return;
+      }
+      if (command === "sidebar.sort.toggle") {
+        void updateClientSettings(toggleSidebarThreadSortPreference(sidebarThreadSortOrder));
+        return;
+      }
+      updateClientSettings(toggleLegacySidebarPreference(legacySidebarEnabled));
     };
 
     // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [keybindings, toggleSidebar, usagePageOpen]);
+  }, [
+    keybindings,
+    legacySidebarEnabled,
+    sidebarAutoHide,
+    sidebarThreadSortOrder,
+    toggleSidebar,
+    updateClientSettings,
+    usagePageOpen,
+  ]);
 
   return (
     // The right-side layout controls carry mr-px (border compensation inside
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
     // off their edge and the titlebar reads symmetric.
     <div
-      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center"
+      className={cn(
+        "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
+        // The trigger sits inside the peeked panel's footprint, so it has to
+        // clear the panel's own `z-[60]` or the only affordance for pinning
+        // the panel open disappears underneath it.
+        peeked && "z-[70]",
+      )}
       data-sidebar-control=""
+      // Hovering the trigger counts as being in the panel, exactly as if the
+      // pointer were over the panel itself. Without this the trigger is not a
+      // DOM descendant of the panel, so reaching for it fires the panel's
+      // `pointerleave` and retracts it out from under the cursor.
+      onPointerEnter={peekPanelHandlers.onPointerEnter}
+      onPointerLeave={peekPanelHandlers.onPointerLeave}
     >
       <Tooltip>
         <TooltipTrigger
@@ -215,9 +263,43 @@ function ProjectProjectionRetention() {
   return null;
 }
 
+// A peeked panel puts itself away on any deliberate move into the content:
+// clicking into it, or backing out with Escape. Filters by DOM position
+// instead of wrapping `{children}` in an event-boundary element — `Sidebar`
+// and `SidebarInset` communicate through `peer-*` sibling selectors, which a
+// wrapper div would break (it changes DOM nesting even at `display:
+// contents`, since CSS sibling combinators match the DOM tree, not the box
+// tree).
+function SidebarPeekRetractOnContentInteraction({ children }: { children: ReactNode }) {
+  const { peeked, retractPeek } = useSidebar();
+
+  useEffect(() => {
+    if (!peeked) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") retractPeek();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      // Only a pointerdown that lands outside the sidebar's own DOM (and
+      // outside the reveal strip) counts as "into the content".
+      if (target?.closest('[data-slot="sidebar"], [data-slot="sidebar-edge-trigger"]')) return;
+      retractPeek();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [peeked, retractPeek]);
+
+  return children;
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
+  const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -297,6 +379,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   return (
     <PanelAnimationSuppressionProvider value={panelAnimationsSuppressed}>
       <SidebarProvider
+        autoHide={sidebarAutoHide}
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
         defaultOpen
@@ -305,6 +388,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         <ProjectProjectionRetention />
         <Sidebar
           side="left"
+          // Auto-hide peek is an offcanvas overlay. Upstream retired the compact
+          // rail, so there is no longer an `icon` mode to lose the race against.
           collapsible="offcanvas"
           data-app-sidebar=""
           role="navigation"
@@ -331,7 +416,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
-        {children}
+        <SidebarEdgeTrigger />
+        <SidebarPeekRetractOnContentInteraction>{children}</SidebarPeekRetractOnContentInteraction>
         <SidebarControl />
         <NavigationHistoryShortcuts />
         <MainAppLocationTracker />

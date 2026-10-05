@@ -1,9 +1,12 @@
 "use client";
 
+import {
+  scopeProjectRef,
+  scopedThreadKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
-
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -44,7 +47,9 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  ArrowDownToLineIcon,
   ArrowLeftIcon,
+  ArrowUpToLineIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -59,6 +64,7 @@ import {
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
+  PanelLeftIcon,
   RotateCcwIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -85,7 +91,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -170,11 +176,17 @@ import {
   getCommandPaletteInputPlaceholder,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
+  parseThreadStateFilterQuery,
   RECENT_THREAD_LIMIT,
   reduceCommandPaletteUiState,
+  toggleThreadStateFilterQuery,
   type SearchOverlayMode,
 } from "./CommandPalette.logic";
-import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
+import {
+  hasUnseenCompletion,
+  orderItemsByPreferredIds,
+  sortLogicalProjectsForSidebar,
+} from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import {
@@ -210,6 +222,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
+import { requestThreadScroll } from "./chat/threadScrollRequest";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import {
@@ -436,6 +449,12 @@ const OVERLAY_MODE_BY_COMMAND = {
   "filePicker.toggle": "files",
   "projectSearch.toggle": "content",
 } as const satisfies Partial<Record<string, SearchOverlayMode>>;
+
+// Shared by every chip in the thread filter row so Completed and Unread stay
+// visually identical as filters are added.
+const THREAD_FILTER_CHIP_CLASS =
+  "inline-flex items-center rounded-md border border-border/70 px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground";
+const THREAD_FILTER_CHIP_ACTIVE_CLASS = "border-primary/50 bg-primary/10 text-foreground";
 
 function overlayModeForCommand(command: string | null): SearchOverlayMode | null {
   if (command === null) return null;
@@ -710,6 +729,8 @@ function OpenCommandPaletteDialog(props: {
     setHighlightedItemValue(null);
   }
   const clientSettings = useClientSettings();
+  const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const updateClientSettings = useUpdateClientSettings();
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -842,7 +863,12 @@ function OpenCommandPaletteDialog(props: {
         .map((environment) => environment.environmentId),
     [environments],
   );
-  const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
+  const parsedThreadStateQuery = useMemo(
+    () => parseThreadStateFilterQuery(deferredQuery),
+    [deferredQuery],
+  );
+  const threadSearchQuery =
+    currentView === null && !isActionsOnly ? parsedThreadStateQuery.searchQuery : "";
   const threadSearch = useThreadSearch(environmentIds, threadSearchQuery);
   const threadContentMatchByKey = useMemo(
     () =>
@@ -1444,6 +1470,16 @@ function OpenCommandPaletteDialog(props: {
               }
             : undefined;
         },
+        getThreadState: (thread) => {
+          const lastVisitedAt =
+            threadLastVisitedAtById[
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+            ];
+          return {
+            completed: thread.latestRun?.status === "completed",
+            unread: hasUnseenCompletion({ ...thread, lastVisitedAt }),
+          };
+        },
         runThread: async (thread) => {
           await navigate({
             to: "/$environmentId/$threadId",
@@ -1462,6 +1498,7 @@ function OpenCommandPaletteDialog(props: {
       providerEntryByEnvironmentAndInstanceId,
       threadContentMatchByKey,
       threadSearch.query,
+      threadLastVisitedAtById,
       threads,
     ],
   );
@@ -1977,6 +2014,26 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null) {
     const thread = activeThread;
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:scroll-thread-to-top",
+        searchTerms: ["scroll", "top", "start", "beginning", "first"],
+        title: "Scroll to top of thread",
+        icon: <ArrowUpToLineIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.scrollToTop",
+        run: async () => requestThreadScroll("top"),
+      },
+      {
+        kind: "action",
+        value: "action:scroll-thread-to-end",
+        searchTerms: ["scroll", "end", "bottom", "latest", "last"],
+        title: "Scroll to end of thread",
+        icon: <ArrowDownToLineIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.scrollToEnd",
+        run: async () => requestThreadScroll("end"),
+      },
+    );
     actionItems.push({
       kind: "action",
       value: "action:restart-agent-session",
@@ -2240,6 +2297,20 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:sidebar-auto-hide",
+    searchTerms: ["sidebar", "reveal", "peek", "hover", "edge", "float", "pin", "unpin", "dia"],
+    title: clientSettings.sidebarAutoHide
+      ? "Turn off auto-hide sidebar"
+      : "Turn on auto-hide sidebar",
+    icon: <PanelLeftIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "sidebarAutoHide.toggle",
+    run: async () => {
+      await updateClientSettings({ sidebarAutoHide: !clientSettings.sidebarAutoHide });
     },
   });
 
@@ -2964,6 +3035,8 @@ function OpenCommandPaletteDialog(props: {
       : (remoteProjectInputPlaceholder(addProjectCloneFlow) ??
         getCommandPaletteInputPlaceholder(paletteMode));
   const isSubmenu = paletteMode === "submenu" || paletteMode === "submenu-browse";
+  const showThreadStateFilters =
+    currentView === null && !isBrowsing && !isActionsOnly && addProjectCloneFlow === null;
   const hasHighlightedBrowseItem = highlightedItemValue?.startsWith("browse:") ?? false;
   const canSubmitBrowsePath =
     isBrowsing &&
@@ -3052,6 +3125,15 @@ function OpenCommandPaletteDialog(props: {
       if (matchingItem) {
         executeItem(matchingItem);
       }
+      return;
+    }
+    if (command === "thread.scrollToTop" || command === "thread.scrollToEnd") {
+      event.preventDefault();
+      event.stopPropagation();
+      const matchingItem = displayedGroups
+        .flatMap((group) => group.items)
+        .find((item) => item.shortcutCommand === command);
+      if (matchingItem) executeItem(matchingItem);
       return;
     }
     if (command === "thread.copyReference") {
@@ -3486,6 +3568,27 @@ function OpenCommandPaletteDialog(props: {
               </span>
             </span>
           </div>
+        </div>
+      ) : null}
+      {showThreadStateFilters ? (
+        <div className="flex items-center gap-1 px-3 pt-2" aria-label="Thread state filters">
+          {(["completed", "unread"] as const).map((filter) => {
+            const active = parsedThreadStateQuery.stateFilters.has(filter);
+            const label = filter === "completed" ? "Completed" : "Unread";
+            return (
+              <button
+                aria-pressed={active}
+                className={cn(THREAD_FILTER_CHIP_CLASS, active && THREAD_FILTER_CHIP_ACTIVE_CLASS)}
+                key={filter}
+                onClick={() => {
+                  handleQueryChange(toggleThreadStateFilterQuery(query, filter));
+                }}
+                type="button"
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       ) : null}
       <CommandPaletteVirtualizedResults

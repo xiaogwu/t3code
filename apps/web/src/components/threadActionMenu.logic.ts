@@ -12,6 +12,8 @@ export type ThreadActionMenuId =
   | "project-settings"
   | "pin"
   | "unpin"
+  | "move-pin-up"
+  | "move-pin-down"
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -19,10 +21,12 @@ export type ThreadActionMenuId =
   | "auto-settle:disabled"
   | "snooze"
   | `snooze:${string}`
+  | "snooze-for"
   | "unsnooze"
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "mark-read"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -48,6 +52,14 @@ export interface ThreadActionMenuState {
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
+  /** Thread currently reads as unread (manual mark or unseen completion), so
+      the entry offers Mark read instead. Callers without read-state context
+      omit it and get Mark unread. */
+  readonly isUnread?: boolean;
+  /** Pinned-block position, for Move up / Move down. Callers without the
+      pinned order (the chat header menu) omit both and get no move items. */
+  readonly canMovePinUp?: boolean;
+  readonly canMovePinDown?: boolean;
   /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
   readonly supports: {
@@ -56,6 +68,9 @@ export interface ThreadActionMenuState {
     readonly autoSettleOptOut: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
+    /** Server accepts thread.pin.reorder AND more than one pin is arrangeable
+        — a lone pin has nowhere to move. */
+    readonly pinReorder?: boolean;
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
@@ -86,6 +101,15 @@ export function buildThreadActionMenuItems(
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
         ]
       : []),
+    // Menu equivalent of dragging a pinned card, same as mobile: one step per
+    // click, disabled at the ends so the item's position still reads as
+    // "where am I in the block".
+    ...(state.isPinned && state.supports.pinReorder === true
+      ? [
+          { id: "move-pin-up" as const, label: "Move up", disabled: !state.canMovePinUp },
+          { id: "move-pin-down" as const, label: "Move down", disabled: !state.canMovePinDown },
+        ]
+      : []),
     // Both lifecycle actions stay available on pinned threads: settling
     // clears the pin ("done" beats "keep on top"), and snoozing hides the
     // card until wake with the pin intact.
@@ -110,7 +134,7 @@ export function buildThreadActionMenuItems(
                     id: `snooze:${preset.id}` as const,
                     label: `${preset.label} (${preset.whenLabel})`,
                   })),
-                  { id: "snooze:custom" as const, label: "Custom…", separatorBefore: true },
+                  { id: "snooze-for" as const, label: "Until…" },
                 ],
               },
         ]
@@ -126,7 +150,9 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    state.isUnread === true
+      ? { id: "mark-read" as const, label: "Mark read", icon: "mail-open" }
+      : { id: "mark-unread" as const, label: "Mark unread", icon: "mail-open" },
     ...(state.projectFilter
       ? [
           {

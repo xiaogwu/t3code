@@ -61,6 +61,16 @@ describe("buildThreadActionMenuItems", () => {
     expect(items[copyIndex + 2]?.id).toBe("archive");
   });
 
+  it("offers Mark read instead of Mark unread once a thread reads as unread", () => {
+    expect(
+      buildThreadActionMenuItems({ ...baseState, isUnread: true }).find(
+        (item) => item.id === "mark-read",
+      ),
+    ).toMatchObject({ label: "Mark read", icon: "mail-open" });
+    expect(ids({ ...baseState, isUnread: true })).not.toContain("mark-unread");
+    expect(ids(baseState)).toContain("mark-unread");
+  });
+
   it("offers project filtering only for surfaces with a scoped thread list", () => {
     expect(ids(baseState)).not.toContain("filter-by-project");
     expect(
@@ -97,6 +107,35 @@ describe("buildThreadActionMenuItems", () => {
     expect(ids(baseState)).toEqual(expect.arrayContaining(["pin", "settle", "snooze"]));
   });
 
+  it("offers pinned move items only for a pinned thread on a reorder-capable server", () => {
+    const pinnedState: ThreadActionMenuState = {
+      ...baseState,
+      isPinned: true,
+      canMovePinUp: true,
+      canMovePinDown: true,
+      supports: { ...baseState.supports, pinReorder: true },
+    };
+    expect(ids(pinnedState)).toEqual(expect.arrayContaining(["move-pin-up", "move-pin-down"]));
+    // Unpinned, or a server without the capability: no move items at all.
+    expect(ids({ ...pinnedState, isPinned: false })).not.toContain("move-pin-up");
+    expect(
+      ids({ ...pinnedState, supports: { ...pinnedState.supports, pinReorder: false } }),
+    ).not.toContain("move-pin-up");
+    expect(ids({ ...baseState, isPinned: true })).not.toContain("move-pin-down");
+  });
+
+  it("disables the move item at each end of the pinned block", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      isPinned: true,
+      canMovePinUp: false,
+      canMovePinDown: true,
+      supports: { ...baseState.supports, pinReorder: true },
+    });
+    expect(items.find((item) => item.id === "move-pin-up")?.disabled).toBe(true);
+    expect(items.find((item) => item.id === "move-pin-down")?.disabled).toBe(false);
+  });
+
   it("offers auto-settle as a submenu with the current option checked", () => {
     const find = (state: ThreadActionMenuState) =>
       buildThreadActionMenuItems(state).find((item) => item.id === "auto-settle");
@@ -121,7 +160,8 @@ describe("buildThreadActionMenuItems", () => {
       (item) => item.id === "snooze",
     );
     expect(snooze?.disabled).toBe(true);
-    expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour", "snooze:custom"]);
+    expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour", "snooze-for"]);
+    expect(snooze?.children?.at(-1)?.label).toBe("Until…");
   });
 
   it("disables title regeneration while one is in flight", () => {

@@ -39,6 +39,7 @@ import {
 } from "./methods/updates.ts";
 import {
   getAppBranding,
+  getFirstDayOfWeek,
   getLocalEnvironmentBootstraps,
   getLocalEnvironmentBearerToken,
   getSystemLocale,
@@ -52,6 +53,7 @@ import {
   pickProjectFavicon,
   pickThemeFiles,
   setTheme,
+  setDockIcon,
   showContextMenu,
 } from "./methods/window.ts";
 import {
@@ -81,6 +83,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(AppActivationIpc.complete);
 
   yield* ipc.handleSync(getAppBranding);
+  yield* ipc.handleSync(getFirstDayOfWeek);
   yield* ipc.handleSync(getSystemLocale);
   yield* ipc.handleSync(getWindowFullscreenState);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
@@ -130,6 +133,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(pickProjectFavicon);
   yield* ipc.handle(pickThemeFiles);
   yield* ipc.handle(setTheme);
+  yield* ipc.handle(setDockIcon);
   yield* ipc.handle(showContextMenu);
   yield* ipc.handle(openExternal);
   yield* ipc.handle(receiveProviderAuthCallback);

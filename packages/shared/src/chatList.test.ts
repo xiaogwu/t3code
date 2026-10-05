@@ -51,3 +51,49 @@ describe("resolveChatListAnchoredEndSpace", () => {
     expect(resolveChatListAnchoredEndSpace(rows, null, getAnchorId)).toBeUndefined();
   });
 });
+
+describe('resolveChatListAnchoredEndSpace with match: "latest"', () => {
+  const latest = { match: "latest" } as const;
+
+  it("anchors an eligible row that later rows follow", () => {
+    expect(resolveChatListAnchoredEndSpace(rows, "latest", getAnchorId, latest)).toEqual({
+      anchorIndex: 2,
+      anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
+    });
+  });
+
+  it("still anchors the opening row", () => {
+    expect(resolveChatListAnchoredEndSpace(rows, "first", getAnchorId, latest)).toEqual({
+      anchorIndex: 0,
+      anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
+    });
+  });
+
+  it("matches the last row carrying the anchor id when it repeats", () => {
+    const repeated: ReadonlyArray<Row> = [
+      { id: "dupe", anchorable: true },
+      { id: "other", anchorable: true },
+      { id: "dupe", anchorable: true },
+    ];
+
+    expect(resolveChatListAnchoredEndSpace(repeated, "dupe", getAnchorId, latest)).toEqual({
+      anchorIndex: 2,
+      anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
+    });
+  });
+
+  it("keeps honouring the caller's offset", () => {
+    expect(
+      resolveChatListAnchoredEndSpace(rows, "latest", getAnchorId, {
+        ...latest,
+        anchorOffset: 132,
+      }),
+    ).toEqual({ anchorIndex: 2, anchorOffset: 132 });
+  });
+
+  it("ignores ineligible rows and missing anchors", () => {
+    expect(resolveChatListAnchoredEndSpace(rows, "ignored", getAnchorId, latest)).toBeUndefined();
+    expect(resolveChatListAnchoredEndSpace(rows, "missing", getAnchorId, latest)).toBeUndefined();
+    expect(resolveChatListAnchoredEndSpace(rows, null, getAnchorId, latest)).toBeUndefined();
+  });
+});

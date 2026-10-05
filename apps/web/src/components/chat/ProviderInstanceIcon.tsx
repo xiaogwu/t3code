@@ -7,8 +7,10 @@ import {
   AntigravityIcon,
   ClaudeAI,
   CursorIcon,
+  Gemini,
   GrokIcon,
   Icon,
+  LittleCoderIcon,
   OpenAI,
   OpenCodeIcon,
   PiAgentIcon,
@@ -27,6 +29,7 @@ const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
   [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
   [ProviderDriverKind.make("cursor")]: CursorIcon,
   [ProviderDriverKind.make("grok")]: GrokIcon,
+  [ProviderDriverKind.make("gemini")]: Gemini,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
   [ProviderDriverKind.make("pi")]: PiAgentIcon,
 };
@@ -57,9 +60,32 @@ export function resolveProviderInstanceAcpRegistryIconUrl(input: {
   );
 }
 
+// An instance can ride a driver that is not its own agent: `pi` and `little-coder`
+// are both hosted on the generic gemini ACP driver, so the driver icon would show
+// Gemini. Drop this once the native piAgent driver ships and the instance can use
+// its own kind. Keyed on the instance id and on the display name, because some
+// call sites only have the latter.
+const ICON_BY_INSTANCE: Record<string, Icon> = {
+  pi: PiAgentIcon,
+  littlecoder: LittleCoderIcon,
+  "little-coder": LittleCoderIcon,
+};
+
+function resolveInstanceIcon(
+  driverKind: ProviderDriverKind,
+  instanceId: string | undefined,
+  displayName: string,
+): Icon | null {
+  // Call sites without an instance id fall back to the display name, which for
+  // a hosted instance is the agent's own name.
+  const key = (instanceId ?? displayName).trim().toLowerCase();
+  return ICON_BY_INSTANCE[key] ?? PROVIDER_ICON_BY_PROVIDER[driverKind] ?? null;
+}
+
 export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   driverKind: ProviderDriverKind;
   displayName: string;
+  instanceId?: string | undefined;
   accentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
@@ -71,7 +97,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   statusDotClassName?: string;
   indicatorBackground?: string;
 }) {
-  const Icon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
+  const Icon = resolveInstanceIcon(props.driverKind, props.instanceId, props.displayName);
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentStyle = props.accentColor
     ? ({ "--provider-accent": props.accentColor } as CSSProperties)

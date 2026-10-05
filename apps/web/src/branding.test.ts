@@ -81,6 +81,15 @@ describe("branding logic", () => {
     ).toBe("Nightly");
   });
 
+  it("keeps DEV build identification when connected to a nightly server", () => {
+    expect(
+      resolveServerBackedAppStageLabel({
+        primaryServerVersion: "0.0.28-nightly.20260616.12",
+        fallbackStageLabel: "Dev",
+      }),
+    ).toBe("Dev");
+  });
+
   it("updates the display name for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({

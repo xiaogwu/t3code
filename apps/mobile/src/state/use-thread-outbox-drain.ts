@@ -885,6 +885,9 @@ export function useThreadOutboxDrain(): void {
               ),
               currentConfig.environment.capabilities.inlineMessageContext === true,
             ),
+            ...(queuedMessage.replyToMessageId !== undefined
+              ? { replyToMessageId: queuedMessage.replyToMessageId }
+              : {}),
             attachments: prepared.attachments,
           },
           modelSelection: sendSettings.modelSelection,

@@ -713,6 +713,7 @@ export function ProviderInstanceCard({
     <ProviderInstanceIcon
       driverKind={driverKind ?? instance.driver}
       displayName={displayName}
+      instanceId={String(instanceId)}
       accentColor={accentColor}
       acpRegistryAgentId={readConfigString(instance.config, "agentId") ?? undefined}
       acpRegistryIconUrl={readConfigString(instance.config, "registryIconUrl") ?? undefined}

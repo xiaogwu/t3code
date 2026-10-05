@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import { beforeEach, vi } from "vite-plus/test";
 
 const {
+  createFromDataURLMock,
   appendSwitchMock,
   autoUpdaterOnMock,
   autoUpdaterRemoveListenerMock,
@@ -24,6 +25,7 @@ const {
   setPathMock,
   whenReadyMock,
 } = vi.hoisted(() => ({
+  createFromDataURLMock: vi.fn(() => ({ themed: true })),
   appendSwitchMock: vi.fn(),
   autoUpdaterOnMock: vi.fn(),
   autoUpdaterRemoveListenerMock: vi.fn(),
@@ -47,6 +49,9 @@ const {
 }));
 
 vi.mock("electron", () => ({
+  nativeImage: {
+    createFromDataURL: createFromDataURLMock,
+  },
   autoUpdater: {
     on: autoUpdaterOnMock,
     removeListener: autoUpdaterRemoveListenerMock,
@@ -84,6 +89,7 @@ import * as ElectronApp from "./ElectronApp.ts";
 
 describe("ElectronApp", () => {
   beforeEach(() => {
+    createFromDataURLMock.mockClear();
     appendSwitchMock.mockClear();
     autoUpdaterOnMock.mockClear();
     autoUpdaterRemoveListenerMock.mockClear();
@@ -206,6 +212,16 @@ describe("ElectronApp", () => {
       yield* electronApp.removeCommandLineSwitch("password-store");
 
       assert.deepEqual(removeSwitchMock.mock.calls, [["password-store"]]);
+    }).pipe(Effect.provide(ElectronApp.layer)),
+  );
+
+  it.effect("decodes a renderer-generated Dock icon before applying it", () =>
+    Effect.gen(function* () {
+      const electronApp = yield* ElectronApp.ElectronApp;
+      yield* electronApp.setDockIcon("data:image/png;base64,grove");
+
+      assert.deepEqual(createFromDataURLMock.mock.calls, [["data:image/png;base64,grove"]]);
+      assert.deepEqual(setDockIconMock.mock.calls, [[{ themed: true }]]);
     }).pipe(Effect.provide(ElectronApp.layer)),
   );
 });

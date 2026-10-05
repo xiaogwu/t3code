@@ -248,6 +248,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             <ProviderInstanceIcon
               driverKind={activeEntry.driverKind}
               displayName={activeEntry.displayName}
+              instanceId={String(activeEntry.instanceId)}
               accentColor={activeEntry.accentColor}
               acpRegistryAgentId={activeEntry.acpRegistryAgentId}
               acpRegistryIconUrl={activeEntry.acpRegistryIconUrl}

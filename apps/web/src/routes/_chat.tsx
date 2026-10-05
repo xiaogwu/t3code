@@ -27,6 +27,13 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
+import { shellEnvironment } from "~/state/shell";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { useActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -38,6 +45,10 @@ function ChatRouteGlobalShortcuts() {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeProjectTarget = useActiveProjectTarget();
+  const openInTerminal = useAtomCommand(shellEnvironment.openInTerminal, {
+    reportFailure: false,
+  });
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
   const projectGroupCount = useMemo(
     () =>
@@ -155,6 +166,40 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "shell.openInTerminal") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!activeProjectTarget) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to open external terminal",
+              description: "The active thread has no project directory.",
+            }),
+          );
+          return;
+        }
+        void openInTerminal({
+          environmentId: activeProjectTarget.environmentId,
+          input: {
+            cwd: activeProjectTarget.cwd,
+            // The environment server resolves its own server-side terminal preference.
+            terminal: "automatic",
+          },
+        }).then((result) => {
+          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to open external terminal",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        });
+        return;
+      }
+
       // The remaining preview commands only fire when the panel is the
       // currently-focused tenant. The `when: previewFocus` rule already
       // gates this, but defend against the keybinding being misconfigured.
@@ -201,6 +246,8 @@ function ChatRouteGlobalShortcuts() {
     startScratchThread,
     legacySidebarEnabled,
     terminalOpen,
+    activeProjectTarget,
+    openInTerminal,
   ]);
 
   return null;

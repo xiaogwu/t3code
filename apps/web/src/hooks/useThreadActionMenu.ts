@@ -1,5 +1,4 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -30,6 +29,7 @@ import {
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { readLocalApi } from "../localApi";
+import { openSnoozeForDialog } from "../snoozeForDialog";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -157,16 +157,24 @@ export function useThreadActionMenu(input: {
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
         const action: ThreadActionMenuId = clicked.value;
-        if (action.startsWith("snooze:")) {
-          const preset =
-            action === "snooze:custom"
-              ? await requestCustomSnooze()
-              : snoozePresets.find((candidate) => `snooze:${candidate.id}` === action);
-          if (!preset) return;
-          const result = await snoozeThread(threadRef, preset.snoozedUntil);
+        // The success/Undo toast now lives inside `snoozeThread`, so this only
+        // has to report failures.
+        const snoozeUntil = async (snoozedUntil: string) => {
+          const result = await snoozeThread(threadRef, snoozedUntil);
           if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
             failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
           }
+        };
+        if (action.startsWith("snooze:")) {
+          const choice = snoozePresets.find((candidate) => `snooze:${candidate.id}` === action);
+          if (!choice) return;
+          await snoozeUntil(choice.snoozedUntil);
+          return;
+        }
+        if (action === "snooze-for") {
+          openSnoozeForDialog({
+            onSnooze: (snoozedUntil) => void snoozeUntil(snoozedUntil),
+          });
           return;
         }
         const reportFailure = async (

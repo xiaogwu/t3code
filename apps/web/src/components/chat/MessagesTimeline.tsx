@@ -334,6 +334,7 @@ interface TimelineRowActivityState {
   activeTurnInProgress: boolean;
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
+  highlightedMessageId: MessageId | null;
   /**
    * A worktree setup whose script is still running after the agent took
    * over. The working header shows it as a chip with a popover; the stage
@@ -387,6 +388,15 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   ...TIMELINE_MAINTAIN_SCROLL_AT_END,
   animated: true,
 } as const satisfies MaintainScrollAtEndOptions;
+
+// LegendList abandons end maintenance once the viewport drifts further from
+// the end than this fraction of the viewport (library default 0.1). Container
+// width changes (sidebar/right-panel toggles) remeasure rows progressively
+// while maintainVisibleContentPosition holds the top visible row steady, which
+// walks the end away in steps larger than that window and strands the timeline
+// short of the live edge. One full viewport keeps maintenance active through a
+// remeasure; ChatView's scroll-mode refs still gate when maintenance runs.
+const TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD = 1;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -456,6 +466,7 @@ interface MessagesTimelineProps {
   providerStatuses: ReadonlyArray<ServerProvider>;
   runs: ReadonlyArray<HandoffTimelineRun>;
   anchorMessageId: MessageId | null;
+  highlightedMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
   contentInsetEndAdjustment: number;
@@ -529,6 +540,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   providerStatuses,
   runs: runsProp,
   anchorMessageId,
+  highlightedMessageId,
   onAnchorReady,
   onAnchorSizeChanged,
   contentInsetEndAdjustment,
@@ -954,7 +966,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       rows,
       anchorMessageId,
       (row) => (row.kind === "message" && row.message.role === "user" ? row.message.id : null),
-      { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET },
+      // Every new turn anchors here, not just a thread's opening message, so the
+      // anchor has to be matched wherever it sits in the history.
+      { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET, match: "latest" },
     );
     return config
       ? { ...config, onReady: handleAnchorReady, onSizeChanged: handleAnchorSizeChanged }
@@ -1025,6 +1039,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
           scrollOffset: element.scrollTop,
           atEnd: isAtEnd,
+          // Mirrored to storage alongside the id, because row ids encode
+          // transient UI state (a live tool, a folded turn, an expanded group)
+          // and stop resolving once that state changes.
+          rowCreatedAt: (index === undefined ? undefined : rows[index]?.createdAt) ?? null,
           disclosures: {
             runs: paintedExpandedRunIds,
             workGroups: paintedExpandedWorkGroupIds,
@@ -1217,11 +1235,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnInProgress,
       isPreparingWorktree,
       latestRunId: latestRun?.runId ?? null,
+      highlightedMessageId,
     }),
     [
       compactionAwaitingRow,
       backgroundWorktreeSetup,
       activeTurnInProgress,
+      highlightedMessageId,
       isPreparingWorktree,
       isRevertingCheckpoint,
       isWorking,
@@ -1348,7 +1368,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 ? false
                 : maintainVisibleContentPosition
             }
-            maintainScrollAtEndThreshold={1}
+            maintainScrollAtEndThreshold={TIMELINE_MAINTAIN_SCROLL_AT_END_THRESHOLD}
             onScroll={handleScroll}
             onItemSizeChanged={reportContentOverflow}
             className={cn(
@@ -1733,6 +1753,8 @@ type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["grouped
 type TimelineRow = MessagesTimelineRow;
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const { highlightedMessageId } = use(TimelineRowActivityCtx);
+  const isHighlighted = row.kind === "message" && row.message.id === highlightedMessageId;
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
@@ -1765,6 +1787,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           row.kind === "assistant-meta"
           ? "group/assistant"
           : null,
+        isHighlighted ? "chat-message-reveal-pulse" : null,
       )}
       data-timeline-row-id={row.id}
       data-timeline-row-kind={row.kind}
@@ -3467,7 +3490,7 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   const { isCompacting, isPreparingWorktree } = use(TimelineRowActivityCtx);
   // Reserve the activity row during setup so the handoff keeps the same height.
   if (isPreparingWorktree || isCompacting) return <WorkLogRow label="" />;
-  const activity = <LiveActivityRow label="Thinking" iconName="brain" active shimmer />;
+  const activity = <LiveActivityRow label="Thinking" iconName="brain" active />;
   const { groupId } = row;
   if (groupId === undefined) return activity;
   return (
@@ -3488,17 +3511,14 @@ function LiveActivityRow({
   toolIcon,
   failed = false,
   active = false,
-  shimmer = false,
 }: {
   label: ReactNode;
   iconName?: WorkEntryIconName;
   toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
   active?: boolean;
-  shimmer?: boolean;
 }) {
   const animated = active && !failed;
-  const showShimmer = animated && shimmer;
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
@@ -3510,9 +3530,8 @@ function LiveActivityRow({
         toolIcon={toolIcon}
         failed={failed}
         announceFailure={failed}
-        active={animated && !shimmer}
       />
-      {showShimmer ? (
+      {animated ? (
         <ActivityShimmerOverlay>
           <LiveActivityContent label={label} iconName={iconName} toolIcon={toolIcon} highlighted />
         </ActivityShimmerOverlay>
@@ -3527,7 +3546,6 @@ function LiveActivityContent({
   toolIcon,
   failed = false,
   announceFailure = false,
-  active = false,
   highlighted = false,
 }: {
   label: ReactNode;
@@ -3535,7 +3553,6 @@ function LiveActivityContent({
   toolIcon?: ToolActivityIcon | undefined;
   failed?: boolean;
   announceFailure?: boolean;
-  active?: boolean;
   highlighted?: boolean;
 }) {
   const showTrailingFailureMark =
@@ -3567,15 +3584,7 @@ function LiveActivityContent({
         ) : null
       }
       label={
-        <span
-          className={cn(
-            "block truncate",
-            highlighted && "text-foreground",
-            active && "live-tool-shine",
-          )}
-        >
-          {label}
-        </span>
+        <span className={cn("block truncate", highlighted && "text-foreground")}>{label}</span>
       }
       trailing={
         showTrailingFailureMark ? (
@@ -3721,11 +3730,7 @@ function WorkGroupHeader(props: {
           muted
         />
       }
-      label={
-        <span className={cn("block truncate", props.active && !props.failed && "live-tool-shine")}>
-          {props.label}
-        </span>
-      }
+      label={<span className="block truncate">{props.label}</span>}
       trailing={
         <TimelineRowTimestamp createdAt={props.createdAt} timestampFormat={props.timestampFormat} />
       }

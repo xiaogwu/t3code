@@ -6,11 +6,36 @@ import type {
 
 export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
 
+/** Initialisms that read wrong title-cased ("Pr Review"); keyed by lowercase. */
+const SKILL_NAME_INITIALISMS: Record<string, string> = {
+  ai: "AI",
+  api: "API",
+  aws: "AWS",
+  ci: "CI",
+  cli: "CLI",
+  css: "CSS",
+  html: "HTML",
+  ios: "iOS",
+  json: "JSON",
+  mcp: "MCP",
+  pdf: "PDF",
+  pr: "PR",
+  qa: "QA",
+  sdk: "SDK",
+  sql: "SQL",
+  ui: "UI",
+  url: "URL",
+  ux: "UX",
+};
+
 function titleCaseWords(value: string): string {
   const words: string[] = [];
   for (const segment of value.split(/[\s:_-]+/)) {
     if (segment.length === 0) continue;
-    words.push(segment.charAt(0).toUpperCase() + segment.slice(1));
+    words.push(
+      SKILL_NAME_INITIALISMS[segment.toLowerCase()] ??
+        segment.charAt(0).toUpperCase() + segment.slice(1),
+    );
   }
   return words.join(" ");
 }

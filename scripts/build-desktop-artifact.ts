@@ -30,6 +30,11 @@ import {
 } from "./lib/brand-assets.ts";
 import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import {
+  selectStageArtifacts,
+  copyStageArtifactTree,
+  type StageArtifactEntry,
+} from "./lib/build-artifacts.ts";
+import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
 } from "./lib/cli-external-packages.ts";
@@ -159,6 +164,7 @@ interface BuildCliInput {
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
+  readonly dev: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
   readonly wslRuntime: Option.Option<string>;
@@ -667,6 +673,19 @@ export class DesktopBuildNoArtifactsProducedError extends Schema.TaggedError<Des
   }
 }
 
+export class DesktopBuildArtifactCopyError extends Schema.TaggedError<DesktopBuildArtifactCopyError>()(
+  "DesktopBuildArtifactCopyError",
+  {
+    from: Schema.String,
+    to: Schema.String,
+    reason: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Could not copy build artifact ${this.from} to ${this.to}: ${this.reason}`;
+  }
+}
+
 export class WslRuntimeArchiveMissingError extends Schema.TaggedError<WslRuntimeArchiveMissingError>()(
   "WslRuntimeArchiveMissingError",
   {
@@ -916,6 +935,7 @@ interface ResolvedBuildOptions {
   readonly keepStage: boolean;
   readonly signed: boolean;
   readonly verbose: boolean;
+  readonly dev: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslRuntime: string | undefined;
@@ -1502,6 +1522,41 @@ const stageClerkPasskeyNativeBinaries = Effect.fn("stageClerkPasskeyNativeBinari
   }
 });
 
+// node-pty forks a pty by posix_spawn()ing a separate `spawn-helper` binary. It
+// ships that helper inside prebuilds/darwin-*/ as mode 644, and nothing in its
+// install scripts chmods it -- normally the executable bit comes from the
+// compiler writing build/Release, which only happens when @electron/rebuild
+// runs. With npmRebuild disabled (see the mac branch of resolveBuildConfig) the
+// prebuild is what ships, so the bit has to be set here.
+//
+// Without this the packaged app loads pty.node fine and then every terminal
+// dies with `Error: posix_spawnp failed.`, which does not mention permissions.
+export const stageMacNodePtySpawnHelper = Effect.fn("stageMacNodePtySpawnHelper")(function* (
+  stageAppDir: string,
+  arch: typeof BuildArch.Type,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  // universal builds lipo both slices together, so both prebuilds are staged.
+  const arches = arch === "universal" ? (["arm64", "x64"] as const) : ([arch] as const);
+
+  for (const prebuildArch of arches) {
+    const helperPath = path.join(
+      stageAppDir,
+      "node_modules",
+      "node-pty",
+      "prebuilds",
+      `darwin-${prebuildArch}`,
+      "spawn-helper",
+    );
+    // Absent is not an error: node-pty only ships the helper for platforms that
+    // need it, and a future version may compile it somewhere else entirely.
+    if (yield* fs.exists(helperPath)) {
+      yield* fs.chmod(helperPath, 0o755);
+    }
+  }
+});
+
 export function createStageWorkspaceConfig(input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
@@ -1577,6 +1632,10 @@ const BuildEnvConfig = Config.all({
   keepStage: Config.Boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
   signed: Config.Boolean("T3CODE_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
   verbose: Config.Boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
+  // Blueprint branding for local builds, so a hand-built app is visually
+  // distinct from the installed nightly in the Dock and Cmd-Tab. Icons only:
+  // product name and update channel still come from the version string.
+  dev: Config.Boolean("T3CODE_DESKTOP_DEV").pipe(Config.withDefault(false)),
   mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.String("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
   // Path to the Linux CLI release archive (t3-<version>-linux-x64.tar.gz) built
@@ -1661,6 +1720,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
   const signed = resolveBooleanFlag(input.signed, env.signed);
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
+  const dev = resolveBooleanFlag(input.dev, env.dev);
 
   const mockUpdates = resolveBooleanFlag(input.mockUpdates, env.mockUpdates);
   const configuredMockUpdateServerPort = Option.getOrUndefined(env.mockUpdateServerPort);
@@ -1687,6 +1747,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     keepStage,
     signed,
     verbose,
+    dev,
     mockUpdates,
     mockUpdateServerPort,
     wslRuntime,
@@ -2594,6 +2655,11 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
 }
 
+export function resolveDesktopWebAssetBrand(version: string, dev = false): WebAssetBrand {
+  if (dev) return "development";
+  return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
+}
+
 // Pull request builds (`-pr.<n>.`) and the maintainers' preview train
 // (`-preview.<date>.<run>`) are downloaded by hand and never through an
 // updater. Building them without a publish config means electron-builder
@@ -2605,11 +2671,18 @@ export function isDesktopPreviewVersion(version: string): boolean {
   return /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);
 }
 
-export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
-  return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
-}
+export function resolveDesktopBuildIconAssets(
+  version: string,
+  dev = false,
+): DesktopBuildIconAssets {
+  if (dev) {
+    return {
+      macIconPng: BRAND_ASSET_PATHS.developmentDesktopIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.developmentUniversalIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.developmentWindowsIconIco,
+    };
+  }
 
-export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
   if (resolveDesktopUpdateChannel(version) === "nightly") {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
@@ -2666,6 +2739,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // source file was never written fails the electron-builder step.
   wslRuntimeBundled = false,
   arch?: typeof BuildArch.Type,
+  dev = false,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -2715,13 +2789,46 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    // Local builds cannot reach artifacts.electronjs.org, so @electron/rebuild
+    // has no Electron headers to compile against. Skip it and ship the
+    // prebuilds instead: node-pty and msgpackr-extract are the only staged
+    // packages with a binding.gyp, both are Node-API addons whose ABI is stable
+    // across Electron versions, and both already ship a darwin prebuild that
+    // their loaders fall back to when build/Release is absent.
+    //
+    // node-pty needs one fixup for this to work, see
+    // stageMacNodePtySpawnHelper. Windows already does the same thing below.
+    buildConfig.npmRebuild = false;
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      // Composed in one place because the dev marker below has to extend this
+      // key rather than replace it: a spread of a second `extendInfo` would
+      // clobber the capture usage description and leave a dev build unable to
+      // prompt for screen recording.
+      //
+      // --dev only swaps icons and web brand assets, which leaves the packaged
+      // runtime with no way to know it is a dev build: the version still parses
+      // as a nightly, so branding resolves to Nightly. LSEnvironment is the one
+      // Info.plist key LaunchServices turns into a process env var, so a
+      // Finder/Dock/`open` launch hands the marker to the main process.
+      //
+      // T3CODE_DISABLE_AUTO_UPDATE is not optional here: a dev build keeps a
+      // real nightly version so it stays on the nightly channel, so the updater
+      // treats the next official nightly as an upgrade and replaces the bundle
+      // in place, silently reverting every local change.
       extendInfo: {
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
+        ...(dev
+          ? {
+              LSEnvironment: {
+                T3CODE_DESKTOP_DEV_BUILD: "1",
+                T3CODE_DISABLE_AUTO_UPDATE: "1",
+              },
+            }
+          : {}),
       },
       protocols: [
         {
@@ -3453,7 +3560,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   });
 
   const appVersion = options.version ?? serverPackageJson.version;
-  const iconAssets = resolveDesktopBuildIconAssets(appVersion);
+  const iconAssets = resolveDesktopBuildIconAssets(appVersion, options.dev);
   const commitHash = yield* resolveGitCommitHash(repoRoot);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
@@ -3566,7 +3673,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
-  const webAssetBrand = resolveDesktopWebAssetBrand(appVersion);
+  const webAssetBrand = resolveDesktopWebAssetBrand(appVersion, options.dev);
   yield* applyWebBrandAssets(webAssetBrand, "apps/server/dist/client");
   yield* Effect.log(`[desktop-artifact] Applied ${webAssetBrand} web client branding.`);
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
@@ -3718,6 +3825,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         : undefined,
       bundlesWslRuntime({ platform: options.platform, runtimeArchivePath: options.wslRuntime }),
       options.arch,
+      options.dev,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -3755,6 +3863,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   );
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
   yield* stageKeyringNativeBinaries(stageAppDir, options.platform, options.arch);
+
+  if (options.platform === "mac") {
+    yield* stageMacNodePtySpawnHelper(stageAppDir, options.arch);
+  }
 
   // Only the Windows artifact carries the server sidecar and the WSL runtime;
   // other platforms ignore the --wsl-runtime input.
@@ -3903,14 +4015,33 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageEntries = yield* fs.readDirectory(stageDistDir);
   yield* fs.makeDirectory(options.outputDir, { recursive: true });
 
-  const copiedArtifacts: string[] = [];
+  // Distributable targets (dmg/zip/nsis/AppImage) land as files beside the
+  // unpacked app directory electron-builder built them from, so copying files
+  // only is what keeps release output from carrying a redundant half-gigabyte
+  // copy of the bundle. The `dir` target produces nothing but that directory,
+  // so it has to come along or the build leaves the caller empty-handed once
+  // the stage is cleaned up.
+  const stageArtifactEntries: StageArtifactEntry[] = [];
   for (const entry of stageEntries) {
-    const from = path.join(stageDistDir, entry);
-    const stat = yield* fs.stat(from).pipe(Effect.orElseSucceed(() => null));
-    if (!stat || stat.type !== "File") continue;
+    const stat = yield* fs
+      .stat(path.join(stageDistDir, entry))
+      .pipe(Effect.orElseSucceed(() => null));
+    if (stat) stageArtifactEntries.push({ name: entry, type: stat.type });
+  }
 
-    const to = path.join(options.outputDir, entry);
-    yield* fs.copyFile(from, to);
+  const copiedArtifacts: string[] = [];
+  for (const artifact of selectStageArtifacts({
+    entries: stageArtifactEntries,
+    target: options.target,
+  })) {
+    const from = path.join(stageDistDir, artifact.name);
+    const to = path.join(options.outputDir, artifact.name);
+    yield* artifact.type === "Directory"
+      ? Effect.tryPromise({
+          try: () => copyStageArtifactTree(from, to),
+          catch: (cause) => new DesktopBuildArtifactCopyError({ from, to, reason: String(cause) }),
+        })
+      : fs.copyFile(from, to);
     copiedArtifacts.push(to);
   }
 
@@ -3968,6 +4099,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   verbose: Flag.Boolean("verbose").pipe(
     Flag.withDescription("Stream subprocess stdout (env: T3CODE_DESKTOP_VERBOSE)."),
+    Flag.optional,
+  ),
+  dev: Flag.Boolean("dev").pipe(
+    Flag.withDescription(
+      "Use the blueprint development icons instead of the version's channel icons (env: T3CODE_DESKTOP_DEV).",
+    ),
     Flag.optional,
   ),
   mockUpdates: Flag.Boolean("mock-updates").pipe(

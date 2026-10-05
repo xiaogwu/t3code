@@ -211,6 +211,7 @@ export function threadWokeAt(
 }
 
 const HOUR_MS = 60 * 60 * 1_000;
+const SNOOZE_FOR_STEP_MS = 15 * 60 * 1_000;
 const EVENING_HOUR = 18;
 const MORNING_HOUR = 9;
 
@@ -224,6 +225,21 @@ export interface SnoozePreset {
   readonly whenLabel: string;
   /** ISO wake time. */
   readonly snoozedUntil: string;
+}
+
+/**
+ * Initial value for a custom snooze. Rounding the absolute instant avoids
+ * manufacturing a nonexistent local wall time at a daylight-saving edge.
+ */
+export function resolveSnoozeForDefault(now: Date): Date {
+  return new Date(Math.ceil((now.getTime() + HOUR_MS) / SNOOZE_FOR_STEP_MS) * SNOOZE_FOR_STEP_MS);
+}
+
+/** Shared validation copy for custom snooze forms on every client. */
+export function snoozeForTimeError(value: Date, options: { readonly now: Date }): string | null {
+  if (Number.isNaN(value.getTime())) return "Choose a valid date and time.";
+  if (value.getTime() <= options.now.getTime()) return "Choose a time in the future.";
+  return null;
 }
 
 function snoozeTimeOfDayLabel(date: Date): string {
@@ -304,8 +320,9 @@ export function resolveSnoozePresets(now: Date): ReadonlyArray<SnoozePreset> {
 
 /**
  * Compact "wakes in" label for snoozed rows: "2h", "18h", "3d". Minutes
- * round up so a snooze never reads "0m" while still hidden. Shared by web
- * and mobile so the same wake time never reads differently per client.
+ * and hours round up so a snooze never reads "0m" while still hidden; days
+ * count local calendar boundaries. Shared by web and mobile so the same wake
+ * time never reads differently per client.
  */
 export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: string }): string {
   const wakeMs = Date.parse(snoozedUntil);
@@ -315,40 +332,48 @@ export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: s
   if (remainingMs <= 0) return "now";
   if (remainingMs < HOUR_MS) return `${Math.max(1, Math.ceil(remainingMs / 60_000))}m`;
   if (remainingMs < DAY_MS) return `${Math.ceil(remainingMs / HOUR_MS)}h`;
-  return `${Math.ceil(remainingMs / DAY_MS)}d`;
+  const wake = new Date(wakeMs);
+  const now = new Date(nowMs);
+  const wakeDay = Date.UTC(wake.getFullYear(), wake.getMonth(), wake.getDate());
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return `${Math.round((wakeDay - today) / DAY_MS)}d`;
 }
 
-export type CustomSnoozeInput =
-  | { readonly mode: "date"; readonly date: string; readonly time: string }
-  | {
-      readonly mode: "duration";
-      readonly amount: string;
-      readonly unit: "minutes" | "hours" | "days";
-    };
+export type SnoozeDurationUnit = "minutes" | "hours" | "days";
 
-/** Resolve local calendar input or elapsed time, rejecting past and invalid dates. */
-export function resolveCustomSnooze(input: CustomSnoozeInput, now: Date): string | null {
-  let wake: Date;
-  if (input.mode === "duration") {
-    const amount = Number(input.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return null;
-    const unitMs = { minutes: 60_000, hours: HOUR_MS, days: 24 * HOUR_MS }[input.unit];
-    wake = new Date(now.getTime() + amount * unitMs);
-  } else {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !/^\d{2}:\d{2}$/.test(input.time)) return null;
-    wake = new Date(`${input.date}T${input.time}:00`);
-    // Reject rolled-over dates and nonexistent local times during DST changes.
-    if (localSnoozeDate(wake) !== input.date || localSnoozeTime(wake) !== input.time) return null;
+export interface SnoozeDurationInput {
+  /** Raw field text, so an empty or half-typed value stays the form's problem. */
+  readonly amount: string;
+  readonly unit: SnoozeDurationUnit;
+}
+
+export type SnoozeInputResult =
+  | { readonly ok: true; readonly value: Date }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Wake time for "snooze for 3 hours". Days advance the calendar rather than
+ * adding 24h each, for the reason `addSnoozeDays` exists: a spring-forward day
+ * is 23 hours long, so fixed offsets drift the wall time the user asked for.
+ * A fractional day carries its remainder as elapsed time.
+ */
+export function resolveSnoozeDuration(
+  input: SnoozeDurationInput,
+  options: { readonly now: Date },
+): SnoozeInputResult {
+  const amount = Number(input.amount.trim());
+  if (input.amount.trim() === "" || !Number.isFinite(amount) || amount <= 0) {
+    return { ok: false, error: "Enter how long to snooze for." };
   }
-  return Number.isFinite(wake.getTime()) && wake.getTime() > now.getTime()
-    ? wake.toISOString()
-    : null;
-}
-
-export function localSnoozeDate(date: Date): string {
-  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-export function localSnoozeTime(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  let wake: Date;
+  if (input.unit === "days") {
+    const wholeDays = Math.trunc(amount);
+    wake = addSnoozeDays(options.now, wholeDays);
+    wake = new Date(wake.getTime() + (amount - wholeDays) * 24 * HOUR_MS);
+  } else {
+    const unitMs = input.unit === "minutes" ? 60_000 : HOUR_MS;
+    wake = new Date(options.now.getTime() + amount * unitMs);
+  }
+  const error = snoozeForTimeError(wake, options);
+  return error === null ? { ok: true, value: wake } : { ok: false, error };
 }

@@ -1,13 +1,16 @@
 // @effect-diagnostics globalDate:off -- Tests exercise local calendar snooze boundaries.
 import { ThreadId } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   canSnooze,
   effectiveSnoozed,
   hasQueuedTurnStart,
+  resolveSnoozeDuration,
   resolveSnoozePresets,
+  resolveSnoozeForDefault,
+  snoozeForTimeError,
   snoozeWakeLabel,
   threadRaisedHandWhileSnoozed,
   threadWokeAt,
@@ -302,10 +305,16 @@ describe("threadWokeAt", () => {
 describe("snoozeWakeLabel", () => {
   const now = "2026-06-02T00:00:00.000Z";
 
-  it("formats remaining time coarsely, rounding up", () => {
+  it("formats remaining time coarsely", () => {
     expect(snoozeWakeLabel("2026-06-02T00:30:00.000Z", { now })).toBe("30m");
     expect(snoozeWakeLabel("2026-06-02T01:30:00.000Z", { now })).toBe("2h");
-    expect(snoozeWakeLabel("2026-06-03T02:00:00.000Z", { now })).toBe("2d");
+    expect(snoozeWakeLabel("2026-06-03T02:00:00.000Z", { now })).toBe("1d");
+  });
+
+  it("counts calendar days once the wake time is at least a day away", () => {
+    expect(snoozeWakeLabel("2026-08-31T17:00:00.000Z", { now: "2026-08-27T16:54:06.737Z" })).toBe(
+      "4d",
+    );
   });
 
   it("never reads zero or negative while still snoozed", () => {
@@ -365,5 +374,85 @@ describe("resolveSnoozePresets", () => {
     ]);
     const tomorrow = new Date(presets.find((preset) => preset.id === "tomorrow")!.snoozedUntil);
     expect(tomorrow.getDay()).toBe(1);
+  });
+});
+
+describe("custom snooze times", () => {
+  it("defaults to at least an hour ahead on a 15-minute boundary", () => {
+    const now = localDate(2026, 4, 8, 10, 7);
+    const value = resolveSnoozeForDefault(now);
+
+    expect(value.getTime()).toBeGreaterThanOrEqual(now.getTime() + 60 * 60 * 1_000);
+    expect(value.getMinutes() % 15).toBe(0);
+    expect(value.getSeconds()).toBe(0);
+    expect(value.getMilliseconds()).toBe(0);
+  });
+
+  it("rejects invalid, equal, and past values", () => {
+    const now = localDate(2026, 4, 8, 10);
+
+    expect(snoozeForTimeError(new Date(Number.NaN), { now })).toBe("Choose a valid date and time.");
+    expect(snoozeForTimeError(new Date(now), { now })).toBe("Choose a time in the future.");
+    expect(snoozeForTimeError(localDate(2026, 4, 8, 9), { now })).toBe(
+      "Choose a time in the future.",
+    );
+    expect(snoozeForTimeError(localDate(2026, 4, 8, 11), { now })).toBeNull();
+  });
+});
+
+describe("resolveSnoozeDuration", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["minutes", "45", 45 * 60_000],
+    ["hours", "1.5", 90 * 60_000],
+    ["hours", " 2 ", 2 * 60 * 60_000],
+  ] as const)("resolves %s from the moment it is confirmed", (unit, amount, elapsed) => {
+    const now = localDate(2026, 4, 8, 10);
+    const result = resolveSnoozeDuration({ amount, unit }, { now });
+
+    expect(result.ok && result.value.getTime()).toBe(now.getTime() + elapsed);
+  });
+
+  it("keeps the wall-clock time when days cross a spring-forward boundary", () => {
+    // Deliberately unlike upstream, which added a flat 24h per day and so woke
+    // an hour late in local terms. "In 1 day" means this time tomorrow.
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    const now = localDate(2027, 3, 13, 12);
+    const result = resolveSnoozeDuration({ amount: "1", unit: "days" }, { now });
+
+    expect(result.ok && result.value.getDate()).toBe(14);
+    expect(result.ok && result.value.getHours()).toBe(12);
+    // 23 hours of elapsed time, because that Sunday is 23 hours long.
+    expect(result.ok && result.value.getTime() - now.getTime()).toBe(23 * 60 * 60_000);
+  });
+
+  it("carries a fractional day as elapsed time", () => {
+    const now = localDate(2026, 4, 8, 10);
+    const result = resolveSnoozeDuration({ amount: "1.5", unit: "days" }, { now });
+
+    expect(result.ok && result.value.getDate()).toBe(9);
+    expect(result.ok && result.value.getHours()).toBe(22);
+  });
+
+  it.each(["", "   ", "0", "-1", "abc", "NaN", "Infinity"])(
+    "refuses %s with a message the form can show",
+    (amount) => {
+      const result = resolveSnoozeDuration(
+        { amount, unit: "hours" },
+        { now: localDate(2026, 4, 8, 10) },
+      );
+
+      expect(result).toEqual({ ok: false, error: "Enter how long to snooze for." });
+    },
+  );
+
+  it.each(["hours", "days"] as const)("refuses a %s value that overflows the clock", (unit) => {
+    const result = resolveSnoozeDuration(
+      { amount: "1e300", unit },
+      { now: localDate(2026, 4, 8, 10) },
+    );
+
+    expect(result).toEqual({ ok: false, error: "Choose a valid date and time." });
   });
 });

@@ -50,6 +50,7 @@ import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
 import { ThreadQueueSheet } from "./features/threads/ThreadQueueControl";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
+import { SnoozeForRouteScreen } from "./features/threads/SnoozeForRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
@@ -546,6 +547,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsSheet",
   "ThreadAgents",
   "ThreadQueue",
+  "SnoozeFor",
   "ThreadReviewComment",
   "ThreadDevicePreview",
   "ThreadSettingsSheet",
@@ -719,6 +721,22 @@ const RootStackConfig = createNativeStackNavigator({
           : FORM_SHEET_PRESENTATION_OPTIONS),
         sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.55, 0.92],
         sheetGrabberVisible: Platform.OS !== "android",
+      },
+    }),
+    SnoozeFor: createNativeStackScreen({
+      screen: SnoozeForRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/snooze`,
+      options: {
+        gestureEnabled: true,
+        ...(Platform.OS === "android"
+          ? { presentation: "card" as const, headerShown: false }
+          : {
+              ...SHEET_SOLID_HEADER_OPTIONS,
+              presentation: "formSheet" as const,
+              sheetAllowedDetents: [0.55, 0.8],
+              sheetGrabberVisible: true,
+              title: "Snooze until",
+            }),
       },
     }),
     ThreadFiles: createNativeStackScreen({

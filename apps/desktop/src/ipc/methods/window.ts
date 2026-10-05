@@ -1,6 +1,7 @@
 import {
   ContextMenuItemSchema,
   DesktopAppBrandingSchema,
+  DesktopDockIconSchema,
   DesktopEnvironmentBootstrapSchema,
   DesktopThemeSchema,
   EDITORS,
@@ -17,6 +18,7 @@ import { WORKSPACE_IMAGE_PREVIEW_EXTENSIONS } from "@t3tools/shared/filePreview"
 import { resolveEditorCommand } from "@t3tools/shared/editor";
 import * as HostProcess from "@t3tools/shared/hostProcess";
 import * as NodeOS from "node:os";
+import * as Electron from "electron";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
@@ -35,7 +37,6 @@ import * as ElectronMenu from "../../electron/ElectronMenu.ts";
 import * as ElectronShell from "../../electron/ElectronShell.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
-import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import * as IpcChannels from "../channels.ts";
@@ -78,6 +79,29 @@ export const getSystemLocale = DesktopIpc.makeSyncIpcMethod({
     const electronApp = yield* ElectronApp.ElectronApp;
     return yield* electronApp.systemLocale;
   }),
+});
+
+export function resolveMacFirstDayOfWeek(
+  preference: unknown,
+  platform: NodeJS.Platform,
+): number | null {
+  if (platform !== "darwin" || typeof preference !== "object" || preference === null) return null;
+  const gregorian = Reflect.get(preference, "gregorian");
+  return typeof gregorian === "number" && gregorian >= 1 && gregorian <= 7 ? gregorian - 1 : null;
+}
+
+export const getFirstDayOfWeek = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_FIRST_DAY_OF_WEEK_CHANNEL,
+  result: Schema.NullOr(Schema.Number),
+  handler: Effect.fn("desktop.ipc.window.getFirstDayOfWeek")(() =>
+    Effect.sync(() => {
+      const preference =
+        process.platform === "darwin"
+          ? Electron.systemPreferences.getUserDefault("AppleFirstWeekday", "dictionary")
+          : null;
+      return resolveMacFirstDayOfWeek(preference, process.platform);
+    }),
+  ),
 });
 
 export const getWindowFullscreenState = DesktopIpc.makeSyncIpcMethod({
@@ -277,6 +301,16 @@ export const setTheme = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.setTheme")(function* (theme) {
     const electronTheme = yield* ElectronTheme.ElectronTheme;
     yield* electronTheme.setSource(theme);
+  }),
+});
+
+export const setDockIcon = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_DOCK_ICON_CHANNEL,
+  payload: DesktopDockIconSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.setDockIcon")(function* ({ dataUrl }) {
+    const electronApp = yield* ElectronApp.ElectronApp;
+    yield* electronApp.setDockIcon(dataUrl);
   }),
 });
 

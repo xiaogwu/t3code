@@ -63,6 +63,7 @@ import {
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
   stageDesktopDmgBackground,
+  stageMacNodePtySpawnHelper,
   stageResourceMonitor,
   stageLinuxCaptureHelper,
   stageWslRuntimeArchive,
@@ -285,6 +286,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("switches the bundled splash and favicon branding for nightly versions", () => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
+  });
+
+  it("overrides both icon sets with the blueprint artwork in dev mode", () => {
+    // --dev makes a hand-built app tell itself apart from the installed
+    // nightly, so it must win over the version's channel for every icon.
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42", true), {
+      macIconPng: BRAND_ASSET_PATHS.developmentDesktopIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.developmentUniversalIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.developmentWindowsIconIco,
+    });
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42", true), "development");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17", true), "development");
   });
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
@@ -677,6 +690,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         iconSize: 120,
         iconTextSize: 12,
       });
+      // A local mac build cannot reach artifacts.electronjs.org, so
+      // @electron/rebuild has no Electron headers to compile against and the
+      // build dies. Both mac and Windows ship node-pty's and msgpackr-extract's
+      // darwin/win prebuilds instead. Linux still rebuilds.
+      assert.strictEqual(mac.npmRebuild, false);
+      assert.strictEqual(win.npmRebuild, false);
+      assert.notStrictEqual(linux.npmRebuild, false);
       // A Linux AppImage build also emits the .deb from the same run.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).target, ["AppImage", "deb"]);
       // Linux must register the renderer schemes so the generated .desktop
@@ -1584,6 +1604,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        const path = yield* Path.Path;
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
@@ -1593,7 +1614,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         });
 
         assert.isFalse(
-          commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
+          commands.some(
+            (command) =>
+              command.command === path.join(fixture.packagedAppDir, fixture.appExecutableName) &&
+              command.options.env?.ELECTRON_RUN_AS_NODE === "1",
+          ),
         );
         assert.isTrue(
           commands.some(
@@ -1994,6 +2019,46 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it.effect("hands a dev build its stage marker through the mac Info.plist", () =>
+    Effect.gen(function* () {
+      const dev = yield* createBuildConfig(
+        "mac",
+        "zip",
+        "0.0.33-nightly.20260807.1026",
+        false,
+        false,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        true,
+      );
+      const nightly = yield* createBuildConfig(
+        "mac",
+        "zip",
+        "0.0.33-nightly.20260807.1026",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      // The dev marker has to ride alongside upstream's capture usage
+      // description, not replace it: without the description macOS cannot
+      // prompt for screen recording, so the window-capture shortcut dies in
+      // dev builds only.
+      assert.deepStrictEqual((dev.mac as Record<string, unknown>).extendInfo, {
+        NSScreenCaptureUsageDescription:
+          "T3 Code captures the active window when you use the window capture shortcut.",
+        LSEnvironment: { T3CODE_DESKTOP_DEV_BUILD: "1", T3CODE_DISABLE_AUTO_UPDATE: "1" },
+      });
+      assert.deepStrictEqual((nightly.mac as Record<string, unknown>).extendInfo, {
+        NSScreenCaptureUsageDescription:
+          "T3 Code captures the active window when you use the window capture shortcut.",
+      });
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("uses the nightly DMG background for nightly macOS builds", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig(
@@ -2235,6 +2300,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         keepStage: Option.none(),
         signed: Option.none(),
         verbose: Option.none(),
+        dev: Option.none(),
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
         wslRuntime: Option.none(),
@@ -2275,6 +2341,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             keepStage: Option.none(),
             signed: Option.none(),
             verbose: Option.none(),
+            dev: Option.none(),
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),
             wslRuntime: Option.none(),
@@ -2299,6 +2366,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         keepStage: Option.some(false),
         signed: Option.some(false),
         verbose: Option.some(false),
+        dev: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
         wslRuntime: Option.none(),
@@ -2324,6 +2392,68 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
     }),
+  );
+
+  // node-pty posix_spawn()s a separate `spawn-helper` binary and ships it inside
+  // prebuilds/darwin-*/ as mode 644. Normally the executable bit comes from the
+  // compiler writing build/Release, which only happens when @electron/rebuild
+  // runs -- and mac builds disable that (see npmRebuild above). Without the
+  // chmod the packaged app loads pty.node fine and then every terminal dies with
+  // `Error: posix_spawnp failed.`, which says nothing about permissions.
+  it.effect("makes node-pty's staged mac spawn-helper executable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stageAppDir = yield* fs.makeTempDirectoryScoped();
+      const prebuildDir = path.join(
+        stageAppDir,
+        "node_modules",
+        "node-pty",
+        "prebuilds",
+        "darwin-arm64",
+      );
+      yield* fs.makeDirectory(prebuildDir, { recursive: true });
+      const helperPath = path.join(prebuildDir, "spawn-helper");
+      yield* fs.writeFileString(helperPath, "#!/bin/sh\n");
+      yield* fs.chmod(helperPath, 0o644);
+
+      yield* stageMacNodePtySpawnHelper(stageAppDir, "arm64");
+
+      const info = yield* fs.stat(helperPath);
+      // Mask off the file-type bits; only the permission bits are the claim.
+      assert.equal((Number(info.mode) & 0o777).toString(8), "755");
+    }).pipe(Effect.scoped),
+  );
+
+  // A universal build lipos both slices together, so both prebuilds are staged
+  // and both helpers need the bit. Absent is not an error: node-pty only ships
+  // the helper for platforms that need it.
+  it.effect("chmods both slices for a universal build and tolerates an absent helper", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stageAppDir = yield* fs.makeTempDirectoryScoped();
+      const helperFor = (arch: string) =>
+        path.join(
+          stageAppDir,
+          "node_modules",
+          "node-pty",
+          "prebuilds",
+          `darwin-${arch}`,
+          "spawn-helper",
+        );
+
+      // x64 slice present, arm64 slice missing entirely.
+      yield* fs.makeDirectory(path.dirname(helperFor("x64")), { recursive: true });
+      yield* fs.writeFileString(helperFor("x64"), "#!/bin/sh\n");
+      yield* fs.chmod(helperFor("x64"), 0o644);
+
+      yield* stageMacNodePtySpawnHelper(stageAppDir, "universal");
+
+      const info = yield* fs.stat(helperFor("x64"));
+      assert.equal((Number(info.mode) & 0o777).toString(8), "755");
+      assert.equal(yield* fs.exists(helperFor("arm64")), false);
+    }).pipe(Effect.scoped),
   );
 });
 

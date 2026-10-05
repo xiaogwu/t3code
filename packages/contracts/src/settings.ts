@@ -37,6 +37,7 @@ import {
   ProviderInstanceId,
   type ProviderDriverKind,
 } from "./providerInstance.ts";
+import { ExternalTerminalId } from "./externalTerminal.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -58,6 +59,16 @@ export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 // Not exported: mobile was the last consumer of the value itself; the
 // wire field keeps its decoding default below.
 const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
+// Sidebar v2 orders threads on its own key rather than sharing
+// `sidebarThreadSortOrder` with v1. v2 shipped with static creation order, and
+// the shared key defaults to `"updated_at"` — reusing it would silently
+// reorder every existing v2 list on upgrade. A separate key also lets the two
+// sidebar versions hold different orders, which they want: v1 is a recency
+// list, v2 is a stable board whose rows only move at lifecycle transitions.
+export const SidebarV2ThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
+export type SidebarV2ThreadSortOrder = typeof SidebarV2ThreadSortOrder.Type;
+export const DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER: SidebarV2ThreadSortOrder = "created_at";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
@@ -460,6 +471,10 @@ export const ClientSettingsSchema = Schema.Struct({
   // old keys, so everyone, including prior beta opt-outs, resets to the new
   // default sidebar.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Dia-style auto-hide: the main sidebar becomes a floating panel that
+  // reveals on hover-intent from the window edge instead of staying pinned
+  // open. Off by default so existing users see no behavioral change.
+  sidebarAutoHide: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Beta: working and monitoring threads fold into a Working shelf and return
   // to the top of the inbox once they need the user. The inbox then orders by
   // time, so manual placement there is ignored (and kept) while it is on.
@@ -481,6 +496,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
+  ),
+  sidebarV2ThreadSortOrder: SidebarV2ThreadSortOrder.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -752,6 +770,38 @@ export const GrokSettings = makeProviderSettingsSchema(
 );
 export type GrokSettings = typeof GrokSettings.Type;
 
+export const GeminiSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("apple-gemini").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the Apple Gemini CLI binary.",
+        providerSettingsForm: { placeholder: "apple-gemini", clearWhenEmpty: "omit" },
+      }),
+    ),
+    authMethodId: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("oauth-personal")),
+      Schema.annotateKey({
+        title: "ACP authentication method",
+        description: "Authentication method advertised by Apple Gemini's ACP server.",
+        providerSettingsForm: { placeholder: "oauth-personal", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath", "authMethodId"],
+  },
+);
+export type GeminiSettings = typeof GeminiSettings.Type;
+
 /**
  * Antigravity ACP auth methods. Personal and Enterprise open a Google sign-in
  * in the browser. The API key and Agent Platform methods take credentials from
@@ -957,13 +1007,25 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    prelaunchCommand: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Prelaunch command",
+        description:
+          "Shell command run before T3 Code spawns the OpenCode server, for booting a local model server first. Runs on every session start, so make it idempotent. The session's model is in $T3_OPENCODE_MODEL, so the command can skip work a remote model does not need. Ignored when Server URL is set.",
+        providerSettingsForm: {
+          placeholder: "Optional",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "serverUrl", "serverPassword"],
+    order: ["binaryPath", "serverUrl", "serverPassword", "prelaunchCommand"],
   },
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
@@ -1118,6 +1180,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentBrowserAccess",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
+  "textGenerationFallbackModelSelections",
   "sourceControlWriterModelSelection",
   "sourceControlWritingStyle",
   "branchNamingMode",
@@ -1148,6 +1211,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
+  textGenerationFallbackModelSelections: Schema.optionalKey(Schema.Array(ModelSelection)),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
@@ -1194,6 +1258,9 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  externalTerminal: ExternalTerminalId.pipe(
+    Schema.withDecodingDefault(Effect.succeed("automatic" as const)),
+  ),
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(StorageCleanupSettings)({}))),
@@ -1351,6 +1418,14 @@ export const ServerSettings = Schema.Struct({
   ),
   branchNamePrefix: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("t3code"))),
   branchNameInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * Tried in order when the primary text generation model fails, so one
+   * exhausted subscription does not silently disable thread titles, branch
+   * names, commit messages, and PR content all at once. Empty by default.
+   */
+  textGenerationFallbackModelSelections: Schema.Array(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   sourceControlWritingStyle: SourceControlWritingStyleSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1378,6 +1453,7 @@ export const ServerSettings = Schema.Struct({
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     pi: PiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    gemini: GeminiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     antigravity: AntigravitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -1541,6 +1617,13 @@ const GrokSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
+const GeminiSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  authMethodId: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const AntigravitySettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   authMethod: Schema.optionalKey(AntigravityAuthMethod),
@@ -1563,6 +1646,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   serverUrl: Schema.optionalKey(TrimmedString),
   serverPassword: Schema.optionalKey(TrimmedString),
+  prelaunchCommand: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 
@@ -1594,6 +1678,7 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   // Server settings
+  externalTerminal: Schema.optionalKey(ExternalTerminalId),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
@@ -1649,6 +1734,9 @@ export const ServerSettingsPatch = Schema.Struct({
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
+  // Replaced wholesale, never merged element-by-element: the order is the
+  // fallback order the user authored.
+  textGenerationFallbackModelSelections: Schema.optionalKey(Schema.Array(ModelSelection)),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({
       mode: Schema.optionalKey(SourceControlWritingStyleMode),
@@ -1680,6 +1768,7 @@ export const ServerSettingsPatch = Schema.Struct({
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       pi: Schema.optionalKey(PiSettingsPatch),
+      gemini: Schema.optionalKey(GeminiSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
       antigravity: Schema.optionalKey(AntigravitySettingsPatch),
     }),
@@ -1775,6 +1864,7 @@ export const ClientSettingsPatch = Schema.Struct({
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  sidebarAutoHide: Schema.optionalKey(Schema.Boolean),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
@@ -1783,6 +1873,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  sidebarV2ThreadSortOrder: Schema.optionalKey(SidebarV2ThreadSortOrder),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),

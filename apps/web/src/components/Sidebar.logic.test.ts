@@ -6,11 +6,14 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
+  PINNED_SORTABLE_ANIMATION_OPTIONS,
   animateSidebarLayoutChanges,
   archiveSelectedThreadEntries,
+  buildBulkCopyContextMenuItem,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
+  collectBulkCopyValues,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -51,6 +54,7 @@ import {
   sortProjectsForSidebar,
   sortScopedProjectsForSidebar,
   sortSidebarV2ProjectGroups,
+  sortThreadsForSidebar,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
@@ -241,6 +245,56 @@ describe("deleteSelectedThreadEntries", () => {
   });
 });
 
+// Guards the fork's pinned-drop fix, which has no runtime coverage anywhere
+// else: dragging is a pointer interaction the suite never drives, so the only
+// thing standing between a bad merge resolution and a visibly broken reorder is
+// these assertions. Upstream keeps editing the same useSortable() call (#7676
+// most recently), and the tempting resolution — take upstream's
+// `animatePinnedLayoutChanges` and drop the fork's hunk — silently reintroduces
+// the bug. Both tests below fail loudly if that happens.
+describe("PINNED_SORTABLE_ANIMATION_OPTIONS", () => {
+  const baseArgs: Parameters<AnimateLayoutChanges>[0] = {
+    active: null,
+    containerId: "pinned-threads",
+    isDragging: false,
+    isSorting: false,
+    id: "thread-a",
+    index: 1,
+    items: ["thread-b", "thread-a"],
+    newIndex: 0,
+    previousItems: ["thread-a", "thread-b"],
+    previousContainerId: "pinned-threads",
+    transition: { duration: 200, easing: "ease" },
+    wasDragging: true,
+  };
+
+  it("never replays layout movement, including while sorting", () => {
+    // The "including while sorting" half is the one that diverges from
+    // upstream: `animatePinnedLayoutChanges` returns true here. Swapping this
+    // predicate for upstream's turns this assertion red.
+    expect(PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges(baseArgs)).toBe(false);
+    expect(
+      PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges({ ...baseArgs, isSorting: true }),
+    ).toBe(false);
+    expect(
+      PINNED_SORTABLE_ANIMATION_OPTIONS.animateLayoutChanges({
+        ...baseArgs,
+        isDragging: true,
+        isSorting: true,
+        wasDragging: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("suppresses the displacement transition on the cards that were not dragged", () => {
+    // Upstream has no equivalent for this half, so a resolution that adopts
+    // upstream's predicate alone drops it and the other cards resume sliding —
+    // they are then still mid-slide when the drop commits, which is what made a
+    // finished reorder look like it was undoing itself.
+    expect(PINNED_SORTABLE_ANIMATION_OPTIONS.transition).toBeNull();
+  });
+});
+
 describe("archiveSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
   const success = { _tag: "Success" } as const;
@@ -307,6 +361,110 @@ describe("buildBulkUnpinContextMenuItem", () => {
   });
 });
 
+describe("collectBulkCopyValues", () => {
+  it("de-duplicates paths and branches while keeping first-appearance order", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: "main", workspacePath: "/repo/a" },
+        { id: "t2", branch: "main", workspacePath: "/repo/b" },
+        { id: "t3", branch: "feature", workspacePath: "/repo/a" },
+      ]),
+    ).toEqual({
+      paths: ["/repo/a", "/repo/b"],
+      branches: ["main", "feature"],
+      threadIds: ["t1", "t2", "t3"],
+    });
+  });
+
+  it("skips threads with no branch", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: "/repo/a" },
+        { id: "t2", branch: "main", workspacePath: "/repo/b" },
+      ]),
+    ).toEqual({
+      paths: ["/repo/a", "/repo/b"],
+      branches: ["main"],
+      threadIds: ["t1", "t2"],
+    });
+  });
+
+  it("returns no branches when nothing selected has one", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: "/repo/a" },
+        { id: "t2", branch: null, workspacePath: "/repo/b" },
+      ]).branches,
+    ).toEqual([]);
+  });
+
+  it("returns no paths when every thread has a null path", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: "main", workspacePath: null },
+        { id: "t2", branch: "feature", workspacePath: null },
+      ]).paths,
+    ).toEqual([]);
+  });
+
+  it("always counts every thread for thread IDs", () => {
+    expect(
+      collectBulkCopyValues([
+        { id: "t1", branch: null, workspacePath: null },
+        { id: "t2", branch: null, workspacePath: null },
+      ]).threadIds,
+    ).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("buildBulkCopyContextMenuItem", () => {
+  it("includes a child with the distinct count for each non-empty list", () => {
+    expect(
+      buildBulkCopyContextMenuItem({
+        paths: ["/repo/a", "/repo/b"],
+        branches: ["main"],
+        threadIds: ["t1", "t2", "t3"],
+      }),
+    ).toEqual({
+      id: "copy",
+      label: "Copy",
+      separatorBefore: true,
+      children: [
+        { id: "copy-paths", label: "Paths (2)" },
+        { id: "copy-branches", label: "Branches (1)" },
+        { id: "copy-thread-ids", label: "Thread IDs (3)" },
+      ],
+    });
+  });
+
+  it("omits Branches when no thread has a branch", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: ["/repo/a"],
+      branches: [],
+      threadIds: ["t1"],
+    });
+    expect(item?.children?.some((child) => child.id === "copy-branches")).toBe(false);
+  });
+
+  it("omits Paths when every thread has a null path", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: [],
+      branches: ["main"],
+      threadIds: ["t1"],
+    });
+    expect(item?.children?.some((child) => child.id === "copy-paths")).toBe(false);
+  });
+
+  it("always includes Thread IDs with the total selected count", () => {
+    const item = buildBulkCopyContextMenuItem({
+      paths: [],
+      branches: [],
+      threadIds: ["t1", "t2"],
+    });
+    expect(item?.children).toEqual([{ id: "copy-thread-ids", label: "Thread IDs (2)" }]);
+  });
+});
+
 describe("buildBulkTitleRegenerationContextMenuItem", () => {
   it("counts only threads that can start a new regeneration", () => {
     expect(
@@ -346,14 +504,32 @@ describe("buildBulkTitleRegenerationContextMenuItem", () => {
 describe("buildMultiSelectThreadContextMenuItems", () => {
   it("offers bulk archive with the selected count", () => {
     expect(
-      buildMultiSelectThreadContextMenuItems({ count: 3, hasRunningThread: false }),
+      buildMultiSelectThreadContextMenuItems({
+        count: 3,
+        hasRunningThread: false,
+        allUnread: false,
+      }),
     ).toContainEqual({ id: "archive", label: "Archive (3)", disabled: false });
   });
 
   it("disables bulk archive when a selected thread is running", () => {
     expect(
-      buildMultiSelectThreadContextMenuItems({ count: 2, hasRunningThread: true }),
+      buildMultiSelectThreadContextMenuItems({
+        count: 2,
+        hasRunningThread: true,
+        allUnread: false,
+      }),
     ).toContainEqual({ id: "archive", label: "Archive (2)", disabled: true });
+  });
+
+  it("offers mark read when every selected thread is unread", () => {
+    expect(
+      buildMultiSelectThreadContextMenuItems({
+        count: 2,
+        hasRunningThread: false,
+        allUnread: true,
+      }),
+    ).toContainEqual({ id: "mark-read", label: "Mark read (2)" });
   });
 });
 
@@ -1927,6 +2103,212 @@ describe("resolveThreadLastVisitedAt", () => {
 
   it("treats an explicit server-side null as never visited", () => {
     expect(resolveThreadLastVisitedAt(null, "2026-07-30T10:00:00.000Z")).toBeUndefined();
+  });
+});
+
+describe("sortThreadsForSidebar", () => {
+  const sortable = (input: {
+    id: string;
+    createdAt: string;
+    updatedAt?: string;
+    latestUserMessageAt?: string | null;
+    activeOrderKey?: string | null;
+  }) => ({
+    id: input.id,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt ?? input.createdAt,
+    latestUserMessageAt: input.latestUserMessageAt ?? null,
+    activeOrderKey: input.activeOrderKey ?? null,
+  });
+
+  it("orders by creation time, newest first, ignoring activity", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        sortable({ id: "oldest", createdAt: "2026-03-09T08:00:00.000Z" }),
+        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
+        sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  it("breaks creation-time ties by id so the order is stable", () => {
+    const threads = [
+      sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
+      sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("orders by latest user message when the sort order is updated_at", () => {
+    const threads = [
+      sortable({
+        id: "stale",
+        createdAt: "2026-03-09T12:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+      }),
+      sortable({
+        id: "chatty",
+        createdAt: "2026-03-09T10:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+      }),
+      sortable({
+        id: "quiet",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T11:00:00.000Z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "chatty",
+      "quiet",
+      "stale",
+    ]);
+    expect(sortThreadsForSidebar(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "stale",
+      "chatty",
+      "quiet",
+    ]);
+  });
+
+  it("reorders keyed peers by latest user message when the sort order is updated_at", () => {
+    const threads = [
+      sortable({
+        id: "older-keyed",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "newer-keyed",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "newer-keyed",
+      "older-keyed",
+    ]);
+  });
+
+  it("moves a keyed thread to the top when its latest user message changes", () => {
+    const threads = [
+      sortable({
+        id: "first",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "second",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "updated_at").map((thread) => thread.id)).toEqual([
+      "second",
+      "first",
+    ]);
+    const updated = threads.map((thread) =>
+      thread.id === "first"
+        ? { ...thread, latestUserMessageAt: "2026-03-09T11:00:00.000Z" }
+        : thread,
+    );
+    expect(sortThreadsForSidebar(updated, "updated_at").map((thread) => thread.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("preserves manual active order when the sort order is created_at", () => {
+    const threads = [
+      sortable({
+        id: "manual-first",
+        createdAt: "2026-03-09T08:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T09:00:00.000Z",
+        activeOrderKey: "a",
+      }),
+      sortable({
+        id: "manual-second",
+        createdAt: "2026-03-09T09:00:00.000Z",
+        latestUserMessageAt: "2026-03-09T15:00:00.000Z",
+        activeOrderKey: "z",
+      }),
+    ];
+
+    expect(sortThreadsForSidebar(threads, "created_at").map((thread) => thread.id)).toEqual([
+      "manual-first",
+      "manual-second",
+    ]);
+  });
+
+  it("falls back to updatedAt when a thread has no user message", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        sortable({
+          id: "older-activity",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T09:00:00.000Z",
+        }),
+        sortable({
+          id: "newer-activity",
+          createdAt: "2026-03-09T07:00:00.000Z",
+          updatedAt: "2026-03-09T13:00:00.000Z",
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["newer-activity", "older-activity"]);
+  });
+
+  it("surfaces an un-settled thread at the top via its re-entry stamp", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        {
+          id: "old-unsettled",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T08:00:00.000Z",
+          unsettledAt: "2026-03-09T13:00:00.000Z",
+        },
+        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
+        sortable({ id: "middle", createdAt: "2026-03-09T10:00:00.000Z" }),
+      ],
+      "created_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["old-unsettled", "newest", "middle"]);
+  });
+
+  it("ignores a re-entry stamp older than the thread's creation", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        {
+          id: "stale-stamp",
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:00:00.000Z",
+          unsettledAt: "2026-03-09T09:00:00.000Z",
+        },
+        sortable({ id: "newest", createdAt: "2026-03-09T12:00:00.000Z" }),
+      ],
+      "created_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["newest", "stale-stamp"]);
   });
 });
 

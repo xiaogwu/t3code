@@ -35,10 +35,51 @@ export function observeTimelineRun(
 }
 import type { RunAttemptId } from "@t3tools/contracts";
 
+import {
+  clearThreadTimelinePosition,
+  readThreadTimelinePosition,
+  saveThreadTimelinePosition,
+} from "../../threadTimelinePositionStore";
+
 // Match the titlebar fade inset so draft promotion preserves the first row's position.
 export const CHAT_TIMELINE_ANCHOR_OFFSET = 24;
 
-export type TimelineScrollMode = "following-end" | "anchoring-new-turn" | "free-scrolling";
+// "anchoring-reveal" is a command-palette search hit being pinned near the top.
+// Distinct from "anchoring-new-turn" so the streaming turn-metrics adjustments,
+// which assume an incoming response below the anchor, stay out of it.
+export type TimelineScrollMode =
+  | "following-end"
+  | "anchoring-new-turn"
+  | "anchoring-reveal"
+  | "free-scrolling";
+
+export interface TimelineSendScrollBehavior {
+  readonly mode: TimelineScrollMode;
+  readonly liveFollowEnabled: boolean;
+  readonly anchorNewTurn: boolean;
+  /**
+   * Whether tool activity in the new turn drops the anchor and returns to
+   * following the end. A thread's opening send keeps upstream's behavior, where
+   * releasing avoids leaving the reserved end space blank behind a tool call. A
+   * follow-up send holds its anchor instead: anchoring one exists so the reply
+   * can be read from its start, and a coding agent's first tool call usually
+   * lands a second or two after the send.
+   */
+  readonly releaseOnToolActivity: boolean;
+}
+
+export function resolveTimelineSendScrollBehavior({
+  threadHasStarted,
+}: {
+  readonly threadHasStarted: boolean;
+}): TimelineSendScrollBehavior {
+  return {
+    mode: "anchoring-new-turn",
+    liveFollowEnabled: true,
+    anchorNewTurn: true,
+    releaseOnToolActivity: !threadHasStarted,
+  };
+}
 
 export interface TimelineListMeasurementState {
   readonly data: readonly unknown[];
@@ -147,6 +188,8 @@ export interface RememberedTimelinePosition {
   readonly offsetWithinRow: number;
   readonly scrollOffset: number;
   readonly atEnd: boolean;
+  /** Timestamp of the anchored row, mirrored to storage so a cold start keeps it. */
+  readonly rowCreatedAt?: string | null;
   readonly disclosures?: {
     readonly runs: ReadonlySet<RunId>;
     readonly workGroups: ReadonlySet<string>;
@@ -161,8 +204,24 @@ export interface RememberedTimelinePosition {
 // Scoped thread keys keep separate environments independent. Bound the session cache.
 const rememberedTimelinePositions = new Map<string, RememberedTimelinePosition>();
 
+/**
+ * The cache only lives as long as the tab, so on a cold start it falls through
+ * to the persisted position. A seeded position carries no `disclosures`:
+ * `workGroupState` holds live `Map`/`Set` objects that do not serialize, so a
+ * reloaded thread restores its scroll offset with its groups collapsed.
+ */
 export function readTimelinePosition(threadKey: string) {
-  return rememberedTimelinePositions.get(threadKey);
+  const remembered = rememberedTimelinePositions.get(threadKey);
+  if (remembered !== undefined) return remembered;
+  const persisted = readThreadTimelinePosition(threadKey);
+  if (persisted === undefined) return undefined;
+  return {
+    rowId: persisted.rowId,
+    offsetWithinRow: persisted.offsetWithinRow,
+    scrollOffset: persisted.scrollOffset ?? 0,
+    atEnd: persisted.atEnd ?? false,
+    rowCreatedAt: persisted.rowCreatedAt ?? null,
+  } satisfies RememberedTimelinePosition;
 }
 
 export function rememberTimelinePosition(threadKey: string, position: RememberedTimelinePosition) {
@@ -172,4 +231,18 @@ export function rememberTimelinePosition(threadKey: string, position: Remembered
     const oldest = rememberedTimelinePositions.keys().next().value;
     if (oldest !== undefined) rememberedTimelinePositions.delete(oldest);
   }
+  // Mirror the durable subset so a reload resumes where reading stopped. The
+  // live edge is stored as absence, not as `atEnd: true`, so a cold start at
+  // the bottom cannot restore a stale mid-thread anchor.
+  if (position.atEnd) {
+    clearThreadTimelinePosition(threadKey);
+    return;
+  }
+  saveThreadTimelinePosition(threadKey, {
+    rowId: position.rowId,
+    offsetWithinRow: position.offsetWithinRow,
+    scrollOffset: position.scrollOffset,
+    atEnd: position.atEnd,
+    ...(position.rowCreatedAt !== undefined ? { rowCreatedAt: position.rowCreatedAt } : {}),
+  });
 }

@@ -56,6 +56,8 @@ import {
   scheduleEnvironmentReconnectWarning,
   codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
+  observeProactivePanelUserChoice,
+  observeThreadCompletionReadability,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldRefocusComposerOnWindowFocus,
   shouldOpenProactivePullRequest,
@@ -957,6 +959,43 @@ describe("proactive panels", () => {
       }),
     ).toBe(false);
   });
+
+  it("reports newTurn only for a new turn on the same thread", () => {
+    const firstTurn = RunId.make("turn-1");
+    const nextTurn = RunId.make("turn-2");
+
+    // First observation on a thread: never a "new turn", just first entry.
+    const first = observeProactivePanelUserChoice(null, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: firstTurn,
+      userActionRevision: 0,
+    });
+    expect(first.newTurn).toBe(false);
+
+    // Same thread, same running turn observed again: not a new turn.
+    const sameTurnAgain = observeProactivePanelUserChoice(first, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: firstTurn,
+      userActionRevision: 0,
+    });
+    expect(sameTurnAgain.newTurn).toBe(false);
+
+    // Same thread, a different running turn starts: a new turn.
+    const secondTurn = observeProactivePanelUserChoice(sameTurnAgain, {
+      threadKey: "env-1:thread-1",
+      runningTurnId: nextTurn,
+      userActionRevision: 0,
+    });
+    expect(secondTurn.newTurn).toBe(true);
+
+    // A thread switch is never a new turn, even when the new thread has a running turn.
+    const switchedThread = observeProactivePanelUserChoice(secondTurn, {
+      threadKey: "env-1:thread-2",
+      runningTurnId: nextTurn,
+      userActionRevision: 0,
+    });
+    expect(switchedThread.newTurn).toBe(false);
+  });
 });
 
 describe("artifact template composer insertion", () => {
@@ -1704,6 +1743,65 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
       worktreePath: null,
       startFromOrigin: true,
     });
+  });
+});
+
+describe("observeThreadCompletionReadability", () => {
+  function makeSubscription() {
+    let listener: (() => void) | null = null;
+    const subscribe = (nextListener: () => void) => {
+      listener = nextListener;
+      return () => {
+        listener = null;
+      };
+    };
+    return {
+      subscribe,
+      emit: () => listener?.(),
+    };
+  }
+
+  it("acknowledges a foreground completion immediately", () => {
+    const focus = makeSubscription();
+    const visibility = makeSubscription();
+    let readable = true;
+    let acknowledgements = 0;
+
+    observeThreadCompletionReadability(
+      () => acknowledgements++,
+      () => readable,
+      focus.subscribe,
+      visibility.subscribe,
+    );
+
+    expect(acknowledgements).toBe(1);
+  });
+
+  it("keeps a hidden or unfocused completion unread until readability returns", () => {
+    const focus = makeSubscription();
+    const visibility = makeSubscription();
+    let pageIsVisible = false;
+    let windowHasFocus = true;
+    let acknowledgements = 0;
+    const unsubscribe = observeThreadCompletionReadability(
+      () => acknowledgements++,
+      () => pageIsVisible && windowHasFocus,
+      focus.subscribe,
+      visibility.subscribe,
+    );
+
+    expect(acknowledgements).toBe(0);
+    pageIsVisible = true;
+    windowHasFocus = false;
+    focus.emit();
+    expect(acknowledgements).toBe(0);
+    windowHasFocus = true;
+    visibility.emit();
+    expect(acknowledgements).toBe(1);
+    unsubscribe();
+    visibility.emit();
+    focus.emit();
+    expect(acknowledgements).toBe(1);
   });
 });
 

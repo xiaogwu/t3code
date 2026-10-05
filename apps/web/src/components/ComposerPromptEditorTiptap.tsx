@@ -997,6 +997,25 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             });
           }
           if (!handler) return false;
+          // Ctrl+R opens the prompt-history search. Claimed here rather than
+          // through a global binding so it only fires with the composer
+          // focused, and never when a modifier combination means something
+          // else to the browser.
+          if (
+            event.key.toLowerCase() === "r" &&
+            event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            !event.shiftKey &&
+            !event.isComposing
+          ) {
+            const handledHistorySearch = handler("HistorySearch", event);
+            if (handledHistorySearch) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            return handledHistorySearch;
+          }
           const handled = handler(event.key, event);
           if (handled) {
             event.preventDefault();

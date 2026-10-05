@@ -1,7 +1,14 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon } from "lucide-react";
-import { type RefObject, useCallback, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "~/lib/utils";
 import { shortcutLabelForCommand } from "../keybindings";
 import {
@@ -21,7 +28,73 @@ import {
   CommandShortcut,
 } from "./ui/command";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
-import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
+import { THREAD_SEARCH_MATCH_EXCERPT_CLASS, ThreadSearchMatchContent } from "./ThreadSearchMatch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+export function isCommandPaletteTextOverflowing(
+  element: Pick<HTMLElement, "clientWidth" | "scrollWidth">,
+): boolean {
+  return element.scrollWidth > element.clientWidth;
+}
+
+export function commandPaletteOverflowTooltip(
+  tooltip: string | undefined,
+  isOverflowing: boolean,
+): string | undefined {
+  return tooltip && isOverflowing ? tooltip : undefined;
+}
+
+function OverflowTooltipText(props: {
+  children: ReactNode;
+  className: string;
+  tooltip?: string | undefined;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || !props.tooltip) return;
+    const update = () => setIsOverflowing(isCommandPaletteTextOverflowing(element));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.tooltip]);
+
+  const overflowTooltip = commandPaletteOverflowTooltip(props.tooltip, isOverflowing);
+  // No native title attribute: the styled Tooltip below is the only tooltip
+  // (lint rule t3code/no-native-title-tooltip).
+  const content = (
+    <span ref={ref} className={props.className}>
+      {props.children}
+    </span>
+  );
+  if (!overflowTooltip) return content;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={content} />
+      <TooltipPopup side="top" className="max-w-96">
+        {overflowTooltip}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * The palette's variant of the shared search excerpt: same content, wrapped so a
+ * snippet truncated by the row width gets an overflow tooltip.
+ */
+function ThreadContentMatch(props: {
+  match: NonNullable<CommandPaletteActionItem["threadContentMatch"]>;
+  tooltip?: string | undefined;
+}) {
+  return (
+    <OverflowTooltipText className={THREAD_SEARCH_MATCH_EXCERPT_CLASS} tooltip={props.tooltip}>
+      <ThreadSearchMatchContent match={props.match} />
+    </OverflowTooltipText>
+  );
+}
 
 interface CommandPaletteResultsProps {
   emptyStateMessage?: string;
@@ -165,21 +238,31 @@ function DisabledCommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <span className="truncate">{props.item.title}</span>
+            <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
+              {props.item.title}
+            </OverflowTooltipText>
           </span>
           {props.item.threadContentMatch ? (
-            <ThreadSearchMatchExcerpt match={props.item.threadContentMatch} />
+            <ThreadContentMatch
+              match={props.item.threadContentMatch}
+              tooltip={props.item.contentTooltip}
+            />
           ) : null}
           {props.item.description ? (
-            <span className="min-w-0 text-muted-foreground/70 text-xs">
+            <OverflowTooltipText
+              className="min-w-0 truncate text-muted-foreground/70 text-xs"
+              tooltip={props.item.descriptionTooltip}
+            >
               {props.item.description}
-            </span>
+            </OverflowTooltipText>
           ) : null}
         </span>
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <span className="truncate">{props.item.title}</span>
+          <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
+            {props.item.title}
+          </OverflowTooltipText>
         </span>
       )}
       {props.item.titleTrailingContent}
@@ -215,21 +298,31 @@ function CommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <span className="truncate">{props.item.title}</span>
+            <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
+              {props.item.title}
+            </OverflowTooltipText>
           </span>
           {props.item.threadContentMatch ? (
-            <ThreadSearchMatchExcerpt match={props.item.threadContentMatch} />
+            <ThreadContentMatch
+              match={props.item.threadContentMatch}
+              tooltip={props.item.contentTooltip}
+            />
           ) : null}
           {props.item.description ? (
-            <span className="min-w-0 text-muted-foreground/70 text-xs">
+            <OverflowTooltipText
+              className="min-w-0 truncate text-muted-foreground/70 text-xs"
+              tooltip={props.item.descriptionTooltip}
+            >
               {props.item.description}
-            </span>
+            </OverflowTooltipText>
           ) : null}
         </span>
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <span className="truncate">{props.item.title}</span>
+          <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
+            {props.item.title}
+          </OverflowTooltipText>
         </span>
       )}
       {props.item.titleTrailingContent}

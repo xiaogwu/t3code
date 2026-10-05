@@ -8,7 +8,6 @@ import {
   moveThreadContextDrag as moveThreadContextDragGhost,
 } from "./chat/threadContextDrag";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
-import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -64,11 +63,11 @@ import {
   CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
-  CircleDashedIcon,
   ClockIcon,
   EyeIcon,
   FolderIcon,
   GitBranchIcon,
+  HashIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
@@ -130,7 +129,11 @@ import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
-import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
+import {
+  useAcknowledgeThreadWoke,
+  useThreadActions,
+  useThreadReadStateActions,
+} from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
@@ -163,6 +166,7 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
+import { openSnoozeForDialog } from "../snoozeForDialog";
 import type { SidebarThreadSummary } from "../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
@@ -172,11 +176,13 @@ import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
-  filterSidebarV2VisibleThreads,
+  buildBulkCopyContextMenuItem,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
+  collectBulkCopyValues,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterSidebarV2VisibleThreads,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
@@ -219,6 +225,7 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { useSidebarPeekHold, withSidebarPeekHold } from "./Sidebar.autoHide";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
   ThreadPullRequestBadgeControl,
@@ -234,7 +241,12 @@ import {
   type TerminalStatusIndicator,
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
-import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Sidebar.snooze";
+import {
+  customSnoozePreset,
+  resolveSnoozePresets,
+  snoozeWakeLabel,
+  type SnoozePreset,
+} from "./Sidebar.snooze";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -387,6 +399,7 @@ function SidebarProviderStack(props: {
     <ProviderInstanceIcon
       driverKind={currentEntry.driverKind}
       displayName={currentEntry.displayName}
+      instanceId={currentInstanceId}
       accentColor={currentEntry.accentColor}
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
@@ -409,6 +422,7 @@ function SidebarProviderStack(props: {
             key={instanceId}
             driverKind={entry.driverKind}
             displayName={entry.displayName}
+            instanceId={instanceId}
             acpRegistryAgentId={entry.acpRegistryAgentId}
             acpRegistryIconUrl={entry.acpRegistryIconUrl}
             iconClassName="size-3 opacity-35 grayscale"
@@ -505,6 +519,7 @@ function SidebarThreadTooltip({
               displayName={
                 providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
               }
+              instanceId={modelInstanceId ? String(modelInstanceId) : undefined}
               accentColor={providerEntry?.accentColor}
               acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
               acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
@@ -555,6 +570,12 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        <div className="flex min-w-0 items-start gap-2">
+          <HashIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-muted-foreground" />
+          <div className="min-w-0 flex-1 wrap-break-word font-mono text-foreground/75 select-text">
+            {thread.id}
+          </div>
+        </div>
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -615,13 +636,14 @@ function SnoozeMenuButton(props: {
         ))}
         <MenuSeparator />
         <MenuItem
-          onClick={async (event) => {
+          onClick={(event) => {
             event.stopPropagation();
-            const choice = await requestCustomSnooze();
-            if (choice) onSnooze(choice);
+            openSnoozeForDialog({
+              onSnooze: (snoozedUntil) => onSnooze(customSnoozePreset(snoozedUntil)),
+            });
           }}
         >
-          Custom…
+          Until…
         </MenuItem>
       </MenuPopup>
     </Menu>
@@ -1180,6 +1202,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
+  const isManuallyUnread = useUiStateStore(
+    (state) => state.threadManuallyUnreadById[threadKey] === true,
+  );
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const openPrLink = useOpenPrLink();
   const runningTerminalIds = useThreadRunningTerminalIds({
@@ -1230,7 +1255,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
 
   // Same semantics as the legacy sidebar (never-visited counts as read):
   // switching sidebars must not light up every historical thread as unread.
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const isUnread = isManuallyUnread || hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
   const isInFlight =
     status === "working" || status === "waiting" || status === "approval" || status === "input";
@@ -1260,8 +1285,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, sky working)
   // so a thread reads the same color everywhere it surfaces.
-  const topStatus =
-    status === "working"
+  const topStatus = isRegeneratingTitle
+    ? {
+        label: "Renaming",
+        icon: "working" as const,
+        className: "text-sky-600 dark:text-sky-400",
+      }
+    : status === "working"
       ? {
           label: "Working",
           icon: "working" as const,
@@ -1403,6 +1433,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     [isRenaming, onStartRename, thread.title, threadRef],
   );
   const [isFileDragOver, setIsFileDragOver] = useState(false);
+  // A file dragged over this row is a real drop target; the peeked panel
+  // must not retract out from under it mid-drag.
+  useSidebarPeekHold(isFileDragOver);
   const fileDropHandlers = useMemo(
     () =>
       onFileDropThreads
@@ -1499,6 +1532,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // hover actions, and the effect clears the raw state so the popover
   // doesn't resurrect if the button later remounts.
   const snoozeMenuOpen = snoozeMenuOpenRaw && showSnoozeButton;
+  // Base UI renders the popover in a portal outside this row, so it fires a
+  // `pointerleave` on the row the instant it opens; hold the peeked panel
+  // open for as long as the menu is.
+  useSidebarPeekHold(snoozeMenuOpen);
   useEffect(() => {
     if (!showSnoozeButton) setSnoozeMenuOpen(false);
   }, [showSnoozeButton]);
@@ -1976,7 +2013,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           )}
                         >
                           {topStatus.icon === "working" ? (
-                            <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
+                            <span
+                              aria-hidden
+                              className="size-2 shrink-0 animate-status-pulse rounded-full bg-current motion-reduce:animate-none"
+                            />
                           ) : topStatus.icon === "input" ? (
                             <MessageCircleQuestionIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "approval" ? (
@@ -1984,7 +2024,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           ) : topStatus.icon === "failed" ? (
                             <CircleAlertIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "done" ? (
-                            <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                            <span aria-hidden className="size-2 shrink-0 rounded-full bg-current" />
                           ) : null}
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
@@ -2196,6 +2236,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   });
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const [isFileDragOver, setIsFileDragOver] = useState(false);
+  useSidebarPeekHold(isFileDragOver);
   const fileDropHandlers = useMemo(
     () =>
       makeWorkspaceFileDropHandlers({
@@ -2288,12 +2329,16 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
-  const { isMobile, setOpenMobile } = useSidebar();
+  // `retractPeek` is auto-hide's way out: opening a thread has to let the
+  // peeked panel slide away. Upstream retired the compact icon rail, so the
+  // collapsed-state and `setOpen` plumbing it needed is gone with it.
+  const { isMobile, setOpenMobile, retractPeek } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
+  const sidebarV2ThreadSortOrder = useClientSettings((s) => s.sidebarV2ThreadSortOrder);
   const workingShelfEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
@@ -2307,7 +2352,6 @@ export default function Sidebar() {
     setThreadAutoSettle,
     reorderPinnedThread,
     reorderActiveThread,
-    markThreadUnread,
     archiveThread,
     deleteThread,
   } = useThreadActions();
@@ -2369,6 +2413,27 @@ export default function Sidebar() {
       );
     },
   });
+  const { copyToClipboard: copyBulkValuesToClipboard } = useCopyToClipboard<{
+    noun: string;
+    pluralNoun: string;
+    count: number;
+  }>({
+    onCopy: ({ noun, pluralNoun, count }) => {
+      toastManager.add({
+        type: "success",
+        title: `Copied ${count} ${count === 1 ? noun : pluralNoun}`,
+      });
+    },
+    onError: (error, { pluralNoun }) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: `Failed to copy ${pluralNoun}`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    },
+  });
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2382,6 +2447,7 @@ export default function Sidebar() {
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const acknowledgeWoke = useAcknowledgeThreadWoke();
+  const { markThreadManuallyUnread, markThreadRead } = useThreadReadStateActions();
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -2741,7 +2807,7 @@ export default function Sidebar() {
             scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           ),
         )
-      : sortThreadsForSidebar(active);
+      : sortThreadsForSidebar(active, sidebarV2ThreadSortOrder);
     return {
       pinnedThreads:
         optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -2777,6 +2843,7 @@ export default function Sidebar() {
     optimisticDrop,
     scopedProjectKeys,
     serverConfigs,
+    sidebarV2ThreadSortOrder,
     snoozeWakeTick,
     threads,
     workingShelfEnabled,
@@ -3042,12 +3109,15 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
+      // Picking a thread out of a peeked panel is what makes the reveal feel
+      // intentional rather than sticky — it puts itself away immediately.
+      retractPeek();
       return router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
       });
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, retractPeek, router, setOpenMobile, setSelectionAnchor],
   );
 
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
@@ -3339,6 +3409,8 @@ export default function Sidebar() {
     readonly targetSection: SidebarSection | null;
     readonly contextDrag: boolean;
   } | null>(null);
+  // An in-flight reorder must not have the peeked panel retract mid-drag.
+  useSidebarPeekHold(dragState !== null);
   const isContextDrag = dragState?.contextDrag === true;
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
   const dragSensorRef = useRef<SidebarPointerSensor | null>(null);
@@ -4057,6 +4129,20 @@ export default function Sidebar() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
           canSnooze(thread, { now: selectionNow.toISOString() }),
       );
+      const uiState = useUiStateStore.getState();
+      const allUnread = selectedThreads.every((thread) => {
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return (
+          uiState.threadManuallyUnreadById[threadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: resolveThreadLastVisitedAt(
+              thread.lastVisitedAt,
+              uiState.threadLastVisitedAtById[threadKey],
+            ),
+          })
+        );
+      });
       const titleRegenerationThreads = selectedThreads.filter(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities
@@ -4080,40 +4166,69 @@ export default function Sidebar() {
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      // Copy follows sidebar order, not selection order — a range select can
+      // land in the selection Set in an order that doesn't match the rows.
+      const orderedThreadKeyIndex = new Map(
+        orderedThreadKeysRef.current.map((threadKey, index) => [threadKey, index]),
+      );
+      const orderedSelectedThreads = [...selectedThreads].sort(
+        (a, b) =>
+          (orderedThreadKeyIndex.get(scopedThreadKey(scopeThreadRef(a.environmentId, a.id))) ??
+            Infinity) -
+          (orderedThreadKeyIndex.get(scopedThreadKey(scopeThreadRef(b.environmentId, b.id))) ??
+            Infinity),
+      );
+      const copyValues = collectBulkCopyValues(
+        orderedSelectedThreads.map((thread) => ({
+          id: thread.id,
+          branch: thread.branch,
+          workspacePath:
+            thread.worktreePath ??
+            projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
+            null,
+        })),
+      );
+      const copyMenuItem = buildBulkCopyContextMenuItem(copyValues);
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-      const clicked = await settlePromise(() =>
-        api.contextMenu.show(
-          [
-            ...(unpinMenuItem ? [unpinMenuItem] : []),
-            { id: "settle", label: `Settle (${count})` },
-            ...(canSnoozeSelection
-              ? [
-                  {
-                    id: "snooze",
-                    label: `Snooze (${count})`,
-                    children: [
-                      ...snoozePresets.map((preset) => ({
-                        id: `snooze:${preset.id}`,
-                        label: `${preset.label} (${preset.whenLabel})`,
-                      })),
-                      { id: "snooze:custom", label: "Custom…", separatorBefore: true },
-                    ],
-                  },
-                ]
-              : []),
-            ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
-            { id: "mark-unread", label: `Mark unread (${count})` },
-            { id: "delete", label: `Delete (${count})`, destructive: true },
-          ],
-          position,
+      // The native menu renders outside our DOM entirely; hold the peeked
+      // panel open for as long as it's up.
+      const clicked = await withSidebarPeekHold(() =>
+        settlePromise(() =>
+          api.contextMenu.show(
+            [
+              ...(unpinMenuItem ? [unpinMenuItem] : []),
+              { id: "settle", label: `Settle (${count})` },
+              ...(canSnoozeSelection
+                ? [
+                    {
+                      id: "snooze",
+                      label: `Snooze (${count})`,
+                      children: [
+                        ...snoozePresets.map((preset) => ({
+                          id: `snooze:${preset.id}`,
+                          label: `${preset.label} (${preset.whenLabel})`,
+                        })),
+                        { id: "snooze-for", label: "Until…" },
+                      ],
+                    },
+                  ]
+                : []),
+              ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
+              allUnread
+                ? { id: "mark-read", label: `Mark read (${count})` }
+                : { id: "mark-unread", label: `Mark unread (${count})` },
+              ...(copyMenuItem ? [copyMenuItem] : []),
+              { id: "delete", label: `Delete (${count})`, destructive: true },
+            ],
+            position,
+          ),
         ),
       );
       if (clicked._tag === "Failure") return;
       if (clicked.value?.startsWith("snooze:")) {
-        const preset =
-          clicked.value === "snooze:custom"
-            ? await requestCustomSnooze()
-            : snoozePresets.find((candidate) => `snooze:${candidate.id}` === clicked.value);
+        const preset = snoozePresets.find(
+          (candidate) => `snooze:${candidate.id}` === clicked.value,
+        );
         if (preset) {
           // Post-snooze navigation must skip threads snoozing in this same
           // batch — they are all leaving the card block together.
@@ -4148,6 +4263,21 @@ export default function Sidebar() {
             );
           }
         }
+        return;
+      }
+      if (clicked.value === "snooze-for") {
+        openSnoozeForDialog({
+          threadCount: selectedThreads.length,
+          onSnooze: (snoozedUntil) => {
+            const preset = customSnoozePreset(snoozedUntil);
+            for (const thread of selectedThreads) {
+              attemptSnooze(scopeThreadRef(thread.environmentId, thread.id), preset, {
+                coSnoozingKeys: new Set(threadKeys),
+              });
+            }
+            clearSelection();
+          },
+        });
         return;
       }
       if (clicked.value === "unpin") {
@@ -4198,9 +4328,45 @@ export default function Sidebar() {
       if (clicked.value === "mark-unread") {
         for (const threadKey of threadKeys) {
           const thread = threadByKeyRef.current.get(threadKey);
-          if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
+          if (thread) markThreadManuallyUnread(scopeThreadRef(thread.environmentId, thread.id));
         }
         clearSelection();
+        return;
+      }
+      if (clicked.value === "mark-read") {
+        for (const threadKey of threadKeys) {
+          const thread = threadByKeyRef.current.get(threadKey);
+          if (thread) {
+            markThreadRead(scopeThreadRef(thread.environmentId, thread.id), thread.updatedAt);
+          }
+        }
+        clearSelection();
+        return;
+      }
+      // Copy is read-only: it doesn't clear the selection, since the user may
+      // want to run another bulk action on the same rows next.
+      if (clicked.value === "copy-paths") {
+        copyBulkValuesToClipboard(copyValues.paths.join("\n"), {
+          noun: "path",
+          pluralNoun: "paths",
+          count: copyValues.paths.length,
+        });
+        return;
+      }
+      if (clicked.value === "copy-branches") {
+        copyBulkValuesToClipboard(copyValues.branches.join("\n"), {
+          noun: "branch",
+          pluralNoun: "branches",
+          count: copyValues.branches.length,
+        });
+        return;
+      }
+      if (clicked.value === "copy-thread-ids") {
+        copyBulkValuesToClipboard(copyValues.threadIds.join("\n"), {
+          noun: "thread ID",
+          pluralNoun: "thread IDs",
+          count: copyValues.threadIds.length,
+        });
         return;
       }
       if (clicked.value !== "delete") return;
@@ -4248,9 +4414,12 @@ export default function Sidebar() {
       attemptUnpin,
       clearSelection,
       confirmThreadDelete,
+      copyBulkValuesToClipboard,
       deleteThread,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       performSnooze,
+      projectByKey,
       removeFromSelection,
       serverConfigs,
       updateThreadMetadata,
@@ -4305,42 +4474,60 @@ export default function Sidebar() {
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              projectFilter: threadProjectGroup
-                ? {
-                    label: threadProjectGroup.displayName,
-                    isActive: projectScopeKey === threadProjectGroup.projectKey,
-                  }
-                : null,
-              isPinned,
-              isSettled,
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
-              supports: {
-                settlement: supportsSettlement,
-                autoSettleOptOut: supportsAutoSettleOptOut,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
-            position,
+        // The native menu renders outside our DOM entirely; hold the peeked
+        // panel open for as long as it's up.
+        const clicked = await withSidebarPeekHold(() =>
+          settlePromise(() =>
+            api.contextMenu.show(
+              buildThreadActionMenuItems({
+                branch: thread.branch ?? null,
+                projectFilter: threadProjectGroup
+                  ? {
+                      label: threadProjectGroup.displayName,
+                      isActive: projectScopeKey === threadProjectGroup.projectKey,
+                    }
+                  : null,
+                isPinned,
+                isSettled,
+                autoSettleEnabled: thread.autoSettleDisabledAt == null,
+                isSnoozed,
+                canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+                isRegeneratingTitle,
+                isRunning: !threadRuntimeCanArchive(thread.runtime),
+                isUnread:
+                  useUiStateStore.getState().threadManuallyUnreadById[threadKey] === true ||
+                  hasUnseenCompletion({
+                    ...thread,
+                    lastVisitedAt: resolveThreadLastVisitedAt(
+                      thread.lastVisitedAt,
+                      useUiStateStore.getState().threadLastVisitedAtById[threadKey],
+                    ),
+                  }),
+                supports: {
+                  settlement: supportsSettlement,
+                  autoSettleOptOut: supportsAutoSettleOptOut,
+                  snooze: supportsSnooze,
+                  pinning: supportsPinning,
+                  titleRegeneration: supportsTitleRegeneration,
+                },
+                snoozePresets,
+              }),
+              position,
+            ),
           ),
         );
         if (clicked._tag === "Failure") return;
         if (clicked.value?.startsWith("snooze:")) {
-          const preset =
-            clicked.value === "snooze:custom"
-              ? await requestCustomSnooze()
-              : snoozePresets.find((candidate) => `snooze:${candidate.id}` === clicked.value);
+          const preset = snoozePresets.find(
+            (candidate) => `snooze:${candidate.id}` === clicked.value,
+          );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value === "snooze-for") {
+          openSnoozeForDialog({
+            onSnooze: (snoozedUntil) => attemptSnooze(threadRef, customSnoozePreset(snoozedUntil)),
+          });
           return;
         }
         switch (clicked.value) {
@@ -4436,7 +4623,10 @@ export default function Sidebar() {
             return;
           }
           case "mark-unread":
-            markThreadUnread(threadRef);
+            markThreadManuallyUnread(threadRef);
+            return;
+          case "mark-read":
+            markThreadRead(threadRef, thread.updatedAt);
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
@@ -4534,7 +4724,8 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       deleteThread,
       handleMultiSelectContextMenu,
-      markThreadUnread,
+      markThreadManuallyUnread,
+      markThreadRead,
       openProjectSettings,
       projectScopeKey,
       projectByKey,
@@ -4569,6 +4760,30 @@ export default function Sidebar() {
           isDesktop: isElectron,
         },
       });
+      if (command === "thread.readState.toggle") {
+        if (!routeThreadKey) return;
+        const thread = threadByKey.get(routeThreadKey);
+        if (!thread) return;
+        const uiState = useUiStateStore.getState();
+        const isUnread =
+          uiState.threadManuallyUnreadById[routeThreadKey] === true ||
+          hasUnseenCompletion({
+            ...thread,
+            lastVisitedAt: resolveThreadLastVisitedAt(
+              thread.lastVisitedAt,
+              uiState.threadLastVisitedAtById[routeThreadKey],
+            ),
+          });
+        event.preventDefault();
+        event.stopPropagation();
+        const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+        if (isUnread) {
+          markThreadRead(threadRef, thread.updatedAt);
+        } else {
+          markThreadManuallyUnread(threadRef);
+        }
+        return;
+      }
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
@@ -4597,6 +4812,8 @@ export default function Sidebar() {
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
     keybindings,
+    markThreadManuallyUnread,
+    markThreadRead,
     navigateToThread,
     orderedThreadKeys,
     routeTerminalOpen,

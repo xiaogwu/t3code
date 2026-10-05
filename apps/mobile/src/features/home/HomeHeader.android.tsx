@@ -2,6 +2,7 @@ import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { MaterialThreadListToolbar } from "./MaterialThreadListToolbar";
+import { hasCustomHomeListOptions, THREAD_SORT_OPTIONS } from "./home-list-options";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
@@ -11,11 +12,9 @@ function checkedMenuState(checked: boolean) {
 }
 
 export function HomeHeader(props: HomeHeaderProps) {
-  // The list uses a fixed creation order and ignores sort/group options, so
-  // the filter menu only carries the filters and the "customized" icon state
-  // keys off those alone.
-  const hasCustomListOptions =
-    props.selectedEnvironmentId !== null || props.selectedProjectKey !== null;
+  // The list's project layout is fixed, but its thread sort (the fork's
+  // Sidebar v2 thread order) is meaningful and counts as a customized option.
+  const hasCustomListOptions = hasCustomHomeListOptions(props);
   const menuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -54,8 +53,23 @@ export function HomeHeader(props: HomeHeaderProps) {
               ],
             },
           ] satisfies MenuAction[])),
+      {
+        id: "thread-sort",
+        title: "Sort threads",
+        subactions: THREAD_SORT_OPTIONS.map((option) => ({
+          id: `thread-sort:${option.value}`,
+          title: option.label,
+          state: checkedMenuState(props.v2ThreadSortOrder === option.value),
+        })),
+      },
     ],
-    [props.environments, props.projects, props.selectedEnvironmentId, props.selectedProjectKey],
+    [
+      props.environments,
+      props.projects,
+      props.selectedEnvironmentId,
+      props.selectedProjectKey,
+      props.v2ThreadSortOrder,
+    ],
   );
   const handleMenuAction = useCallback(
     (event: { nativeEvent: { event: string } }) => {
@@ -86,6 +100,12 @@ export function HomeHeader(props: HomeHeaderProps) {
         if (props.projects.some((project) => project.key === projectKey)) {
           props.onProjectChange(projectKey);
         }
+        return;
+      }
+
+      const threadSort = THREAD_SORT_OPTIONS.find((option) => id === `thread-sort:${option.value}`);
+      if (threadSort) {
+        props.onV2ThreadSortOrderChange(threadSort.value);
         return;
       }
     },

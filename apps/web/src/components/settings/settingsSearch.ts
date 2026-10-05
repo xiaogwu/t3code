@@ -225,6 +225,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "sidebar-auto-hide",
+    title: "Auto-hide sidebar",
+    to: "/settings/appearance",
+    searchTerms: ["reveal peek hover edge float pin unpin dia"],
+  },
+  {
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
@@ -299,6 +305,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["usage quota rate limit reset recover continue"],
   },
   {
+    id: "thread-sorting",
+    title: "Sort threads",
+    to: "/settings/general",
+    searchTerms: ["sidebar order sort last user message created at"],
+  },
+  {
     id: "working-shelf",
     title: "Working section (beta)",
     to: "/settings/general",
@@ -328,6 +340,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
+  },
+  {
+    id: "external-terminal",
+    title: "External terminal",
+    to: "/settings/general",
   },
   {
     id: "thread-notifications",
@@ -492,6 +509,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     scope: "project-defaults",
     searchTerms: ["generated thread titles source control content default provider"],
+  },
+  {
+    id: "text-generation-fallback-models",
+    title: "Text generation fallback models",
+    to: "/settings/general",
+    scope: "project-defaults",
+    searchTerms: [
+      "fallback backup retry generated thread titles subscription limit exhausted provider",
+    ],
   },
   {
     id: "diagnostics",

@@ -12,12 +12,18 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
+  getThreadSortTimestamp,
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectId,
+  SidebarThreadSortOrder,
+  ThreadLinkedPullRequest,
+} from "@t3tools/contracts";
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 import type { ThreadMoveAvailability } from "./threadOrder";
@@ -202,18 +208,44 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** The active order shared by web and native: new/reopened rows, then the
-    saved arrangement. Activity does not move a thread. */
+/**
+ * v2 thread order. `"created_at"` is the original v2 behaviour: static
+ * creation order, newest on top, where activity NEVER reorders the list,
+ * except that a lifecycle re-entry stamp surfaces an explicitly un-settled
+ * thread. `"updated_at"` opts into "Last user message" ordering. Mirrors web's
+ * sortThreadsForSidebar, including its ascending id tie-break.
+ */
 export function sortThreadsForListV2<
   T extends {
     readonly id: string;
     readonly createdAt: string;
+    readonly updatedAt?: string;
+    readonly latestUserMessageAt?: string | null;
     readonly unsettledAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
->(threads: readonly T[]): T[] {
-  return sortActiveThreadsByOrderKey(threads);
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "created_at"): T[] {
+  const activeOrder = sortActiveThreadsByOrderKey(threads);
+  const arrangedIndex = activeOrder.findIndex((thread) => thread.activeOrderKey != null);
+  const unarrangedEnd = arrangedIndex === -1 ? activeOrder.length : arrangedIndex;
+  const unarranged =
+    sortOrder === "created_at"
+      ? activeOrder.slice(0, unarrangedEnd)
+      : activeOrder
+          .slice(0, unarrangedEnd)
+          .sort(
+            (left, right) =>
+              getThreadSortTimestamp(
+                { ...right, updatedAt: right.updatedAt ?? right.createdAt },
+                sortOrder,
+              ) -
+                getThreadSortTimestamp(
+                  { ...left, updatedAt: left.updatedAt ?? left.createdAt },
+                  sortOrder,
+                ) || left.id.localeCompare(right.id),
+          );
+  return [...unarranged, ...activeOrder.slice(unarrangedEnd)];
 }
 
 /** Canonical card section for Move up/down, independent of search or scope. */
@@ -576,10 +608,20 @@ export function buildThreadListV2Items(input: {
   /** Environments whose server supports thread.snooze/unsnooze. Same
       contract as settlementEnvironmentIds. */
   readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId>;
+  readonly autoSettleAfterDays?: number;
+  /** Thread order for the pinned and active blocks. Defaults to v2's original
+      creation ordering. Settled and snoozed blocks retain lifecycle ordering. */
+  readonly threadSortOrder?: SidebarThreadSortOrder;
+  readonly autoSettleOnMerge?: boolean;
   /** Max settled rows to render; the rest are counted, not built. */
   readonly settledLimit?: number;
   /** Second-precise clock used for time-based classification. */
   readonly now: string;
+  /** The snoozed shelf wakes threads against this clock. Callers pass a
+      minute-quantized `now` for memoization; snooze wake times are
+      second-precise, so classifying with the floored minute would hold a
+      woken thread hidden for up to a minute. Defaults to `now`. */
+  readonly snoozeNow?: string;
   /** Expands the snoozed shelf into rows. Collapsed is the default. */
   readonly snoozedShelfExpanded?: boolean;
   /** Expands the settled shelf into rows. Expanded is the default. */
@@ -593,6 +635,10 @@ export function buildThreadListV2Items(input: {
   readonly queuedThreadKeys?: ReadonlySet<string>;
 }): ThreadListV2Layout {
   const now = input.now;
+  const snoozeNow = input.snoozeNow ?? now;
+  const autoSettleAfterDays = input.autoSettleAfterDays ?? 3;
+  const threadSortOrder = input.threadSortOrder ?? "created_at";
+  const autoSettleOnMerge = input.autoSettleOnMerge ?? true;
   const pending =
     input.pendingOrder == null
       ? null
@@ -661,7 +707,11 @@ export function buildThreadListV2Items(input: {
     }
   }
 
-  const orderedActive = applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedActive = applyPendingThreadOrder(
+    sortThreadsForListV2(active, threadSortOrder),
+    "active",
+    pending,
+  );
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),

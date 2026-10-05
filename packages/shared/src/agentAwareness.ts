@@ -84,6 +84,7 @@ export function projectThreadAwarenessV2(
   };
 }
 
+/** Maps a shell snapshot to the user-visible agent lifecycle phase relay notifications report. */
 function resolveThreadAwarenessPhaseV2(
   thread: ProjectThreadAwarenessV2Input["thread"],
 ): AgentAwarenessPhase | null {

@@ -36,8 +36,20 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedSidebarToggle.command, "sidebar.toggle");
 
-    const parsedRightPanelToggle = yield* decode(KeybindingRule, {
+    const parsedSidebarVersionToggle = yield* decode(KeybindingRule, {
       key: "mod+alt+b",
+      command: "sidebar.version.toggle",
+    });
+    assert.strictEqual(parsedSidebarVersionToggle.command, "sidebar.version.toggle");
+
+    const parsedSidebarSortToggle = yield* decode(KeybindingRule, {
+      key: "mod+alt+s",
+      command: "sidebar.sort.toggle",
+    });
+    assert.strictEqual(parsedSidebarSortToggle.command, "sidebar.sort.toggle");
+
+    const parsedRightPanelToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+b",
       command: "rightPanel.toggle",
     });
     assert.strictEqual(parsedRightPanelToggle.command, "rightPanel.toggle");
@@ -119,6 +131,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
 
+    const parsedThreadReadState = yield* decode(KeybindingRule, {
+      key: "mod+alt+u",
+      command: "thread.readState.toggle",
+    });
+    assert.strictEqual(parsedThreadReadState.command, "thread.readState.toggle");
+
     const parsedThreadSettle = yield* decode(KeybindingRule, {
       key: "mod+shift+s",
       command: "thread.settle",
@@ -132,6 +150,18 @@ it.effect("parses keybinding rules", () =>
       when: "!terminalFocus",
     });
     assert.strictEqual(parsedThreadCopyReference.command, "thread.copyReference");
+
+    for (const [key, command] of [
+      ["mod+alt+arrowup", "thread.scrollToTop"],
+      ["mod+alt+arrowdown", "thread.scrollToEnd"],
+    ] as const) {
+      const parsedThreadScroll = yield* decode(KeybindingRule, {
+        key,
+        command,
+        when: "!terminalFocus",
+      });
+      assert.strictEqual(parsedThreadScroll.command, command);
+    }
 
     const parsedPullRequestCopyNumber = yield* decode(KeybindingRule, {
       key: "mod+shift+k",

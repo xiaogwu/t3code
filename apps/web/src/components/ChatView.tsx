@@ -195,6 +195,7 @@ import {
   timelineContentOverflowsViewport,
   readTimelinePosition,
   observeTimelineRun,
+  resolveTimelineSendScrollBehavior,
   type TimelineRunObservation,
   type TimelineScrollMode,
 } from "./chat/timelineScrollAnchoring";
@@ -245,6 +246,7 @@ import {
   type RightPanelSurface,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { useThreadMessageRevealStore } from "../threadMessageRevealStore";
 import {
   isPreviewSupportedInRuntime,
   setActivePreviewTab,
@@ -354,6 +356,7 @@ import {
   useComposerDraftStore,
   DraftId,
 } from "../composerDraftStore";
+import { usePromptHistoryStore } from "../promptHistoryStore";
 import {
   formatTerminalContextLabel,
   type TerminalContextDraft,
@@ -372,6 +375,7 @@ import {
   reviewCommentContextLabel,
   terminalContextReference,
 } from "../lib/composerContextRecords";
+import { subscribeToThreadScrollRequests } from "./chat/threadScrollRequest";
 import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
@@ -491,6 +495,7 @@ import {
   scheduleEnvironmentReconnectWarning,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  observeThreadCompletionReadability,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
   shouldOpenProactivePullRequest,
@@ -590,6 +595,11 @@ const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
 // (unread flips on run completions, which bypass the throttle), so one
 // watermark per interval is plenty.
 const VISIT_DISPATCH_THROTTLE_MS = 10_000;
+// A selected route is not necessarily being read: a hidden or unfocused page
+// leaves the thread's completion unread until the user comes back to it.
+function isDocumentReadable(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 function useDraftHeroLayoutTransition(
@@ -1746,6 +1756,7 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const pushPromptHistoryEntry = usePromptHistoryStore((store) => store.pushEntry);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -2212,8 +2223,13 @@ export default function ChatView(props: ChatViewProps) {
   }, [serverProjection, timelineAnchorMessageId]);
   useEffect(() => {
     if (!anchorRunSettled) return;
+    // A palette reveal anchors a message whose run settled long ago; it owns
+    // that anchor until the user scrolls back to the end or switches threads.
+    if (timelineScrollModeRef.current === "anchoring-reveal") return;
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }, [anchorRunSettled, activeThreadKey]);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<MessageId | null>(null);
+  const revealRequest = useThreadMessageRevealStore((state) => state.request);
   const activeRightPanelKind = useRightPanelStore((state) =>
     selectActiveRightPanel(state.byThreadKey, activeThreadRef),
   );
@@ -2786,8 +2802,28 @@ export default function ChatView(props: ChatViewProps) {
     [openOrReuseProjectDraftThread],
   );
 
+  // Bumped each time the page becomes readable again, so the visit below
+  // re-checks a completion that landed while the page was hidden or unfocused.
+  const [documentReadableRevision, setDocumentReadableRevision] = useState(0);
+  useEffect(
+    () =>
+      observeThreadCompletionReadability(
+        () => setDocumentReadableRevision((revision) => revision + 1),
+        isDocumentReadable,
+        (listener) => {
+          window.addEventListener("focus", listener);
+          return () => window.removeEventListener("focus", listener);
+        },
+        (listener) => {
+          document.addEventListener("visibilitychange", listener);
+          return () => document.removeEventListener("visibilitychange", listener);
+        },
+      ),
+    [],
+  );
   useEffect(() => {
     if (!serverThread?.id) return;
+    if (!isDocumentReadable()) return;
     const threadUpdatedAt = Date.parse(serverThread.updatedAt);
     if (Number.isNaN(threadUpdatedAt)) return;
     const effectiveLastVisitedAt = resolveThreadLastVisitedAt(
@@ -2840,6 +2876,7 @@ export default function ChatView(props: ChatViewProps) {
     );
   }, [
     activeThreadLocalLastVisitedAt,
+    documentReadableRevision,
     markThreadVisited,
     routeThreadKey,
     serverThread?.environmentId,
@@ -5280,6 +5317,9 @@ export default function ChatView(props: ChatViewProps) {
       userActionRevision: panels.getUserActionRevision(activeThreadRef),
     });
     proactivePanelObservationRef.current = observation;
+    // A new turn re-earns the proactive panel even on a thread the user closed it
+    // on, mirroring the userActionRevision reset a new turn already gets below.
+    if (observation.newTurn) panels.clearProactiveDismissal(activeThreadRef);
     const {
       runningTurnId: previousRunningTurnId,
       targetKey: previousTargetKey,
@@ -5872,6 +5912,15 @@ export default function ChatView(props: ChatViewProps) {
     readonly userScrollGeneration: number;
   } | null>(null);
   const anchorScrollRestoreFrameRef = useRef<number | null>(null);
+  // Whether the armed anchor yields to tool activity in its turn. Set per send
+  // from resolveTimelineSendScrollBehavior; a thread's opening anchor releases,
+  // a follow-up's holds. Anchors armed outside the send path keep releasing.
+  const timelineAnchorReleasesOnToolActivityRef = useRef(true);
+  // Hold ids outside the reveal effect below: clearReveal() inside that effect
+  // flips the requestId dep, which would otherwise run this effect's own
+  // cleanup on the very next render and cancel both timers before they fire.
+  const revealStaleAnchorTimeoutRef = useRef<number | null>(null);
+  const revealHighlightTimeoutRef = useRef<number | null>(null);
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
     cancelPositionRestoreRef.current?.();
     anchorUserScrollGenerationRef.current += 1;
@@ -5953,6 +6002,7 @@ export default function ChatView(props: ChatViewProps) {
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
     pendingTimelineAnchorRef.current = messageId;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorReleasesOnToolActivityRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({ threadKey: activeThreadKey, messageId });
@@ -6018,6 +6068,20 @@ export default function ChatView(props: ChatViewProps) {
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
+  // Shared by the thread.scrollToTop/End shortcuts and command palette items.
+  const scrollTimelineTo = useEffectEvent((target: "top" | "end") => {
+    if (target === "end") {
+      timelineScrollIntentRef.current = "toward-end";
+      composerRef.current?.restoreAfterTimelineReachedEnd();
+      scrollToEnd(true);
+      return;
+    }
+    timelineScrollIntentRef.current = "away-from-end";
+    composerRef.current?.collapseForTimelineScrollKey("Home");
+    cancelTimelineLiveFollowForUserNavigation();
+    void legendListRef.current?.scrollToIndex({ index: 0, animated: true });
+  });
+  useEffect(() => subscribeToThreadScrollRequests(scrollTimelineTo), []);
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
     let frame: number | null = null;
@@ -6211,6 +6275,11 @@ export default function ChatView(props: ChatViewProps) {
           const scrollOffset = list.getState().scroll;
           void list.scrollToOffset({ offset: scrollOffset, animated: false });
           settledTimelineAnchorRef.current = messageId;
+          // A reveal has no streaming turn to keep tracking, so hand the list
+          // back to ordinary free scrolling once it has landed.
+          if (timelineScrollModeRef.current === "anchoring-reveal") {
+            timelineScrollModeRef.current = "free-scrolling";
+          }
         };
         const fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
         scrollNode.addEventListener("scrollend", finishAnimatedPositioning, { once: true });
@@ -6271,6 +6340,12 @@ export default function ChatView(props: ChatViewProps) {
   }, [composerRef]);
 
   const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
+    // A reveal starts from the live edge, so LegendList can still report
+    // isAtEnd while the anchor scroll is in flight. Honoring that would flip
+    // the mode back to following-end and cancel the reveal.
+    if (timelineScrollModeRef.current === "anchoring-reveal") {
+      return;
+    }
     if (
       !isAtEnd &&
       liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
@@ -6304,6 +6379,7 @@ export default function ChatView(props: ChatViewProps) {
 
   useLayoutEffect(() => {
     if (timelineScrollModeRef.current !== "anchoring-new-turn") return;
+    if (!timelineAnchorReleasesOnToolActivityRef.current) return;
     if (
       shouldReleaseTimelineAnchorForToolActivity({
         anchorMessageId: timelineAnchorMessageId,
@@ -6337,9 +6413,84 @@ export default function ChatView(props: ChatViewProps) {
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
+    // A restored mid-thread position must not re-pin to the bottom, even if the
+    // thread streamed new messages while away. The scroll-to-bottom pill is the
+    // way back to the edge, and — unlike showScrollDebouncer's suppressed flash
+    // while initialScrollAtEnd settles — it must show immediately on a restore.
     setShowScrollToBottom(!followEnd);
     // Environment identity is part of the scroll session too.
   }, [activeThreadKey]);
+
+  // Command-palette content-match reveal. Must be declared after the
+  // thread-change reset effect above: effects run in declaration order, and
+  // an earlier declaration would have this anchor wiped by that reset when a
+  // reveal and a thread switch land in the same commit.
+  useEffect(() => {
+    if (revealRequest === null || revealRequest.threadKey !== activeThreadKey) {
+      // A request for a thread that never became active (navigation failed,
+      // or the user bailed) is left in the store. Benign: it just sits until
+      // either this effect's threadKey check matches later, or a later
+      // requestReveal replaces it. See the reviewed risk in the design doc.
+      return;
+    }
+    // Mirrors the send-flow anchor below, minus the optimistic message. The
+    // mode is its own value so onTimelineAnchorReady still positions the row
+    // while the streaming turn-metrics passes stay out.
+    anchorUserScrollGenerationRef.current += 1;
+    timelineScrollModeRef.current = "anchoring-reveal";
+    liveFollowUserScrollGenerationRef.current = null;
+    isAtEndRef.current = false;
+    pendingTimelineAnchorRef.current = revealRequest.messageId;
+    // Cleared so revealing the same message twice re-runs the positioning;
+    // onTimelineAnchorReady returns early when it is already the positioned id.
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    activeTimelineAnchorIndexRef.current = null;
+    showScrollDebouncer.current.cancel();
+    setShowScrollToBottom(false);
+    setTimelineAnchor({ threadKey: activeThreadKey, messageId: revealRequest.messageId });
+    setHighlightedMessageId(revealRequest.messageId);
+    useThreadMessageRevealStore.getState().clearReveal(revealRequest.requestId);
+
+    // clearReveal above flips revealRequest to null next render, which
+    // changes this effect's requestId dep and would run a same-shaped
+    // cleanup immediately. Timers live in refs instead, so they survive that.
+    if (revealStaleAnchorTimeoutRef.current !== null) {
+      window.clearTimeout(revealStaleAnchorTimeoutRef.current);
+    }
+    if (revealHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(revealHighlightTimeoutRef.current);
+    }
+
+    // Stale-anchor guard: if the message was deleted/compacted away,
+    // resolveChatListAnchoredEndSpace never finds it, onAnchorReady never
+    // fires, and pendingTimelineAnchorRef would stay set forever, permanently
+    // suppressing live-follow. Drop back to following-end if it never lands.
+    revealStaleAnchorTimeoutRef.current = window.setTimeout(() => {
+      revealStaleAnchorTimeoutRef.current = null;
+      if (pendingTimelineAnchorRef.current === revealRequest.messageId) {
+        pendingTimelineAnchorRef.current = null;
+        timelineScrollModeRef.current = "following-end";
+      }
+    }, 5000);
+    // Two pulse cycles (650ms each) plus slack, so a later unrelated
+    // re-render cannot re-trigger the animation.
+    revealHighlightTimeoutRef.current = window.setTimeout(() => {
+      revealHighlightTimeoutRef.current = null;
+      setHighlightedMessageId((current) => (current === revealRequest.messageId ? null : current));
+    }, 1500);
+  }, [revealRequest?.requestId, activeThreadKey]);
+  useEffect(
+    () => () => {
+      if (revealStaleAnchorTimeoutRef.current !== null) {
+        window.clearTimeout(revealStaleAnchorTimeoutRef.current);
+      }
+      if (revealHighlightTimeoutRef.current !== null) {
+        window.clearTimeout(revealHighlightTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
@@ -7388,6 +7539,13 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) copyActiveThreadReference();
+        return;
+      }
+
+      if (command === "thread.scrollToTop" || command === "thread.scrollToEnd") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) scrollTimelineTo(command === "thread.scrollToTop" ? "top" : "end");
         return;
       }
 
@@ -9082,6 +9240,11 @@ export default function ChatView(props: ChatViewProps) {
       setTimelineLiveFollowEnabled(true);
       pendingTimelineAnchorRef.current = messageIdForSend;
       activeTimelineAnchorIndexRef.current = null;
+      timelineAnchorReleasesOnToolActivityRef.current = resolveTimelineSendScrollBehavior({
+        threadHasStarted:
+          activeThread.latestRun !== null ||
+          timelineMessages.some((message) => message.role === "user"),
+      }).releaseOnToolActivity;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       setTimelineAnchor({
@@ -9122,6 +9285,7 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     }
+    pushPromptHistoryEntry(trimmed);
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
@@ -9732,6 +9896,7 @@ export default function ChatView(props: ChatViewProps) {
     setTimelineLiveFollowEnabled(true);
     pendingTimelineAnchorRef.current = messageIdForSend;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorReleasesOnToolActivityRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({
@@ -10750,6 +10915,7 @@ export default function ChatView(props: ChatViewProps) {
                     : EMPTY_PROVIDER_SKILLS
                 }
                 anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
+                highlightedMessageId={highlightedMessageId}
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}
                 contentInsetEndAdjustment={composerTimelineInset}

@@ -149,6 +149,13 @@ rules to connected environments that support shared settings. Offline environmen
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
+**Let agents settle their thread**, also in **Settings → General**, lets an agent
+mark its own thread finished when it believes the work is done. The thread settles
+once the current turn finishes, and until then a notice on the composer shows the
+reason the agent gave with a **Keep open** button that cancels it. An agent cannot
+settle a thread whose turn ended with an error or that is waiting on you; the
+timeline says why instead.
+
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your
@@ -170,6 +177,10 @@ Use **Settings → Keybindings** to find or customize shortcuts for searching fi
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
+
+To generate a fresh title from the conversation, open a thread's context menu and choose
+**Regenerate title**. While T3 Code is generating it, the action reads **Regenerating…** and cannot
+be selected again. The option is hidden when the connected environment needs a server update.
 
 ## Inspect agent work
 
@@ -206,9 +217,14 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
-## Snooze until later
+## Snoozing threads
 
-Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
-local time zone, or a duration in minutes, hours, or days. Durations start when
-you confirm; one day means 24 hours. On web and desktop, you can also snooze
-several selected threads together. Choose **Wake thread** to bring a thread back early.
+Snooze a thread with a preset, or choose **Until…** to pick your own wake time. The thread stays
+out of your inbox until then, unless it finishes or needs you sooner. Use **Undo** after snoozing,
+or expand the Snoozed section and choose **Wake** to bring it back immediately.
+
+**Until…** offers two ways to say when: **Until** a date and time in your local time zone, or
+**Duration**, a length of time in minutes, hours, or days. A duration starts when you confirm it, and
+days keep the same clock time, so "for 1 day" means this time tomorrow even across a daylight-saving
+change. On web and desktop, you can also snooze several selected threads together. Choose **Wake
+thread** to bring a thread back early.

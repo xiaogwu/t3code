@@ -3,7 +3,11 @@ import { Pressable, View } from "react-native";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { ScopedTheme, ScopedVariables } from "uniwind";
 
-import { mixThemePreviewBase, THEME_PREVIEW_RENDER_SPECS } from "@t3tools/shared/themePreview";
+import {
+  mixThemePreviewBase,
+  THEME_PREVIEW_RENDER_SPECS,
+  themePreviewGlowRadius,
+} from "@t3tools/shared/themePreview";
 
 import { SymbolView } from "../../../../components/AppSymbol";
 import { AppText as Text } from "../../../../components/AppText";
@@ -45,14 +49,8 @@ const PreviewOrb = memo(function PreviewOrb(props: {
       ? { canvas: palette.surface, accent: palette.primary, messageAction: palette.tertiary }
       : getMobileThemePreviewColors(props.themeId, props.appearance);
   const spec = THEME_PREVIEW_RENDER_SPECS[props.appearance];
-  const accentRadius = Math.hypot(
-    Math.max(spec.accent.center[0], 1 - spec.accent.center[0]),
-    Math.max(spec.accent.center[1], 1 - spec.accent.center[1]),
-  );
-  const actionRadius = Math.hypot(
-    Math.max(spec.action.center[0], 1 - spec.action.center[0]),
-    Math.max(spec.action.center[1], 1 - spec.action.center[1]),
-  );
+  const accentRadius = themePreviewGlowRadius(spec.accent.center);
+  const actionRadius = themePreviewGlowRadius(spec.action.center);
   return (
     <View
       className={`${props.compact ? "size-14" : "size-16"} overflow-hidden rounded-full border`}

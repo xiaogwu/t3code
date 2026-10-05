@@ -150,3 +150,24 @@ The logger filters those notifications before traversal when an older provider s
 
 Model classification has its own [manifest constraints](./model-manifest.md). Assistant-reference
 handling is documented under [citations](./assistant-citations.md).
+
+## OpenCode prelaunch command
+
+OpenCode can be pointed at a local OpenAI-compatible model server, which has to be running before
+OpenCode will answer. The `prelaunchCommand` OpenCode setting is a shell line run to completion
+first, in [`opencodeRuntime.ts`](../../apps/server/src/provider/opencodeRuntime.ts), on every path
+that spawns a T3-owned server: chat sessions and the shared helper behind title and commit-message
+generation.
+
+It runs before the port is claimed and before the 30s server-startup budget begins, so a slow model
+load cannot eat the handshake timeout; its own budget is 5 minutes. A non-zero exit aborts, rather
+than starting a server whose backend is absent. Consequences worth knowing:
+
+- It runs on every server spawn, so the command must be idempotent. The usual shape is "probe the
+  health endpoint, start the server only if it is not answering."
+- The session's model is passed as `T3_OPENCODE_MODEL`, so a command can skip a local-model boot for
+  a thread on a remote model. It is unset when the model is not known (the shared text-generation
+  server, for one), which the command should read as "do the setup". A model switched mid-thread does
+  not re-run prelaunch, since the server is already up.
+- It is skipped when `serverUrl` is set. T3 Code does not own an externally managed server, so it
+  does not boot that server's backend either.

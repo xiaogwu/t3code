@@ -1,4 +1,6 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, SidebarV2ThreadSortOrder } from "@t3tools/contracts";
+
+import { THREAD_SORT_OPTIONS } from "./home-list-options";
 
 export interface HomeListFilterMenuEnvironment {
   readonly environmentId: EnvironmentId;
@@ -34,8 +36,11 @@ export function buildHomeListFilterMenu(props: {
   readonly projects: ReadonlyArray<HomeListFilterMenuProject>;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
+  /** The list's thread order (the fork's Sidebar v2 thread sort). */
+  readonly v2ThreadSortOrder: SidebarV2ThreadSortOrder;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onV2ThreadSortOrderChange: (sortOrder: SidebarV2ThreadSortOrder) => void;
 }): HomeListFilterMenu {
   const items: Array<HomeListFilterMenuAction | HomeListFilterMenuSubmenu> = [];
 
@@ -83,6 +88,19 @@ export function buildHomeListFilterMenu(props: {
       ],
     });
   }
+
+  // The project layout is fixed, but the thread order within it is the
+  // fork's Sidebar v2 thread sort and stays user-selectable.
+  items.push({
+    type: "submenu",
+    title: "Sort threads",
+    items: THREAD_SORT_OPTIONS.map((option) => ({
+      type: "action",
+      title: option.label,
+      state: props.v2ThreadSortOrder === option.value ? "on" : "off",
+      onPress: () => props.onV2ThreadSortOrderChange(option.value),
+    })),
+  });
 
   return {
     title: "Thread list options",
