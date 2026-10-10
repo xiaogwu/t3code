@@ -245,14 +245,15 @@ it.layer(NodeServices.layer)("agent settle decider", (it) => {
     }),
   );
 
-  it.effect("waits for the checkpoint before honouring the arm", () =>
+  it.effect("settles a turn that never captures a checkpoint once the session goes idle", () =>
     Effect.gen(function* () {
+      // A workspace that is not a git repo never gets a turn diff.
       const result = yield* decideOrchestrationCommand({
-        command: sessionSetCommand("stopped"),
+        command: sessionSetCommand("ready"),
         readModel: armedReadModel(),
       });
       const events = Array.isArray(result) ? result : [result];
-      expect(events.map((event) => event.type)).toEqual(["thread.session-set"]);
+      expect(events.map((event) => event.type)).toEqual(["thread.session-set", "thread.settled"]);
     }),
   );
 
