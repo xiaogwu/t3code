@@ -2331,25 +2331,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             }),
           ];
         }
-        // Fallback trigger: the diff for the armed turn already landed while
-        // this status write was still in flight, so thread.turn.diff.complete
-        // saw a running session and left the arm for us. Decide against the
-        // session this command is about to install, not the stale one.
-        const armedTurnId = thread.agentSettleTurnId ?? null;
-        const armedTurnHasCheckpoint =
-          armedTurnId !== null &&
-          thread.checkpoints.some((checkpoint) => checkpoint.turnId === armedTurnId);
-        if (armedTurnHasCheckpoint) {
-          const armEvents = yield* resolveAgentSettleArm({
-            thread: { ...thread, session: command.session },
-            commandId: command.commandId,
-            occurredAt: command.createdAt,
-            keepArmWhenSessionActive: false,
-          });
-          if (armEvents.length > 0) {
-            return [sessionSetEvent, ...armEvents];
-          }
-        }
+        // The session went idle, so the armed turn is over. Do not wait for its
+        // checkpoint: a workspace that is not a git repo never captures one,
+        // and the arm would sit forever. When the diff lands first instead,
+        // thread.turn.diff.complete saw a running session and left the arm
+        // for us. Decide against the session this command is about to install,
+        // not the stale one.
+        const armEvents = yield* resolveAgentSettleArm({
+          thread: { ...thread, session: command.session },
+          commandId: command.commandId,
+          occurredAt: command.createdAt,
+          keepArmWhenSessionActive: false,
+        });
+        return [sessionSetEvent, ...armEvents];
       }
       // Real activity resets ANY override (settled wakes, active unpins).
       if (thread.settledOverride === null || !isSessionActivity) {
