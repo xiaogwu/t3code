@@ -8,9 +8,9 @@
  * schema is always up to date before the application starts.
  */
 
-import * as Migrator from "effect/unstable/sql/Migrator";
+import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -84,6 +84,12 @@ import Migration0060 from "./Migrations/060_PullRequestFilesViewed.ts";
 import Migration0061 from "./Migrations/061_ProjectionThreadsAutoSettleDisabledAt.ts";
 import Migration0062 from "./Migrations/062_OrchestrationV2.ts";
 import Migration0063 from "./Migrations/063_RemoveRedundantProjectionIndexes.ts";
+// Upstream ships these as 057-061; the fork's ids run to 063, so they land after it.
+import Migration0064 from "./Migrations/064_ScheduledTaskWebhooks.ts";
+import Migration0065 from "./Migrations/065_WebhookRelayDeliveries.ts";
+import Migration0066 from "./Migrations/066_McpAppModelContext.ts";
+import Migration0067 from "./Migrations/067_ThreadSnapshotWindowIndexes.ts";
+import Migration0068 from "./Migrations/068_PullRequestReviewGuides.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -163,6 +169,13 @@ export const migrationEntries = [
   // Preserve this migration's schema. Future V2 schema changes need new migrations.
   [62, "OrchestrationV2", Migration0062],
   [63, "RemoveRedundantProjectionIndexes", Migration0063],
+  // Upstream ships these as 57-61. Every upstream migration after 56 lands 7 ids
+  // later here, because the fork's ledger already holds 57-63.
+  [64, "ScheduledTaskWebhooks", Migration0064],
+  [65, "WebhookRelayDeliveries", Migration0065],
+  [66, "McpAppModelContext", Migration0066],
+  [67, "ThreadSnapshotWindowIndexes", Migration0067],
+  [68, "PullRequestReviewGuides", Migration0068],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

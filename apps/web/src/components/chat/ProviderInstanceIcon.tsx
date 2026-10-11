@@ -3,20 +3,12 @@ import { type CSSProperties, memo } from "react";
 import { providerInstanceInitials } from "@t3tools/client-runtime/state/provider-instance-display";
 
 import { ProviderDriverKind } from "@t3tools/contracts";
-import {
-  AntigravityIcon,
-  ClaudeAI,
-  CursorIcon,
-  Gemini,
-  GrokIcon,
-  Icon,
-  LittleCoderIcon,
-  OpenAI,
-  OpenCodeIcon,
-  PiAgentIcon,
-} from "../Icons";
+import type { ProviderIcon } from "@t3tools/provider-core/client";
+import { AntigravityIcon, ClaudeAI, Icon, LittleCoderIcon, OpenAI } from "../Icons";
 
 import { cn } from "~/lib/utils";
+import { providerClients } from "../settings/providerDriverMeta";
+import { ProviderPackageIcon } from "./ProviderPackageIcon";
 import {
   AcpRegistryAgentIcon,
   officialAcpRegistryIconUrlForAgentId,
@@ -26,26 +18,29 @@ import {
 const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
   [ProviderDriverKind.make("codex")]: OpenAI,
   [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
-  [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
-  [ProviderDriverKind.make("cursor")]: CursorIcon,
-  [ProviderDriverKind.make("grok")]: GrokIcon,
-  [ProviderDriverKind.make("gemini")]: Gemini,
   [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
-  [ProviderDriverKind.make("pi")]: PiAgentIcon,
 };
 
 const PROVIDER_TEXT_COLOR_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [ProviderDriverKind.make("codex")]: "text-black dark:text-white",
   [ProviderDriverKind.make("claudeAgent")]: "text-[#d97757]",
-  [ProviderDriverKind.make("cursor")]: "text-[#26251E] dark:text-[#EDECEC]",
-  [ProviderDriverKind.make("grok")]: "text-[#0F0F0F] dark:text-[#F5F5F5]",
-  [ProviderDriverKind.make("pi")]: "text-[#0F0F0F] dark:text-[#F5F5F5]",
-  [ProviderDriverKind.make("opencode")]: "text-[#211E1E] dark:text-[#F1ECEC]",
   [ProviderDriverKind.make("antigravity")]: "text-[#5b87bf]",
 };
 
-export function providerTextColorClassName(driverKind: ProviderDriverKind): string | undefined {
-  return PROVIDER_TEXT_COLOR_BY_PROVIDER[driverKind];
+/** Brand text color for a provider label; package glyphs supply theirs as CSS variables. */
+export function providerTextColor(driverKind: ProviderDriverKind): {
+  readonly className?: string;
+  readonly style?: CSSProperties;
+} {
+  const icon = providerClients.get(driverKind)?.icon;
+  if (icon) {
+    return {
+      className: "text-(--icon-light) dark:text-(--icon-dark)",
+      style: { "--icon-light": icon.fill.light, "--icon-dark": icon.fill.dark } as CSSProperties,
+    };
+  }
+  const className = PROVIDER_TEXT_COLOR_BY_PROVIDER[driverKind];
+  return className ? { className } : {};
 }
 
 export function resolveProviderInstanceAcpRegistryIconUrl(input: {
@@ -60,26 +55,31 @@ export function resolveProviderInstanceAcpRegistryIconUrl(input: {
   );
 }
 
-// An instance can ride a driver that is not its own agent: `pi` and `little-coder`
-// are both hosted on the generic gemini ACP driver, so the driver icon would show
-// Gemini. Drop this once the native piAgent driver ships and the instance can use
-// its own kind. Keyed on the instance id and on the display name, because some
-// call sites only have the latter.
-const ICON_BY_INSTANCE: Record<string, Icon> = {
-  pi: PiAgentIcon,
+// An instance can ride a driver that is not its own agent (`pi` and `little-coder`
+// were hosted on a generic ACP driver), so the driver icon would be wrong. Keyed on
+// the instance id and on the display name, because some call sites only have the
+// latter. A driver-kind entry borrows that driver's glyph; Pi's ships in its package.
+const ICON_BY_INSTANCE: Record<string, Icon | ProviderDriverKind> = {
+  pi: ProviderDriverKind.make("pi"),
   littlecoder: LittleCoderIcon,
   "little-coder": LittleCoderIcon,
 };
 
+/** The glyph for an instance: its own override, else its driver's package or built-in icon. */
 function resolveInstanceIcon(
   driverKind: ProviderDriverKind,
   instanceId: string | undefined,
   displayName: string,
-): Icon | null {
+): { readonly Icon: Icon | null; readonly packageIcon: ProviderIcon | undefined } {
   // Call sites without an instance id fall back to the display name, which for
   // a hosted instance is the agent's own name.
-  const key = (instanceId ?? displayName).trim().toLowerCase();
-  return ICON_BY_INSTANCE[key] ?? PROVIDER_ICON_BY_PROVIDER[driverKind] ?? null;
+  const override = ICON_BY_INSTANCE[(instanceId ?? displayName).trim().toLowerCase()];
+  if (typeof override === "function") return { Icon: override, packageIcon: undefined };
+  const iconDriverKind = override ?? driverKind;
+  return {
+    Icon: PROVIDER_ICON_BY_PROVIDER[iconDriverKind] ?? null,
+    packageIcon: providerClients.get(iconDriverKind)?.icon,
+  };
 }
 
 export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
@@ -97,7 +97,11 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   statusDotClassName?: string;
   indicatorBackground?: string;
 }) {
-  const Icon = resolveInstanceIcon(props.driverKind, props.instanceId, props.displayName);
+  const { Icon, packageIcon } = resolveInstanceIcon(
+    props.driverKind,
+    props.instanceId,
+    props.displayName,
+  );
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentStyle = props.accentColor
     ? ({ "--provider-accent": props.accentColor } as CSSProperties)
@@ -126,6 +130,12 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
           className={cn("size-5 rounded-none bg-transparent", props.iconClassName)}
           fallbackClassName="size-full"
           icon={acpRegistryIconUrl}
+        />
+      ) : packageIcon ? (
+        <ProviderPackageIcon
+          icon={packageIcon}
+          className={cn("size-5 shrink-0", props.iconClassName)}
+          aria-hidden
         />
       ) : Icon ? (
         <Icon className={cn("size-5 shrink-0", props.iconClassName)} aria-hidden />

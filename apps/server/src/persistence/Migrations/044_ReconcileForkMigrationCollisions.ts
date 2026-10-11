@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Fork releases previously assigned migrations 41-43 to different schema
 // changes. Reconcile every upstream column introduced at those ids so an

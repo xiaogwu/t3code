@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { SegmentedControl } from "../../components/SegmentedControl";
-import { ConnectionSheetButton } from "../connection/ConnectionSheetButton";
+import { MaterialButton } from "../../components/MaterialButton";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useThreadShell } from "../../state/entities";
 import { useThreadListActions } from "../home/useThreadListActions";
@@ -181,10 +181,10 @@ export function SnoozeForRouteScreen({ route }: StaticScreenProps<SnoozeForRoute
               </Text>
             ) : null}
 
-            <ConnectionSheetButton
-              disabled={isSubmitting}
-              icon="clock"
+            <MaterialButton
+              fullWidth
               label={isSubmitting ? "Snoozing..." : "Snooze thread"}
+              loading={isSubmitting}
               onPress={() => {
                 void handleSubmit();
               }}
