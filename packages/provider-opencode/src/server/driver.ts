@@ -294,7 +294,9 @@ export const OpenCodeDriver: ProviderDriver<
         serverPassword: effectiveConfig.serverPassword,
         directory: host.paths.cwd,
         environment: processEnv,
+        prelaunchCommand: effectiveConfig.prelaunchCommand,
       }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
         Effect.provideService(
           OpenCode2Client.OpenCode2Client,

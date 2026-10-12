@@ -187,7 +187,10 @@ export const make = Effect.fn("OpenCode2TextGeneration.make")(function* () {
   const host = yield* ProviderHost.ProviderHost;
   const run: TextGenerationOperations.Runner = (input) =>
     server
-      .withConnection((connection) => runOnServer(connection, input))
+      .withConnection((connection) => runOnServer(connection, input), {
+        // Generation needs the model backend up, like a session does.
+        prelaunch: { model: input.modelSelection.model },
+      })
       .pipe(
         Effect.provideService(ProviderHost.ProviderHost, host),
         Effect.mapError((cause) =>

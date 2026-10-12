@@ -858,23 +858,26 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
 
   /**
    * Lends the instance's server to a session until its scope closes. A spawned
-   * server that died is started again on the next borrow.
+   * server that died is started again on the next borrow. Each borrow runs the
+   * prelaunch command with the session's model, as a 1.x session start does.
    */
-  const borrow = Effect.gen(function* () {
-    const lent = yield* Deferred.make<
-      OpenCode2Server.OpenCode2Connection,
-      OpenCodeRuntime.OpenCodeRuntimeError
-    >();
-    yield* server
-      .withConnection((connection) =>
-        Deferred.succeed(lent, connection).pipe(Effect.andThen(Effect.never)),
-      )
-      .pipe(
-        Effect.catch((error) => Deferred.fail(lent, error)),
-        Effect.forkScoped,
-      );
-    return yield* Deferred.await(lent);
-  });
+  const borrow = (model: string | null) =>
+    Effect.gen(function* () {
+      const lent = yield* Deferred.make<
+        OpenCode2Server.OpenCode2Connection,
+        OpenCodeRuntime.OpenCodeRuntimeError
+      >();
+      yield* server
+        .withConnection(
+          (connection) => Deferred.succeed(lent, connection).pipe(Effect.andThen(Effect.never)),
+          { prelaunch: model ? { model } : {} },
+        )
+        .pipe(
+          Effect.catch((error) => Deferred.fail(lent, error)),
+          Effect.forkScoped,
+        );
+      return yield* Deferred.await(lent);
+    });
 
   const openSession = Effect.fn("OpenCode2Adapter.openSession")(function* (
     input: Parameters<ProviderAdapter.ProviderAdapterV2["Service"]["openSession"]>[0],
@@ -2943,7 +2946,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       // sends a reconnect still in flight, so a spawned server can idle-stop.
       const scope = yield* Scope.make();
       const { next, stream } = yield* Effect.gen(function* () {
-        const next = yield* borrow.pipe(Effect.provideService(Scope.Scope, scope));
+        // A restart may follow the model backend going down too, so it gets the prelaunch again.
+        const next = yield* borrow(session.model).pipe(Effect.provideService(Scope.Scope, scope));
         return { next, stream: yield* next.events };
       }).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
       const previous = currentScope;
@@ -4480,7 +4484,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       Effect.gen(function* () {
         const scope = yield* Scope.make();
         yield* Effect.addFinalizer((exit) => Scope.close(scope, exit));
-        const connection = yield* borrow.pipe(Effect.provideService(Scope.Scope, scope));
+        const connection = yield* borrow(input.modelSelection.model).pipe(
+          Effect.provideService(Scope.Scope, scope),
+        );
         return yield* openSession(input, { connection, scope });
       }).pipe(
         Effect.mapError(

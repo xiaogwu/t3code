@@ -14,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as P from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as HttpClientError from "effect/http/HttpClientError";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as OpenCodeRuntime from "../OpenCodeRuntime.ts";
 import * as OpenCodeServerOwner from "../OpenCodeServerOwner.ts";
@@ -30,9 +31,14 @@ export interface OpenCode2Connection extends OpenCode2Client.OpenCode2Api {
 export class OpenCode2Server extends Context.Service<
   OpenCode2Server,
   {
-    /** Runs `use` against the instance's server, spawning it first when T3 owns it. */
+    /**
+     * Runs `use` against the instance's server, spawning it first when T3 owns it.
+     * With `prelaunch`, the instance's prelaunch command runs first (see
+     * {@link make}); work that needs the model backend asks for it.
+     */
     readonly withConnection: <A, E, R>(
       use: (connection: OpenCode2Connection) => Effect.Effect<A, E, R>,
+      options?: { readonly prelaunch?: { readonly model?: string } },
     ) => Effect.Effect<A, E | OpenCodeRuntime.OpenCodeRuntimeError, R>;
   }
 >()("@t3tools/provider-opencode/server/v2/OpenCode2Server") {}
@@ -140,6 +146,12 @@ export const verifyServer = (client: OpenCodeClient) =>
  * with a generated password through {@link OpenCodeServerOwner}, which shares
  * the process between borrowers and stops it after an idle period. Clients are
  * built once per server; a failed check is not remembered.
+ *
+ * `prelaunchCommand` (the OpenCode setting) runs before each borrow that asks
+ * for it, ahead of the spawn when there is one. Unlike 1.x, where every session
+ * spawns its own server, one 2.x server serves sessions on different models, so
+ * running it only at spawn would never hand a later session's model to the
+ * command. Ignored with a `serverUrl`, like on 1.x.
  */
 export const make = Effect.fn("OpenCode2Server.make")(function* (input: {
   readonly binaryPath: string;
@@ -147,8 +159,21 @@ export const make = Effect.fn("OpenCode2Server.make")(function* (input: {
   readonly serverPassword: string;
   readonly directory: string;
   readonly environment: NodeJS.ProcessEnv;
+  readonly prelaunchCommand?: string;
 }) {
   const opencode = yield* OpenCode2Client.OpenCode2Client;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const prelaunchCommand = input.prelaunchCommand?.trim() ?? "";
+  const runPrelaunch = (prelaunch: { readonly model?: string } | undefined) =>
+    prelaunch === undefined || prelaunchCommand.length === 0
+      ? Effect.void
+      : OpenCodeRuntime.runOpenCodePrelaunchCommand(
+          {
+            command: prelaunchCommand,
+            ...(prelaunch.model ? { model: prelaunch.model } : {}),
+          },
+          input.environment,
+        ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
   const connectTo = (url: string, password: Redacted.Redacted, external: boolean) =>
     Effect.gen(function* () {
       const api = yield* opencode.connect({ baseUrl: url, password });
@@ -183,12 +208,16 @@ export const make = Effect.fn("OpenCode2Server.make")(function* (input: {
     verify: (url) => connectTo(url, password, false).pipe(Effect.flatMap(remember)),
   });
   return OpenCode2Server.of({
-    withConnection: (use) =>
-      owner.withServer((server) =>
-        // The owner verifies every server it starts before lending it out.
-        latest?.url === server.url
-          ? use(latest)
-          : Effect.die(new Error("OpenCode 2 server was lent before verification.")),
+    withConnection: (use, options) =>
+      runPrelaunch(options?.prelaunch).pipe(
+        Effect.andThen(
+          owner.withServer((server) =>
+            // The owner verifies every server it starts before lending it out.
+            latest?.url === server.url
+              ? use(latest)
+              : Effect.die(new Error("OpenCode 2 server was lent before verification.")),
+          ),
+        ),
       ),
   });
 });
