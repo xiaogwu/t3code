@@ -56,8 +56,8 @@ export function resolveProviderInstanceAcpRegistryIconUrl(input: {
 }
 
 // An instance can ride a driver that is not its own agent (`pi` and `little-coder`
-// were hosted on a generic ACP driver), so the driver icon would be wrong. Keyed on
-// the instance id and on the display name, because some call sites only have the
+// can run as local ACP Registry commands), so the driver icon would be wrong. Keyed
+// on the instance id and on the display name, because some call sites only have the
 // latter. A driver-kind entry borrows that driver's glyph; Pi's ships in its package.
 const ICON_BY_INSTANCE: Record<string, Icon | ProviderDriverKind> = {
   pi: ProviderDriverKind.make("pi"),
@@ -65,20 +65,31 @@ const ICON_BY_INSTANCE: Record<string, Icon | ProviderDriverKind> = {
   "little-coder": LittleCoderIcon,
 };
 
-/** The glyph for an instance: its own override, else its driver's package or built-in icon. */
-function resolveInstanceIcon(
+/**
+ * The glyph for an instance: its own override, else its driver's package or
+ * built-in icon. `overridden` tells the caller to skip the ACP Registry glyph,
+ * which would otherwise win for a hosted instance.
+ */
+export function resolveInstanceIcon(
   driverKind: ProviderDriverKind,
   instanceId: string | undefined,
   displayName: string,
-): { readonly Icon: Icon | null; readonly packageIcon: ProviderIcon | undefined } {
+): {
+  readonly Icon: Icon | null;
+  readonly packageIcon: ProviderIcon | undefined;
+  readonly overridden: boolean;
+} {
   // Call sites without an instance id fall back to the display name, which for
   // a hosted instance is the agent's own name.
   const override = ICON_BY_INSTANCE[(instanceId ?? displayName).trim().toLowerCase()];
-  if (typeof override === "function") return { Icon: override, packageIcon: undefined };
+  if (typeof override === "function") {
+    return { Icon: override, packageIcon: undefined, overridden: true };
+  }
   const iconDriverKind = override ?? driverKind;
   return {
     Icon: PROVIDER_ICON_BY_PROVIDER[iconDriverKind] ?? null,
     packageIcon: providerClients.get(iconDriverKind)?.icon,
+    overridden: override !== undefined,
   };
 }
 
@@ -97,7 +108,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   statusDotClassName?: string;
   indicatorBackground?: string;
 }) {
-  const { Icon, packageIcon } = resolveInstanceIcon(
+  const { Icon, packageIcon, overridden } = resolveInstanceIcon(
     props.driverKind,
     props.instanceId,
     props.displayName,
@@ -107,7 +118,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
     ? ({ "--provider-accent": props.accentColor } as CSSProperties)
     : undefined;
   const badgeContent = props.badgeContent ?? "initials";
-  const isAcpRegistry = props.driverKind === "acpRegistry";
+  const isAcpRegistry = props.driverKind === "acpRegistry" && !overridden;
   const acpRegistryIconUrl = resolveProviderInstanceAcpRegistryIconUrl({
     driverKind: props.driverKind,
     agentId: props.acpRegistryAgentId,
