@@ -3,8 +3,11 @@ import {
   threadPullRequestsOf,
 } from "@t3tools/shared/threadPullRequests";
 import {
+  ASSISTANT_CITATION_MAX_TEXT_LENGTH,
+  AssistantCitation,
   AssistantThreadBookmark,
   ChatAttachment,
+  type EnvironmentId,
   OrchestrationMessageContext,
   DEFAULT_MODEL,
   EventId,
@@ -23,6 +26,8 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -31,6 +36,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as EventSink from "../EventSink.ts";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 
@@ -77,6 +83,8 @@ interface LegacyMessageRow {
   readonly text: string;
   readonly attachments_json: string | null;
   readonly context_json?: string | null;
+  /** The fork's v1 reply target (migration 045): `{ replyToMessageId?, replyTo? }`. */
+  readonly reply_to_json?: string | null;
   readonly is_streaming: number;
   readonly created_at: string;
   readonly updated_at: string;
@@ -127,6 +135,7 @@ const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment
 const decodePullRequests = Schema.decodeUnknownOption(Schema.Array(ThreadPullRequestLink));
 const decodeLinkedPullRequest = Schema.decodeUnknownOption(ThreadLinkedPullRequest);
 const decodeBookmark = Schema.decodeUnknownOption(AssistantThreadBookmark);
+const decodeCitation = Schema.decodeUnknownOption(AssistantCitation);
 const decodeStoredThread = Schema.decodeUnknownOption(
   Schema.fromJsonString(OrchestrationV2AppThreadJson),
 );
@@ -297,12 +306,58 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
   };
 }
 
-function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2DomainEvent> {
+/**
+ * v1 kept a block reply as metadata beside the user message. v2 has no reply
+ * field: a reply is an assistant citation in the message text, so the quote
+ * becomes one, leading the text the way v1's "replying to" header led the
+ * bubble. v1 quoted the block's Markdown source; the citation carries its
+ * rendered text so the chip reads cleanly and can find the block again.
+ * Message-level replies without a quote carried nothing to the provider and
+ * are dropped.
+ */
+function legacyReplyCitation(
+  row: LegacyMessageRow,
+  environmentId: EnvironmentId | null,
+): AssistantCitation | null {
+  if (environmentId === null || row.role !== "user" || !row.reply_to_json) return null;
+  const replyTo = (parseJson(row.reply_to_json) as { replyTo?: unknown } | undefined)?.replyTo as
+    | { readonly messageId?: unknown; readonly quote?: unknown }
+    | undefined;
+  if (typeof replyTo?.messageId !== "string" || typeof replyTo.quote !== "string") return null;
+  const rendered =
+    searchableMessageSegments({ role: "assistant", text: replyTo.quote, streaming: false })
+      ?.join("\n")
+      .trim() || replyTo.quote.trim();
+  let text = rendered.slice(0, ASSISTANT_CITATION_MAX_TEXT_LENGTH);
+  if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+  return Option.getOrNull(
+    decodeCitation({
+      version: 1,
+      environmentId,
+      threadId: row.thread_id,
+      messageId: replyTo.messageId,
+      text,
+      // No v1 offsets exist; an unmatched selector falls back to the quote's only occurrence.
+      start: 0,
+      end: text.replace(/\s+/g, " ").length,
+      prefix: "",
+      suffix: "",
+    }),
+  );
+}
+
+function messageEvents(
+  row: LegacyMessageRow,
+  environmentId: EnvironmentId | null,
+): ReadonlyArray<OrchestrationV2DomainEvent> {
   const threadId = ThreadId.make(row.thread_id);
   const messageId = MessageId.make(row.message_id);
   const createdAt = dateTime(row.created_at);
   const updatedAt = dateTime(row.updated_at);
   const attachments = attachmentsFor(row);
+  const replyCitation = legacyReplyCitation(row, environmentId);
+  const text =
+    replyCitation === null ? row.text : `${serializeAssistantCitation(replyCitation)} ${row.text}`;
   const message: OrchestrationV2ConversationMessage = {
     createdBy: row.role === "user" ? "user" : "agent",
     creationSource: "server",
@@ -311,7 +366,7 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
     runId: null,
     nodeId: null,
     role: row.role,
-    text: row.text,
+    text,
     ...(row.context_json
       ? {
           context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
@@ -349,7 +404,7 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
           type: "user_message",
           messageId,
           inputIntent: "turn_start",
-          text: row.text,
+          text,
           ...(row.context_json
             ? {
                 context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
@@ -363,7 +418,7 @@ function messageEvents(row: LegacyMessageRow): ReadonlyArray<OrchestrationV2Doma
           ...baseTurnItem,
           type: "assistant_message",
           messageId,
-          text: row.text,
+          text,
           ...(row.context_json
             ? {
                 context: Schema.decodeUnknownSync(OrchestrationMessageContext)(
@@ -402,6 +457,15 @@ function chunks<A>(items: ReadonlyArray<A>, size: number): Array<ReadonlyArray<A
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const eventSink = yield* EventSink.EventSinkV2;
+  // Optional so the many test runtimes without an environment still build; the
+  // server always provides it. Without it, v1 replies import as plain text.
+  const serverEnvironment = yield* Effect.serviceOption(
+    ServerEnvironment.ServerEnvironmentIdentity,
+  );
+  const readEnvironmentId = Option.match(serverEnvironment, {
+    onNone: () => Effect.succeed(null),
+    onSome: (identity) => identity.getEnvironmentId,
+  });
   const transcriptImports = yield* KeyedLock.make<ThreadId>();
 
   const listMessages = (threadId: ThreadId) =>
@@ -413,6 +477,7 @@ const make = Effect.gen(function* () {
         text,
         attachments_json,
         context_json,
+        reply_to_json,
         is_streaming,
         created_at,
         updated_at,
@@ -436,6 +501,7 @@ const make = Effect.gen(function* () {
           message.text,
           message.attachments_json,
           message.context_json,
+          message.reply_to_json,
           message.is_streaming,
           message.created_at,
           message.updated_at,
@@ -466,6 +532,7 @@ const make = Effect.gen(function* () {
           message.text,
           message.attachments_json,
           message.context_json,
+          message.reply_to_json,
           message.is_streaming,
           message.created_at,
           message.updated_at,
@@ -655,6 +722,7 @@ const make = Effect.gen(function* () {
     `;
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
+    const environmentId = yield* readEnvironmentId;
     for (const row of rows) {
       const thread = importedThread(row);
       const previews = yield* listShellMessages(thread.id);
@@ -667,7 +735,7 @@ const make = Effect.gen(function* () {
           occurredAt: thread.createdAt,
           payload: thread,
         },
-        ...previews.flatMap(messageEvents),
+        ...previews.flatMap((preview) => messageEvents(preview, environmentId)),
         {
           id: EventId.make(`${IMPORT_EVENT_PREFIX}:thread:${row.thread_id}:shell`),
           type: "thread.metadata-updated",
@@ -779,6 +847,7 @@ const make = Effect.gen(function* () {
           return { importedThreadCount: 0, importedMessageCount: 0 };
         }
         const messages = yield* listMessages(threadId);
+        const environmentId = yield* readEnvironmentId;
         const existingRows = yield* sql<{ readonly event_id: string }>`
           SELECT event_id
           FROM orchestration_events
@@ -810,7 +879,9 @@ const make = Effect.gen(function* () {
               `,
             { discard: true },
           );
-          yield* eventSink.write({ events: batch.flatMap(messageEvents) });
+          yield* eventSink.write({
+            events: batch.flatMap((message) => messageEvents(message, environmentId)),
+          });
           yield* Effect.yieldNow;
         }
         const now = DateTime.formatIso(yield* DateTime.now);

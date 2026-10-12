@@ -12,6 +12,7 @@ import {
 
 import {
   type AssistantTextSelector,
+  captureAssistantTextRange,
   captureAssistantTextSelection,
   createAssistantTextSelector,
   findAssistantCitationText,
@@ -355,6 +356,49 @@ describe("captureAssistantTextSelection", () => {
     expect(
       capture(new SelectionNode("MAIN"), nativeSelection([quote, 0], [quote, quote.length])),
     ).toBeNull();
+  });
+});
+
+describe("captureAssistantTextRange for block replies", () => {
+  const block = (node: SelectionNode) =>
+    nativeSelection([node, 0], [node, node.childNodes.length]).getRangeAt(0);
+
+  it("quotes a code block without its final line break or the reply button", () => {
+    const code = textNode("const a = 1;\n");
+    const pre = new SelectionNode("PRE").append(new SelectionNode("CODE").append(code));
+    const source = assistantSource(
+      new SelectionNode("P").append(textNode("Intro.")),
+      pre,
+      new SelectionNode("BUTTON").append(textNode("Reply")),
+    );
+    const captured = captureAssistantTextRange(source as unknown as HTMLElement, block(pre), 8_000);
+    expect(captured?.selector).toEqual(
+      selector("const a = 1;", {
+        start: "Intro. ".length,
+        end: "Intro. const a = 1;".length,
+        prefix: "Intro. ",
+        // The trimmed line break is still the quote's following context.
+        suffix: " ",
+      }),
+    );
+    expect(captured?.range.endContainer).toBe(code);
+    expect(captured?.range.endOffset).toBe("const a = 1;".length);
+  });
+
+  it("keeps the first characters of a block longer than the limit", () => {
+    const text = textNode("abcdefghij");
+    const paragraph = new SelectionNode("P").append(
+      text,
+      new SelectionNode("BUTTON").append(textNode("Reply")),
+    );
+    const source = assistantSource(paragraph);
+    const captured = captureAssistantTextRange(
+      source as unknown as HTMLElement,
+      block(paragraph),
+      4,
+    );
+    expect(captured?.selector).toEqual(selector("abcd", { suffix: "efghij" }));
+    expect(captured?.range.endOffset).toBe(4);
   });
 });
 

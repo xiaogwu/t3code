@@ -192,7 +192,10 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
-import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
+import {
+  captureAssistantBlockCitation,
+  type AssistantCitationSourceAnchor,
+} from "~/lib/assistantTextSelection";
 import {
   AssistantCitationSource,
   type AssistantCitationRequest,
@@ -332,6 +335,8 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
+  /** Cites a whole assistant block in the composer: the inline block reply. */
+  onReplyToAssistantBlock: ((block: HTMLElement) => void) | undefined;
   /** Sends text an MCP App asked to post, after the user approved it. */
   onSendAppMessage: ((text: string) => Promise<void>) | undefined;
   /**
@@ -1390,6 +1395,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
     };
   }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
+  const onReplyToAssistantBlock = useMemo(() => {
+    if (!onCiteAssistantText || !citationThreadRef) return undefined;
+    return (block: HTMLElement) => {
+      const reply = captureAssistantBlockCitation(block, citationThreadRef);
+      if (reply) onCiteAssistantText(reply.citation, reply.sourceAnchor);
+    };
+  }, [citationThreadRef, onCiteAssistantText]);
+
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       citationRequest: readyCitationRequest,
@@ -1412,6 +1425,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onImageExpand,
       onFileOpen,
       onUseArtifactTemplate,
+      onReplyToAssistantBlock,
       onSendAppMessage,
       onAppFullscreenChange,
       onFileDownload,
@@ -1451,6 +1465,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onImageExpand,
       onFileOpen,
       onUseArtifactTemplate,
+      onReplyToAssistantBlock,
       onSendAppMessage,
       onAppFullscreenChange,
       onFileDownload,
@@ -2973,6 +2988,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
               onUseArtifactTemplate={ctx.onUseArtifactTemplate}
               onRunShellCommand={ctx.onRunShellCommand}
               onImageExpand={ctx.onImageExpand}
+              onReplyToBlock={row.message.streaming ? undefined : ctx.onReplyToAssistantBlock}
             />
           </AssistantCitationSource>
         </div>

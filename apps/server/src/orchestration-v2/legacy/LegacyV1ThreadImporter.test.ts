@@ -5,7 +5,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Tracer from "effect/Tracer";
 import * as SqlClient from "effect/sql/SqlClient";
+import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
 
+import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import { listLinkedPullRequestThreads } from "../../pullRequest/linkedThreads.ts";
 import * as EventSink from "../EventSink.ts";
@@ -24,7 +26,15 @@ const layerStoresProvided = Layer.mergeAll(
 );
 const layerEventSinkProvided = EventSink.layer.pipe(Layer.provide(layerStoresProvided));
 const layerImporterProvided = LegacyV1ThreadImporter.layer.pipe(
-  Layer.provide(Layer.mergeAll(layerStoresProvided, layerEventSinkProvided)),
+  Layer.provide(
+    Layer.mergeAll(
+      layerStoresProvided,
+      layerEventSinkProvided,
+      Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
+        getEnvironmentId: Effect.succeed(EnvironmentId.make("environment:legacy-import")),
+      }),
+    ),
+  ),
 );
 const layerProjectionMaintenanceProvided = ProjectionMaintenance.layer.pipe(
   Layer.provide(layerStoresProvided),
@@ -560,6 +570,75 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
       assert.deepStrictEqual(yield* bookmarkIds(), []);
       assert.isTrue((yield* maintenance.rebuild).valid);
       assert.deepStrictEqual(yield* bookmarkIds(), []);
+    }),
+  );
+
+  it.effect("turns v1 block replies into assistant citations leading the user message", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = ThreadId.make("thread:legacy-replies");
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project:legacy-replies', 'Legacy project', '/tmp/legacy-replies', '[]',
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, created_at, updated_at
+        ) VALUES (
+          ${threadId}, 'project:legacy-replies', 'Replied thread',
+          '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access', 'default',
+          '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z'
+        )
+      `;
+      // Shaped like the real v1 rows: the quote is the block's Markdown source.
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id, thread_id, turn_id, role, text, attachments_json, is_streaming,
+          created_at, updated_at, reply_to_json
+        ) VALUES
+          ('assistant:answer', ${threadId}, NULL, 'assistant',
+            'Done.\n\n- **DEV** artwork applied\n- Tests pass', '[]', 0,
+            '2026-01-01T01:00:00.000Z', '2026-01-01T01:00:00.000Z', NULL),
+          ('message:block-reply', ${threadId}, NULL, 'user', 'what was applied', '[]', 0,
+            '2026-01-01T02:00:00.000Z', '2026-01-01T02:00:00.000Z',
+            '{"replyToMessageId":"assistant:answer","replyTo":{"messageId":"assistant:answer","blockId":"7-31","quote":"- **DEV** artwork applied"}}'),
+          ('message:message-reply', ${threadId}, NULL, 'user', 'and the rest?', '[]', 0,
+            '2026-01-01T03:00:00.000Z', '2026-01-01T03:00:00.000Z',
+            '{"replyToMessageId":"assistant:answer"}')
+      `;
+
+      yield* importer.reconcileShells;
+      yield* importer.ensureTranscript(threadId);
+      const texts = new Map(
+        (yield* projections.getThreadProjection(threadId)).messages.map((message) => [
+          message.id,
+          message.text,
+        ]),
+      );
+      const [reply] = collectAssistantCitations(texts.get(MessageId.make("message:block-reply"))!);
+      assert.deepStrictEqual(reply?.citation, {
+        version: 1,
+        environmentId: EnvironmentId.make("environment:legacy-import"),
+        threadId,
+        messageId: MessageId.make("assistant:answer"),
+        text: "DEV artwork applied",
+        start: 0,
+        end: 19,
+        prefix: "",
+        suffix: "",
+      });
+      assert.isTrue(
+        texts.get(MessageId.make("message:block-reply"))!.endsWith(") what was applied"),
+      );
+      assert.equal(texts.get(MessageId.make("message:message-reply")), "and the rest?");
     }),
   );
 

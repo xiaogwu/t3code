@@ -99,6 +99,10 @@ On web and desktop, select text within one assistant response and choose
 **Cite in composer**. You can add a comment about the quote and write instructions
 around it.
 
+To reply to a whole paragraph, heading, list item, table, or code block, hover it and
+choose its reply button. The block is cited the same way, so your comment is the reply.
+Blocks longer than a citation allows are quoted from their start.
+
 Select the quote in a draft or sent message to return to its source. If the source
 is unavailable or has changed, the saved quote remains readable.
 

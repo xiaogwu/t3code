@@ -2,6 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  EnvironmentId,
   MessageId,
   NodeId,
   ProviderSessionId,
@@ -23,6 +24,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -753,6 +755,34 @@ effectIt.effect("does not mistake a failed state read for a superseded run", () 
     const finalizeCheck = yield* Effect.flip(controls.shouldFinalizeRun!());
     expect(startCheck._tag).toBe("ProjectionStoreReadError");
     expect(finalizeCheck._tag).toBe("ProjectionStoreReadError");
+  }),
+);
+
+effectIt.effect("sends assistant quotes to the provider as readable quote data", () =>
+  Effect.gen(function* () {
+    const quote = serializeAssistantCitation({
+      version: 1,
+      environmentId: EnvironmentId.make("environment-native-account-command"),
+      threadId: ThreadId.make("thread-native-account-command"),
+      messageId: MessageId.make("assistant-native-account-command"),
+      text: "Fully quit and reopen the app.",
+      start: 0,
+      end: 30,
+      prefix: "",
+      suffix: "",
+    });
+    // The only harness path that reaches a native turn start.
+    const harness = makeLocalCommandHarness({
+      text: `${quote} Did that work?`,
+      failReadsAfterRunning: true,
+    });
+
+    yield* harness.start;
+
+    const text = harness.startRootRun.mock.calls[0]?.[0]?.message.text;
+    expect(text).toContain("[assistant-quote-1] Did that work?");
+    expect(text).toContain('"text": "Fully quit and reopen the app."');
+    expect(text).not.toContain("t3-citation:");
   }),
 );
 
