@@ -211,6 +211,7 @@ import {
   resolveTimelineMinimapInteractiveWidth,
   resolveTimelineMinimapNavigationInteractive,
   resolveTimelineMinimapTopPercent,
+  resolveTimelineRestoreTarget,
   resolveWorkGroupScrollIndex,
   shouldCollapseUserMessage,
   shouldFollowWorkGroupAppend,
@@ -965,10 +966,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
-  const restoreRowIndex =
-    restoringThreadPosition && rememberedPosition?.atEnd === false
-      ? rows.findIndex((row) => row.id === rememberedPosition.rowId)
-      : -1;
+  // Resolved by row id, then by the saved row's timestamp, so a position
+  // outlives the row it was taken from (row ids encode transient UI state).
+  const restoreTarget = useMemo(
+    () =>
+      restoringThreadPosition && rememberedPosition?.atEnd === false
+        ? resolveTimelineRestoreTarget(rows, rememberedPosition)
+        : undefined,
+    [rememberedPosition, restoringThreadPosition, rows],
+  );
+  const restoreRowIndex = restoreTarget?.index ?? -1;
   const restoringAlwaysRender = useMemo(
     () =>
       restoringThreadPosition && restoreRowIndex >= 0 ? { indices: [restoreRowIndex] } : undefined,
@@ -1012,23 +1019,25 @@ const ConversationTimeline = memo(function ConversationTimeline({
     viewport?.addEventListener("pointerdown", cancelForNavigation, { passive: true });
     viewport?.ownerDocument.addEventListener("keydown", onScrollKey);
     const position = rememberedPosition;
-    const index = position ? rows.findIndex((row) => row.id === position.rowId) : -1;
+    // The raw scroll offset is the last resort, for a position whose row is
+    // gone and that carries no usable timestamp.
+    const target = restoreTarget;
     if (position?.atEnd === false) onManualNavigation();
     if (cancelPositionRestoreRef) cancelPositionRestoreRef.current = cancelRestoration;
     const scrolling =
       position?.atEnd === false
-        ? index >= 0
+        ? target
           ? list.scrollToIndex({
-              index,
+              index: target.index,
               animated: false,
               viewPosition: 0,
-              viewOffset: -position.offsetWithinRow,
+              viewOffset: -target.offsetWithinRow,
             })
           : list.scrollToOffset({ offset: position.scrollOffset, animated: false })
         : list.scrollToEnd({ animated: false });
     void Promise.resolve(scrolling).then(() => {
       if (cancelled) return;
-      if (position?.atEnd !== false || index < 0) {
+      if (position?.atEnd !== false || !target) {
         setPositionedThreadKey(listIdentityKey);
         return;
       }
@@ -1038,7 +1047,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       const reconcile = () => {
         if (cancelled) return;
         const state = list.getState();
-        const rowIndex = state.indexByKey(position.rowId);
+        const rowIndex = state.indexByKey(target.rowId);
         const row = rowIndex === undefined ? undefined : state.elementAtIndex(rowIndex);
         const element = list.getScrollableNode();
         if (!row || !element) return;
@@ -1048,7 +1057,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
             element.scrollTop +
               row.getBoundingClientRect().top -
               element.getBoundingClientRect().top +
-              position.offsetWithinRow,
+              target.offsetWithinRow,
             element.scrollHeight - element.clientHeight,
           ),
         );
@@ -1085,6 +1094,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listRef,
     onManualNavigation,
     rememberedPosition,
+    restoreTarget,
     restoringThreadPosition,
     rows,
   ]);
