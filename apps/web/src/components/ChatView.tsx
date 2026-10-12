@@ -9481,16 +9481,14 @@ export default function ChatView(props: ChatViewProps) {
     const messageCreatedAt = new Date().toISOString();
     // A stale Claude session compacts before this message so the turn does not re-read the
     // old history. The message queues behind the /compact run, since steering into it is
-    // rejected. The same holds for any send while a /compact run is already active.
+    // rejected.
     const compactBeforeSend =
       resumeCompactionTokens !== null &&
       !keepFullHistory &&
       messageTextForSend.toLowerCase() !== "/compact";
-    const queuesBehindCompaction = compactBeforeSend || isCompacting;
-    const turnDispatchMode =
-      queuesBehindCompaction || sendQueuesBehindSetup ? "queue" : dispatchMode;
+    const turnDispatchMode = compactBeforeSend || sendQueuesBehindSetup ? "queue" : dispatchMode;
     const shouldQueueBehindActiveRun =
-      queuesBehindCompaction ||
+      compactBeforeSend ||
       sendQueuesBehindSetup ||
       (phase === "running" && dispatchMode === "queue");
     const outgoingMessageText = formatOutgoingPrompt({

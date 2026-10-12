@@ -100,7 +100,7 @@ export function composerSubmitTooltip(input: {
   if (input.compactsBeforeSend) {
     return `Summarize ${input.compactTokens} tokens of history, then send`;
   }
-  // Steering into a /compact run is rejected, so the usual queue/steer hint would lie.
+  // The server queues sends behind a /compact run, so the usual queue/steer hint would lie.
   if (input.queuesBehindCompaction) return "Sends after compacting";
   if (input.isRunning && !input.isEditingQueuedMessage) {
     return `Click to ${input.followUpBehavior}, Ctrl/⌘-click${input.alternateShortcutLabel ? ` or ${input.alternateShortcutLabel}` : ""} to ${input.alternateAction}`;
@@ -146,7 +146,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     : undefined;
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
-  // ChatView queues every send while a /compact run is active.
+  // The server queues every send while a /compact run is active.
   const queuesBehindCompaction = isCompacting && !isEditingQueuedMessage;
   const isQueuing =
     queuesBehindCompaction ||

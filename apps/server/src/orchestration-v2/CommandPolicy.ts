@@ -122,6 +122,45 @@ export function resolveMessageDispatchIntent(
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
 ): MessageDispatchMode {
+  const resolved = resolveRequestedDispatchIntent(projection, requestedMode, deliveryIntent);
+  // A /compact run cannot be steered or restarted, so a send during compaction
+  // waits behind it instead of being rejected.
+  if (
+    (resolved.type === "steer_active" || resolved.type === "restart_active") &&
+    isActiveCompactionRun(projection, resolved.targetRunId)
+  ) {
+    return { type: "queue_after_active" };
+  }
+  return resolved;
+}
+
+function isActiveCompactionRun(
+  projection: OrchestrationV2ThreadProjection,
+  runId: OrchestrationV2Run["id"],
+): boolean {
+  const run = projection.runs.find((candidate) => candidate.id === runId);
+  if (
+    run === undefined ||
+    (run.status !== "preparing" &&
+      run.status !== "starting" &&
+      run.status !== "running" &&
+      run.status !== "waiting")
+  ) {
+    return false;
+  }
+  const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
+  return (
+    message !== undefined &&
+    message.attachments.length === 0 &&
+    message.text.trim().toLowerCase() === "/compact"
+  );
+}
+
+function resolveRequestedDispatchIntent(
+  projection: OrchestrationV2ThreadProjection,
+  requestedMode: MessageDispatchMode,
+  deliveryIntent: "auto" | "steer" | "restart" | undefined,
+): MessageDispatchMode {
   if (deliveryIntent === undefined) return requestedMode;
 
   const activeRun = projection.runs.findLast(

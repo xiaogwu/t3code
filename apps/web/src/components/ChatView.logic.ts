@@ -1016,7 +1016,7 @@ export function recallCheckoutIsRepo(
 }
 
 // Send stays enabled while a /compact run is active. The message queues
-// behind the run (steering into it is rejected), so this banner only informs.
+// behind the run on the server, so this banner only informs.
 export function compactingComposerBannerItem(input: {
   readonly isCompacting: boolean;
   readonly icon: ReactNode;
