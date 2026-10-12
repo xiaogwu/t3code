@@ -49,6 +49,7 @@ import {
 } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
+import type { ReactNode } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadShells, environmentThreadDetails } from "../state/threads";
 import { waitForAtomValue } from "../state/waitForAtomValue";
@@ -61,6 +62,7 @@ import { derivePhase, type TimelineEntry } from "../session-logic";
 import type { PreviewMiniPlayerSource } from "../previewMiniPlayerStore";
 import type { DesktopPreviewOverlay } from "../previewStateStore";
 import type { RightPanelSurface } from "../rightPanelStore";
+import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import {
   NO_PROVIDER_MODEL_SELECTION,
   resolveSelectableProviderInstanceEntry,
@@ -1011,6 +1013,24 @@ export function recallCheckoutIsRepo(
   return cwd === null
     ? undefined
     : sessionCheckoutIsRepo.get(checkoutIsRepoKey(environmentId, cwd));
+}
+
+// Send stays enabled while a /compact run is active. The message queues
+// behind the run (steering into it is rejected), so this banner only informs.
+export function compactingComposerBannerItem(input: {
+  readonly isCompacting: boolean;
+  readonly icon: ReactNode;
+}): ComposerBannerStackItem | null {
+  if (!input.isCompacting) {
+    return null;
+  }
+  return {
+    id: "compacting-context",
+    variant: "info",
+    priority: "activity",
+    icon: input.icon,
+    title: "Compacting context — messages you send now will be sent when it finishes.",
+  };
 }
 
 export function threadHasStarted(thread: Thread | null | undefined): boolean {

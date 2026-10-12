@@ -1,5 +1,6 @@
 import { findRecordedWorktreeSetup, resolveVisibleWorktreeSetup } from "./ChatView.logic";
 import {
+  compactingComposerBannerItem,
   recallCheckoutIsRepo,
   rememberCheckoutIsRepo,
   threadShellHasStarted,
@@ -2276,5 +2277,20 @@ describe("waitForRevertedMessage", () => {
     await vi.advanceTimersByTimeAsync(50);
     await settled;
     vi.useRealTimers();
+  });
+});
+
+describe("compactingComposerBannerItem", () => {
+  it("returns null when compaction is not running", () => {
+    expect(compactingComposerBannerItem({ isCompacting: false, icon: "icon" })).toBeNull();
+  });
+
+  it("surfaces an informational banner while compaction is running", () => {
+    expect(compactingComposerBannerItem({ isCompacting: true, icon: "icon" })).toMatchObject({
+      variant: "info",
+      priority: "activity",
+      icon: "icon",
+      title: "Compacting context — messages you send now will be sent when it finishes.",
+    });
   });
 });

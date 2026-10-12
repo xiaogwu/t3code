@@ -56,6 +56,8 @@ interface ComposerPrimaryActionsProps {
   /** The Compact chip is turned off, so the next send keeps full history. */
   keepFullHistory?: boolean;
   onToggleKeepFullHistory?: () => void;
+  /** A /compact run is active, so a send queues behind it instead of steering. */
+  isCompacting?: boolean;
 }
 
 const formatPendingPrimaryActionLabel = (input: {
@@ -80,6 +82,31 @@ const formatPendingPrimaryActionLabel = (input: {
 // message-action pill, so they are composer-owned buttons rather than restyled Buttons.
 const messageActionPillClassName =
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
+
+/** Hover copy for the send button. A blocking status wins over what a send would do. */
+export function composerSubmitTooltip(input: {
+  readonly status: string | null;
+  readonly compactTokens: string | null;
+  readonly compactsBeforeSend: boolean;
+  readonly queuesBehindCompaction: boolean;
+  readonly isRunning: boolean;
+  readonly isEditingQueuedMessage: boolean;
+  readonly followUpBehavior: "queue" | "steer";
+  readonly alternateAction: string;
+  readonly alternateShortcutLabel: string | null;
+  readonly submitLabel: string;
+}): string {
+  if (input.status !== null) return input.status;
+  if (input.compactsBeforeSend) {
+    return `Summarize ${input.compactTokens} tokens of history, then send`;
+  }
+  // Steering into a /compact run is rejected, so the usual queue/steer hint would lie.
+  if (input.queuesBehindCompaction) return "Sends after compacting";
+  if (input.isRunning && !input.isEditingQueuedMessage) {
+    return `Click to ${input.followUpBehavior}, Ctrl/⌘-click${input.alternateShortcutLabel ? ` or ${input.alternateShortcutLabel}` : ""} to ${input.alternateAction}`;
+  }
+  return input.submitLabel;
+}
 
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
@@ -112,19 +139,23 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compactBeforeSendTokens = null,
   keepFullHistory = false,
   onToggleKeepFullHistory,
+  isCompacting = false,
 }: ComposerPrimaryActionsProps) {
   const pointerFocusProps = preserveComposerFocusOnPointerDown
     ? { onPointerDown: preventPointerFocus }
     : undefined;
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
+  // ChatView queues every send while a /compact run is active.
+  const queuesBehindCompaction = isCompacting && !isEditingQueuedMessage;
   const isQueuing =
-    !isEditingQueuedMessage &&
-    resolveComposerDispatchMode({
-      running: isRunning,
-      activeTurnDefault: followUpBehavior,
-      alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
-    }) === "queue";
+    queuesBehindCompaction ||
+    (!isEditingQueuedMessage &&
+      resolveComposerDispatchMode({
+        running: isRunning,
+        activeTurnDefault: followUpBehavior,
+        alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
+      }) === "queue");
   const alternateAction = alternateComposerDispatchAction(followUpBehavior);
   const isSendDisabled = !canOperateThread || sendDisabledReason !== null;
   const stageBackdropVariant = useSidebarStageBackdropVariant(
@@ -299,13 +330,18 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               ? "Updating queued message"
               : "Submitting message"
             : null));
-  const submitTooltip =
-    submitStatus ??
-    (compactsBeforeSend
-      ? `Summarize ${compactTokens} tokens of history, then send`
-      : isRunning && !isEditingQueuedMessage
-        ? `Click to ${followUpBehavior}, Ctrl/⌘-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
-        : submitLabel);
+  const submitTooltip = composerSubmitTooltip({
+    status: submitStatus,
+    compactTokens,
+    compactsBeforeSend,
+    queuesBehindCompaction,
+    isRunning,
+    isEditingQueuedMessage,
+    followUpBehavior,
+    alternateAction,
+    alternateShortcutLabel,
+    submitLabel,
+  });
 
   const sendButton = (
     <button
