@@ -169,6 +169,21 @@ it.layer(layerTest)("ThreadSearch", (it) => {
           [assistantOnly, "assistant", "needle in an answer"],
         ],
       );
+      // The matched message id lets the client reveal that exact message.
+      assert.deepEqual(
+        result.matches.map((match) => match.messageId),
+        [MessageId.make("both-user-new"), MessageId.make("assistant-only")],
+      );
+      // Archived is its own scope: only archived threads, still never deleted ones.
+      const archived = yield* search.search({ query: "needle", scope: "archived" });
+      assert.deepEqual(
+        archived.matches.map((match) => [match.threadId, match.messageId]),
+        [[ThreadId.make("thread:archived"), MessageId.make("archived")]],
+      );
+      assert.deepEqual(
+        (yield* search.search({ query: "needle archived", scope: "active" })).matches,
+        [],
+      );
       assert.lengthOf((yield* search.search({ query: "needle", limit: 1 })).matches, 1);
       // LIKE wildcards in the query match literally.
       assert.deepEqual((yield* search.search({ query: "ne%le" })).matches, []);
