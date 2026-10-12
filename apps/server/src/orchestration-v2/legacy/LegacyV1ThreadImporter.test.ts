@@ -573,6 +573,61 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
     }),
   );
 
+  it.effect("keeps v1 manual titles marked manual so the title policy leaves them alone", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const renamed = ThreadId.make("thread:legacy-title-manual");
+      const generated = ThreadId.make("thread:legacy-title-automatic");
+      const provenance = (threadId: ThreadId) =>
+        projections
+          .getThreadProjection(threadId)
+          .pipe(Effect.map((projection) => projection.thread.titleProvenance));
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project:legacy-title', 'Legacy project', '/tmp/legacy-title', '[]',
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, title_provenance, created_at, updated_at
+        ) VALUES
+          (${renamed}, 'project:legacy-title', 'My own name',
+            '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access', 'default', 'manual',
+            '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
+          (${generated}, 'project:legacy-title', 'Generated name',
+            '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access', 'default', 'automatic',
+            '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z')
+      `;
+
+      yield* importer.reconcileShells;
+      assert.strictEqual(yield* provenance(renamed), "manual");
+      assert.strictEqual(yield* provenance(generated), undefined);
+
+      // Threads imported before provenance was carried get it back once.
+      yield* sql`
+        UPDATE orchestration_v2_projection_threads
+        SET payload_json = json_remove(payload_json, '$.titleProvenance')
+        WHERE thread_id = ${renamed}
+      `;
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 1,
+        importedMessageCount: 0,
+      });
+      assert.strictEqual(yield* provenance(renamed), "manual");
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 0,
+        importedMessageCount: 0,
+      });
+    }),
+  );
+
   it.effect("turns v1 block replies into assistant citations leading the user message", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

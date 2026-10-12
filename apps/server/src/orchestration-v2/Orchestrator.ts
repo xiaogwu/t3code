@@ -457,6 +457,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
+    case "thread.title.policy.apply":
     case "thread.runtime-mode.set":
     case "thread.interaction-mode.set":
     case "thread.model-selection.set":
@@ -2409,6 +2410,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pull-request-watch.sync"
           | "thread.pull-request.sync"
           | "thread.title.regeneration.complete"
+          | "thread.title.policy.apply"
           | "thread.runtime-mode.set"
           | "thread.interaction-mode.set"
           | "thread.model-selection.set"
@@ -2977,7 +2979,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           return {
             ...thread,
-            ...(command.title === undefined ? {} : { title: command.title }),
+            // Every rename, from a person or an agent, arrives here; the
+            // title policy leaves the title alone from now on.
+            ...(command.title === undefined
+              ? {}
+              : { title: command.title, titleProvenance: "manual" as const }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
             limitRecovery?.snooze === true &&
@@ -3217,11 +3223,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: thread.updatedAt,
           };
         case "thread.title.regeneration.complete":
+          // A generated title, even one the user asked to regenerate over a
+          // manual rename, hands the thread back to the title policy.
           return thread.titleRegeneration?.requestId === command.requestId
             ? {
                 ...thread,
-                ...(command.title === undefined ? {} : { title: command.title }),
+                ...(command.title === undefined
+                  ? {}
+                  : { title: command.title, titleProvenance: "automatic" as const }),
                 titleRegeneration: null,
+                updatedAt: now,
+              }
+            : thread;
+        case "thread.title.policy.apply":
+          return thread.title === command.expectedTitle &&
+            thread.titleRegeneration == null &&
+            !(command.preserveManualTitle && thread.titleProvenance === "manual")
+            ? {
+                ...thread,
+                title: command.title,
+                titleProvenance: "automatic" as const,
                 updatedAt: now,
               }
             : thread;
@@ -3271,6 +3292,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
         case "thread.title.regeneration.complete":
+        case "thread.title.policy.apply":
           return "thread.metadata-updated" as const;
         case "thread.pull-request.link":
         case "thread.pull-request.unlink":
@@ -10712,6 +10734,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.watch":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
+      case "thread.title.policy.apply":
       case "thread.runtime-mode.set":
       case "thread.interaction-mode.set":
       case "thread.model-selection.set":

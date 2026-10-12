@@ -4,6 +4,7 @@ import {
   CommandId,
   MessageId,
   NodeId,
+  PositiveInt,
   ProviderSessionId,
   RunAttemptId,
   ProviderApprovalDecision,
@@ -110,6 +111,8 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     kind: Schema.Union([
       Schema.Struct({ type: Schema.Literal("initial"), messageId: MessageId }),
       Schema.Struct({ type: Schema.Literal("regenerate") }),
+      /** The title policy's look at a thread once its `runOrdinal`th run completed. */
+      Schema.Struct({ type: Schema.Literal("policy"), runOrdinal: PositiveInt }),
     ]),
   }),
   /** Follows a Stop: sends `thread.stop` to every delegated task under the stopped thread. */

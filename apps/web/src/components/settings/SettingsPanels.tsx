@@ -2,6 +2,7 @@ import { SettingsGroup } from "./SettingsGroup";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
+import { TitlePolicySettings } from "./TitlePolicySettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import {
   ArchiveIcon,
@@ -3606,6 +3607,7 @@ export function GeneralSettingsPanel() {
             )
           }
         />
+        <TitlePolicySettings />
       </SettingsSection>
 
       <SettingsSection id="about" title="About">

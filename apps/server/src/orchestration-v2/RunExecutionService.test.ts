@@ -4479,3 +4479,97 @@ it.effect("releases ingestion after idle subagent rows and items settle", () =>
     ]);
   }),
 );
+
+it.effect.each([
+  { name: "a completed run when the title policy is on", status: "completed", enabled: true },
+  { name: "a completed run when the title policy is off", status: "completed", enabled: false },
+  { name: "a failed run", status: "failed", enabled: true },
+] as const)("queues the title policy's look after $name only when it applies", (scenario) =>
+  Effect.gen(function* () {
+    const key = `title-policy-${scenario.status}-${scenario.enabled}`;
+    const ids = backgroundScenarioIds(key);
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const finalized = yield* Deferred.make<ReadonlyArray<PendingOrchestrationEffectV2>>();
+    const layerTest = RunExecutionService.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          McpAppModelContext.layerEmpty,
+          Layer.mock(CheckpointService.CheckpointServiceV2)({ captureBaseline: () => Effect.void }),
+          Layer.mock(EventSink.EventSinkV2)({
+            write: () => Effect.succeed([]),
+            writeWithEffects: (input) =>
+              (input.events.some((event) => event.type === "run.updated")
+                ? Deferred.succeed(finalized, input.effects)
+                : Effect.void
+              ).pipe(Effect.as([])),
+            writeIfRunCurrent: () => Effect.succeed({ committed: true, storedEvents: [] }),
+          }),
+          IdAllocator.layer,
+          Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({
+            ingestNormalized: () => Effect.succeed([]),
+          }),
+          ServerSettings.layerTest({ titlePolicy: { enabled: scenario.enabled } }),
+        ),
+      ),
+    );
+
+    yield* Effect.gen(function* () {
+      const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
+      yield* runExecution.startRootRun({
+        commandId: CommandId.make(`command:${key}`),
+        appThread: { id: ids.threadId } as OrchestrationV2AppThread,
+        providerSessionId: ProviderSessionId.make(`session:${key}`),
+        session: {
+          events: Stream.empty,
+          subscribeEvents: Effect.succeed({
+            events: Stream.make(rootTerminalEvent(ids, scenario.status)),
+            close: Effect.void,
+          }),
+          startTurn: () => Effect.void,
+        } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime,
+        run: {
+          id: ids.runId,
+          threadId: ids.threadId,
+          ordinal: 4,
+          providerInstanceId,
+        } as OrchestrationV2Run,
+        rootNode: { id: ids.rootNodeId } as OrchestrationV2ExecutionNode,
+        checkpointScope: {
+          id: CheckpointScopeId.make(`checkpoint-scope:${key}`),
+        } as OrchestrationV2CheckpointScope,
+        providerThread: { id: ids.providerThreadId, driver } as OrchestrationV2ProviderThread,
+        attempt: {
+          id: ids.attemptId,
+          providerTurnId: ids.rootProviderTurnId,
+        } as OrchestrationV2RunAttempt,
+        attemptId: ids.attemptId,
+        providerTurnOrdinal: 1,
+        message: {
+          messageId: MessageId.make(`message:${key}:user`),
+          text: "Finish the turn.",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+        },
+        modelSelection: { instanceId: providerInstanceId, model: "gpt-5.4" },
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", access: { type: "fullAccess" }, networkAccess: false },
+        },
+      });
+    }).pipe(Effect.provide(layerTest));
+
+    const titleEffects = (yield* Deferred.await(finalized))
+      .map((effect) => effect.request)
+      .filter((request) => request.type === "thread-title.generate");
+    assert.deepEqual(
+      titleEffects,
+      scenario.status === "completed" && scenario.enabled
+        ? [{ type: "thread-title.generate", kind: { type: "policy", runOrdinal: 4 } }]
+        : [],
+    );
+  }),
+);

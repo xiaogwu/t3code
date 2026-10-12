@@ -2155,6 +2155,11 @@ describe("orchestrator MCP toolkit", () => {
               title: "Metadata-managed thread",
               linkedPullRequest: null,
             });
+            // An agent's rename is protected from the title policy like a person's.
+            expect(
+              (yield* orchestrator.getThreadProjection(emptyThread.threadId)).thread
+                .titleProvenance,
+            ).toBe("manual");
             const repeatedRenameCall = yield* invoke("t3_thread_update", {
               threadId: emptyThread.threadId,
               action: "rename",

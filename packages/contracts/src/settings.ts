@@ -46,6 +46,7 @@ import {
 } from "./providerInstance.ts";
 import { ExternalTerminalId } from "./externalTerminal.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
+import { defaultTitlePolicy, TitlePolicy } from "./titlePolicy.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -1270,6 +1271,8 @@ export const ServerSettings = Schema.Struct({
   textGenerationFallbackModelSelections: Schema.Array(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  /** Rules for automatic thread titles: identifier prefixes, exact templates, and refresh cadence. */
+  titlePolicy: TitlePolicy.pipe(Schema.withDecodingDefault(Effect.succeed(defaultTitlePolicy))),
   removeAgentCreditsOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sourceControlWritingStyle: SourceControlWritingStyleSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1565,6 +1568,8 @@ export const ServerSettingsPatch = Schema.Struct({
   // Replaced wholesale, never merged element-by-element: the order is the
   // fallback order the user authored.
   textGenerationFallbackModelSelections: Schema.optionalKey(Schema.Array(ModelSelection)),
+  // Replaced wholesale: the policy is edited as one JSON document.
+  titlePolicy: Schema.optionalKey(TitlePolicy),
   removeAgentCreditsOnMerge: Schema.optionalKey(Schema.Boolean),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({

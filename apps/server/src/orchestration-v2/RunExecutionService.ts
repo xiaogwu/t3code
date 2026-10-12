@@ -691,9 +691,17 @@ export const layer: Layer.Layer<
         // Stopped runs capture too: their checkpoint is the rollback point for
         // the next message. The capture is enqueued with these terminal events,
         // ahead of any later run's start on this thread's effect lane.
+        // A completed run also gives the title policy (a fork setting) its
+        // look, on the title lane so a slow model never holds up the next turn.
+        const titlePolicyEnabled =
+          input.terminal.status === "completed" &&
+          (yield* serverSettings.getSettings.pipe(
+            Effect.map((settings) => settings.titlePolicy.enabled),
+            Effect.orElseSucceed(() => false),
+          ));
         const finalization = {
-          effects:
-            input.terminal.status === "completed" ||
+          effects: [
+            ...(input.terminal.status === "completed" ||
             input.terminal.status === "interrupted" ||
             input.terminal.status === "cancelled"
               ? [
@@ -708,7 +716,21 @@ export const layer: Layer.Layer<
                     },
                   },
                 ]
-              : [],
+              : []),
+            ...(titlePolicyEnabled
+              ? [
+                  {
+                    id: `effect:title-policy:${input.run.id}`,
+                    commandId: CommandId.make(`command:effect:title-policy:${input.run.id}`),
+                    threadId: input.run.threadId,
+                    request: {
+                      type: "thread-title.generate" as const,
+                      kind: { type: "policy" as const, runOrdinal: input.run.ordinal },
+                    },
+                  },
+                ]
+              : []),
+          ],
           events: [
             // Terminalize open run-owned subagent rows before the root run
             // settles so projections never keep a forever-running subagent card.

@@ -301,6 +301,9 @@ export function applyServerSettingsPatch(
     usageModelAliases: usageModelAliasesPatch,
     // Entry replacement: deepMerge would keep keys the client meant to clear.
     projectSettingsOverrides: projectSettingsOverridesPatch,
+    // Whole-struct replace: the policy is edited as one JSON document, and a
+    // removed rule has to stay removed.
+    titlePolicy,
     // Already translated into `projectSettingsOverrides` above; the legacy
     // maps are derived views and must never be merged directly.
     projectAgentBrowserAccessOverrides: _legacyBrowserAccess,
@@ -506,6 +509,7 @@ export function applyServerSettingsPatch(
     ...(patch.textGenerationFallbackModelSelections !== undefined
       ? { textGenerationFallbackModelSelections: patch.textGenerationFallbackModelSelections }
       : {}),
+    ...(titlePolicy !== undefined ? { titlePolicy } : {}),
     ...(patch.reviewGuideModelSelection !== undefined
       ? { reviewGuideModelSelection: patch.reviewGuideModelSelection }
       : {}),

@@ -434,6 +434,12 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ),
   ),
+  /**
+   * Who set `title`: "manual" for a rename by a person or agent, which the
+   * title policy leaves alone; "automatic" for generated titles. Absent reads
+   * as "automatic".
+   */
+  titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])),
   /** Latest accepted rollback. Only its failure is recorded in `rollbackFailure`. */
   rollbackRequestId: Schema.optional(CommandId),
   /** Latest rollback that failed after every retry; cleared when the next rollback starts. */
@@ -3216,6 +3222,19 @@ const OrchestrationV2InternalCommand = Schema.Union([
         notification: OrchestrationV2Notification,
       }),
     ),
+  }),
+  /**
+   * Fork: the title policy renaming a thread after a turn. Ignored when the
+   * title changed since `expectedTitle` was read, a regeneration is in flight,
+   * or a manual title is protected, so a rename never loses to a stale one.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.title.policy.apply"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    expectedTitle: TrimmedNonEmptyString,
+    title: TrimmedNonEmptyString,
+    preserveManualTitle: Schema.Boolean,
   }),
   /** Records that the provider rollback `requestId` failed for good. */
   Schema.Struct({
