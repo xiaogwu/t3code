@@ -742,9 +742,11 @@ export function applyToProjection(
         thread: event.payload,
       };
     // Visited tracking is read state, not activity: skip the updatedAt bump so
-    // viewing a thread does not surface it as recently active.
+    // viewing a thread does not surface it as recently active. Bookmarks too.
     case "thread.visited":
     case "thread.marked-unread":
+    case "thread.bookmark-added":
+    case "thread.bookmark-removed":
       return {
         ...projection,
         thread: event.payload,
@@ -1838,6 +1840,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           case "thread.active-reordered":
           case "thread.visited":
           case "thread.marked-unread":
+          case "thread.bookmark-added":
+          case "thread.bookmark-removed":
           case "thread.metadata-updated":
           case "thread.pull-request-synced":
           case "thread.runtime-mode-updated":
@@ -2669,6 +2673,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           event.type !== "thread.pin-reordered" &&
           event.type !== "thread.visited" &&
           event.type !== "thread.marked-unread" &&
+          event.type !== "thread.bookmark-added" &&
+          event.type !== "thread.bookmark-removed" &&
           event.type !== "thread.metadata-updated" &&
           event.type !== "thread.runtime-mode-updated" &&
           event.type !== "thread.interaction-mode-updated" &&
