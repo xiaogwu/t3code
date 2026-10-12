@@ -1,10 +1,12 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  defaultTitlePolicy,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   UsageLimitSourceId,
   type ServerProvider,
+  type TitlePolicy,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import { describe, expect, it } from "vite-plus/test";
@@ -434,6 +436,22 @@ describe("serverSettings helpers", () => {
       codex,
       claude,
     ]);
+  });
+
+  it("replaces the title policy whole instead of deep-merging its nested fields", () => {
+    // Only a key the patch never mentions tells a deep merge from a replace,
+    // since the patch is itself a complete policy.
+    const stale = {
+      ...defaultTitlePolicy,
+      defaults: { ...defaultTitlePolicy.defaults, maxCharacters: 10, legacyField: "stale" },
+      rules: [{ name: "Stale", when: {}, prefix: "STALE", placement: "start", priority: 1 }],
+    } as unknown as TitlePolicy;
+    const current = { ...DEFAULT_SERVER_SETTINGS, titlePolicy: stale };
+
+    expect(
+      applyServerSettingsPatch(current, { titlePolicy: defaultTitlePolicy }).titlePolicy,
+    ).toEqual(defaultTitlePolicy);
+    expect(applyServerSettingsPatch(current, {}).titlePolicy).toEqual(stale);
   });
 
   it("clears source control writer selection with null", () => {
