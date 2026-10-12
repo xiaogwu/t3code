@@ -172,6 +172,8 @@ export const layer: Layer.Layer<
             yield* Effect.yieldNow;
           }
           const now = DateTime.formatIso(yield* DateTime.now);
+          // Record the range read, not the last applied event: event types this
+          // build does not know are skipped on read and may trail it.
           yield* sql`
             INSERT INTO orchestration_v2_projection_metadata (
               projection_name,
@@ -182,7 +184,7 @@ export const layer: Layer.Layer<
             VALUES (
               'thread-projections',
               ${ProjectionStore.ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION},
-              ${lastSequence},
+              ${throughSequence},
               ${now}
             )
             ON CONFLICT(projection_name) DO UPDATE SET
