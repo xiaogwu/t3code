@@ -309,6 +309,7 @@ import {
   ChevronDownIcon,
   DownloadIcon,
   GitBranchIcon,
+  Minimize2Icon,
   TargetIcon,
   WifiOffIcon,
 } from "lucide-react";
@@ -561,6 +562,7 @@ import {
   revokeUserMessagePreviewUrls,
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
+  compactingComposerBannerItem,
   waitForStartedServerThread,
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
@@ -7798,6 +7800,11 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeGoal, activeThread, isWorking, sendStandaloneCommand]);
 
+  const compactingBannerItem = useMemo(
+    () => compactingComposerBannerItem({ isCompacting, icon: <Minimize2Icon /> }),
+    [isCompacting],
+  );
+
   const backgroundWorkBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
     if (presentation === null || !activeThread) {
@@ -8038,6 +8045,7 @@ export default function ChatView(props: ChatViewProps) {
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
+      compactingBannerItem,
       backgroundWorkBannerItem,
     ].filter((item) => item !== null);
     // The user asked for this one, so it leads the notice tier instead of trailing it.
@@ -8111,6 +8119,7 @@ export default function ChatView(props: ChatViewProps) {
     isRestoringThreadBranch,
     backgroundWorkBannerItem,
     childInputBannerItem,
+    compactingBannerItem,
     goalBannerItem,
     localCheckoutBranchMismatch,
     projectCloneBannerItem,
@@ -11951,6 +11960,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ) : null
                               }
                               bannerItems={composerBannerItems}
+                              isCompacting={isCompacting}
                               resumeCompactionTokens={resumeCompactionTokens}
                               keepFullHistory={keepFullHistory}
                               onToggleKeepFullHistory={toggleKeepFullHistory}

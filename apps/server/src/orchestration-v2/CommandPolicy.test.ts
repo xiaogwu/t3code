@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  MessageId,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ThreadProjection,
   ProviderInstanceId,
@@ -34,6 +35,7 @@ function dispatchProjection(
   const providerThreadId = ProviderThreadId.make("command-policy-provider-thread");
   const providerSessionId = ProviderSessionId.make("command-policy-provider-session");
   return {
+    messages: [],
     runs:
       sessionCapabilities === undefined
         ? []
@@ -138,6 +140,52 @@ it("targets the latest active run for explicit steer and restart intent", () => 
       "steer",
     ),
     { type: "start_immediately" },
+  );
+});
+
+function projectionWithActiveRunMessage(text: string): OrchestrationV2ThreadProjection {
+  const projection = dispatchProjection(baseCapabilities);
+  const userMessageId = MessageId.make("command-policy-active-message");
+  return {
+    ...projection,
+    runs: projection.runs.map((run) => ({ ...run, userMessageId })),
+    messages: [{ id: userMessageId, role: "user", text, attachments: [] }],
+  } as unknown as OrchestrationV2ThreadProjection;
+}
+
+it("queues every send while the active run is compacting", () => {
+  const compacting = projectionWithActiveRunMessage(" /Compact ");
+  for (const deliveryIntent of ["auto", "steer", "restart"] as const) {
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(
+        compacting,
+        { type: "start_immediately" },
+        deliveryIntent,
+      ),
+      { type: "queue_after_active" },
+    );
+  }
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(compacting, { type: "queue_after_active" }),
+    { type: "queue_after_active" },
+  );
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(compacting, {
+      type: "steer_active",
+      targetRunId: activeRunId,
+    }),
+    { type: "queue_after_active" },
+  );
+});
+
+it("still steers an active run that is not a compaction", () => {
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(
+      projectionWithActiveRunMessage("/compact the parser module"),
+      { type: "start_immediately" },
+      "steer",
+    ),
+    { type: "steer_active", targetRunId: activeRunId },
   );
 });
 

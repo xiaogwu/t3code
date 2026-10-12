@@ -724,12 +724,6 @@ it.effect("keeps native maintenance commands out of steering and restart message
           next: "Continue with the parser",
           mode: "steer_active",
         },
-        {
-          name: "steer-compaction",
-          first: "/compact",
-          next: "Continue with the parser",
-          mode: "steer_active",
-        },
       ] as const) {
         const launched = yield* launches.launch(
           launchInput({
@@ -764,6 +758,39 @@ it.effect("keeps native maintenance commands out of steering and restart message
         assert.deepEqual(after.thread.titleRegeneration, before.thread.titleRegeneration);
         assert.deepEqual(yield* outbox.listByCommandId(commandId), []);
       }
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("queues a steer sent while the thread is compacting", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "steer-compaction:launch",
+          thread: "steer-compaction",
+          message: "/compact",
+        }),
+      );
+      const compactRun = (yield* threads.getThreadProjection(launched.threadId)).runs[0];
+      if (compactRun === undefined) return yield* Effect.die("Launch must create a run");
+      const messageId = MessageId.make("steer-compaction:message");
+      yield* threads.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("steer-compaction:message"),
+        threadId: launched.threadId,
+        messageId,
+        createdBy: "user",
+        creationSource: "web",
+        text: "Continue with the parser",
+        attachments: [],
+        dispatchMode: { type: "steer_active", targetRunId: compactRun.id },
+      });
+      const after = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(after.runs.find((run) => run.userMessageId === messageId)?.status, "queued");
     }).pipe(Effect.provide(harness.layer));
   }),
 );
