@@ -207,6 +207,7 @@ import {
   readTimelinePosition,
   observeTimelineRun,
   resolveTimelineSendScrollBehavior,
+  shouldReleaseCollapsedTimelineAnchor,
   type TimelineRunObservation,
   type TimelineScrollMode,
 } from "./chat/timelineScrollAnchoring";
@@ -3655,6 +3656,14 @@ export default function ChatView(props: ChatViewProps) {
     isConnecting ||
     isCompacting ||
     runlessWorkStartedAt !== null;
+  // Wider than isWorking: a run that has stopped streaming but not yet settled
+  // is still growing, so the collapsed-anchor release below waits for it. Read
+  // through a ref from callbacks that must not re-subscribe per render.
+  const activeTurnInProgress = isWorking || !latestRunSettled;
+  const activeTurnInProgressRef = useRef(activeTurnInProgress);
+  useEffect(() => {
+    activeTurnInProgressRef.current = activeTurnInProgress;
+  }, [activeTurnInProgress]);
   const activeContextWindow = useMemo(
     () =>
       deriveLatestContextWindowSnapshot(
@@ -6410,6 +6419,10 @@ export default function ChatView(props: ChatViewProps) {
   const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
   const settledTimelineAnchorRef = useRef<MessageId | null>(null);
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
+  // True once the armed anchor's end space has shrunk to zero: the response
+  // outgrew the reserved blank space, so the anchored view is identical to
+  // ordinary end-following and the anchor can be released.
+  const timelineAnchorEndSpaceCollapsedRef = useRef(false);
   const observedTimelineActivityRef = useRef<TimelineRunObservation | null>(null);
   const anchorUserScrollGenerationRef = useRef(0);
   const cancelPositionRestoreRef = useRef<(() => void) | null>(null);
@@ -6440,6 +6453,7 @@ export default function ChatView(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     pendingAnchorScrollRestoreRef.current = null;
     if (anchorScrollRestoreFrameRef.current !== null) {
       cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
@@ -6510,6 +6524,7 @@ export default function ChatView(props: ChatViewProps) {
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
     pendingTimelineAnchorRef.current = messageId;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     timelineAnchorReleasesOnToolActivityRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
@@ -6567,6 +6582,7 @@ export default function ChatView(props: ChatViewProps) {
     setTimelineLiveFollowEnabled(true);
     pendingTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor(releaseChatTimelineAnchor);
@@ -6746,61 +6762,103 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeThread?.id, isTimelineAtLogicalEnd, timelineRealContentOverflowsViewport]);
 
-  const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
-    if (pendingTimelineAnchorRef.current === messageId) {
-      pendingTimelineAnchorRef.current = null;
+  // A stale armed anchor keeps LegendList's maintainScrollAtEnd disabled, so a
+  // layout resize (sidebar or right panel toggle) strands the viewport short of
+  // the live edge. Once the end space has collapsed, releasing the anchor is
+  // visually a no-op and hands ordinary end-follow back to LegendList. Backs up
+  // the anchorRunSettled release, which only fires for an anchor it can match
+  // to a run. Returns true when it released.
+  const maybeReleaseCollapsedTimelineAnchor = useCallback(() => {
+    if (
+      !shouldReleaseCollapsedTimelineAnchor({
+        endSpaceCollapsed: timelineAnchorEndSpaceCollapsedRef.current,
+        turnInProgress: activeTurnInProgressRef.current,
+        mode: timelineScrollModeRef.current,
+        pendingAnchorId: pendingTimelineAnchorRef.current,
+        positionedAnchorId: positionedTimelineAnchorRef.current,
+        settledAnchorId: settledTimelineAnchorRef.current,
+      })
+    ) {
+      return false;
     }
-    activeTimelineAnchorIndexRef.current = anchorIndex;
-    if (positionedTimelineAnchorRef.current === messageId) {
-      return;
-    }
-    positionedTimelineAnchorRef.current = messageId;
+    timelineScrollModeRef.current = "following-end";
+    positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
-    const positionAnchor = (remainingAttempts: number) => {
-      requestAnimationFrame(() => {
-        if (positionedTimelineAnchorRef.current !== messageId) {
-          return;
-        }
-        const list = legendListRef.current;
-        if (!list) {
-          if (remainingAttempts > 0) {
-            positionAnchor(remainingAttempts - 1);
-          }
-          return;
-        }
-        const scrollNode = list.getScrollableNode();
-        let finished = false;
-        const finishAnimatedPositioning = () => {
-          if (finished) {
-            return;
-          }
-          finished = true;
-          window.clearTimeout(fallbackTimer);
-          scrollNode.removeEventListener("scrollend", finishAnimatedPositioning);
+    activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
+    setTimelineAnchor(releaseChatTimelineAnchor);
+    return true;
+  }, []);
+  useEffect(() => {
+    if (!activeTurnInProgress) {
+      maybeReleaseCollapsedTimelineAnchor();
+    }
+  }, [activeTurnInProgress, maybeReleaseCollapsedTimelineAnchor]);
+
+  const onTimelineAnchorReady = useCallback(
+    (messageId: MessageId, anchorIndex: number, endSpaceSize: number) => {
+      timelineAnchorEndSpaceCollapsedRef.current = endSpaceSize === 0;
+      if (maybeReleaseCollapsedTimelineAnchor()) {
+        return;
+      }
+      if (pendingTimelineAnchorRef.current === messageId) {
+        pendingTimelineAnchorRef.current = null;
+      }
+      activeTimelineAnchorIndexRef.current = anchorIndex;
+      if (positionedTimelineAnchorRef.current === messageId) {
+        return;
+      }
+      positionedTimelineAnchorRef.current = messageId;
+      settledTimelineAnchorRef.current = null;
+      const positionAnchor = (remainingAttempts: number) => {
+        requestAnimationFrame(() => {
           if (positionedTimelineAnchorRef.current !== messageId) {
             return;
           }
-          const scrollOffset = list.getState().scroll;
-          void list.scrollToOffset({ offset: scrollOffset, animated: false });
-          settledTimelineAnchorRef.current = messageId;
-          // A reveal has no streaming turn to keep tracking, so hand the list
-          // back to ordinary free scrolling once it has landed.
-          if (timelineScrollModeRef.current === "anchoring-reveal") {
-            timelineScrollModeRef.current = "free-scrolling";
+          const list = legendListRef.current;
+          if (!list) {
+            if (remainingAttempts > 0) {
+              positionAnchor(remainingAttempts - 1);
+            }
+            return;
           }
-        };
-        const fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
-        scrollNode.addEventListener("scrollend", finishAnimatedPositioning, { once: true });
-        void list.scrollToIndex({
-          index: anchorIndex,
-          animated: true,
-          viewPosition: 0,
-          viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          const scrollNode = list.getScrollableNode();
+          let finished = false;
+          const finishAnimatedPositioning = () => {
+            if (finished) {
+              return;
+            }
+            finished = true;
+            window.clearTimeout(fallbackTimer);
+            scrollNode.removeEventListener("scrollend", finishAnimatedPositioning);
+            if (positionedTimelineAnchorRef.current !== messageId) {
+              return;
+            }
+            const scrollOffset = list.getState().scroll;
+            void list.scrollToOffset({ offset: scrollOffset, animated: false });
+            settledTimelineAnchorRef.current = messageId;
+            // A reveal has no streaming turn to keep tracking, so hand the list
+            // back to ordinary free scrolling once it has landed.
+            if (timelineScrollModeRef.current === "anchoring-reveal") {
+              timelineScrollModeRef.current = "free-scrolling";
+            }
+            // The space may have collapsed while positioning was in flight.
+            maybeReleaseCollapsedTimelineAnchor();
+          };
+          const fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
+          scrollNode.addEventListener("scrollend", finishAnimatedPositioning, { once: true });
+          void list.scrollToIndex({
+            index: anchorIndex,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          });
         });
-      });
-    };
-    requestAnimationFrame(() => positionAnchor(12));
-  }, []);
+      };
+      requestAnimationFrame(() => positionAnchor(12));
+    },
+    [maybeReleaseCollapsedTimelineAnchor],
+  );
   const onTimelineAnchorSizeChanged = useCallback((messageId: MessageId) => {
     if (settledTimelineAnchorRef.current !== messageId) {
       return;
@@ -6920,6 +6978,7 @@ export default function ChatView(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     showScrollDebouncer.current.cancel();
     // A restored mid-thread position must not re-pin to the bottom, even if the
     // thread streamed new messages while away. The scroll-to-bottom pill is the
@@ -6954,6 +7013,9 @@ export default function ChatView(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
+    // A collapsed flag left over from the previous turn would release this
+    // reveal anchor the moment it reports ready.
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: revealRequest.messageId });
@@ -9968,6 +10030,7 @@ export default function ChatView(props: ChatViewProps) {
       setTimelineLiveFollowEnabled(true);
       pendingTimelineAnchorRef.current = messageIdForSend;
       activeTimelineAnchorIndexRef.current = null;
+      timelineAnchorEndSpaceCollapsedRef.current = false;
       timelineAnchorReleasesOnToolActivityRef.current = resolveTimelineSendScrollBehavior({
         threadHasStarted:
           activeThread.latestRun !== null ||
@@ -10652,6 +10715,7 @@ export default function ChatView(props: ChatViewProps) {
     setTimelineLiveFollowEnabled(true);
     pendingTimelineAnchorRef.current = messageIdForSend;
     activeTimelineAnchorIndexRef.current = null;
+    timelineAnchorEndSpaceCollapsedRef.current = false;
     timelineAnchorReleasesOnToolActivityRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
@@ -11614,9 +11678,7 @@ export default function ChatView(props: ChatViewProps) {
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
                 runlessWorkActive={runlessWorkStartedAt !== null}
-                activeTurnInProgress={
-                  !paintOnlyDisplayedTimeline && (isWorking || !latestRunSettled)
-                }
+                activeTurnInProgress={!paintOnlyDisplayedTimeline && activeTurnInProgress}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
                 awaitingUser={
                   !paintOnlyDisplayedTimeline &&

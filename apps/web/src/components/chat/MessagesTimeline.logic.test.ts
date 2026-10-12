@@ -34,6 +34,7 @@ import {
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
+  resolveTimelineRestoreTarget,
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   threadReadLabelPrefix,
@@ -156,6 +157,48 @@ describe("restoring a position whose row is gone", () => {
         entryId: "gone",
         offset: 0,
         createdAt: at(5),
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("restoring the main timeline's reading position", () => {
+  const at = (minute: number) => new Date(Date.UTC(2026, 8, 4, 12, minute)).toISOString();
+  const rows = [
+    { id: "message:1", createdAt: at(0) },
+    { id: "work-group:2", createdAt: at(10) },
+    { id: "message:3", createdAt: at(20) },
+  ];
+
+  it("keeps the saved row and its intra-row offset while that row exists", () => {
+    expect(
+      resolveTimelineRestoreTarget(rows, {
+        rowId: "work-group:2",
+        offsetWithinRow: 80,
+        rowCreatedAt: at(10),
+      }),
+    ).toEqual({ index: 1, rowId: "work-group:2", offsetWithinRow: 80 });
+  });
+
+  it("lands on the nearest row in time once the saved row is gone", () => {
+    expect(
+      resolveTimelineRestoreTarget(rows, {
+        rowId: "work-live:vanished",
+        offsetWithinRow: 80,
+        rowCreatedAt: at(15),
+      }),
+    ).toEqual({ index: 1, rowId: "work-group:2", offsetWithinRow: 0 });
+  });
+
+  it("gives up on a vanished row saved without a timestamp", () => {
+    expect(
+      resolveTimelineRestoreTarget(rows, { rowId: "work-live:vanished", offsetWithinRow: 80 }),
+    ).toBeUndefined();
+    expect(
+      resolveTimelineRestoreTarget(rows, {
+        rowId: "work-live:vanished",
+        offsetWithinRow: 80,
+        rowCreatedAt: null,
       }),
     ).toBeUndefined();
   });

@@ -81,6 +81,35 @@ export function resolveTimelineSendScrollBehavior({
   };
 }
 
+/**
+ * Whether a send-time anchor whose anchored end space has collapsed to zero can
+ * be dropped. Re-checked at every quiescent point (anchor ready, positioning
+ * landed, turn settled):
+ * - a still-running turn keeps its anchor: a size-0 report often arrives
+ *   mid-stream, the moment the response outgrows the space, and releasing then
+ *   would start pinning the stream to the end;
+ * - only a send-time anchor is released: a palette reveal owns its anchor, and
+ *   once the user scrolls away live follow is already off and returning to the
+ *   end releases the anchor anyway;
+ * - an in-flight positioning must land before the anchor state is torn down.
+ */
+export function shouldReleaseCollapsedTimelineAnchor(input: {
+  readonly endSpaceCollapsed: boolean;
+  readonly turnInProgress: boolean;
+  readonly mode: TimelineScrollMode;
+  readonly pendingAnchorId: string | null;
+  readonly positionedAnchorId: string | null;
+  readonly settledAnchorId: string | null;
+}): boolean {
+  if (!input.endSpaceCollapsed || input.turnInProgress || input.mode !== "anchoring-new-turn") {
+    return false;
+  }
+  const positioningInFlight =
+    input.pendingAnchorId !== null ||
+    (input.positionedAnchorId !== null && input.settledAnchorId !== input.positionedAnchorId);
+  return !positioningInFlight;
+}
+
 export interface TimelineListMeasurementState {
   readonly data: readonly unknown[];
   readonly scroll: number;

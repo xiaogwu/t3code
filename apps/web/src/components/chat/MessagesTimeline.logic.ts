@@ -342,6 +342,36 @@ export function resolveWorkGroupScrollIndex(
   return resolveNearestRowIndexByTime(entries, anchor.createdAt);
 }
 
+/**
+ * Where a saved reading position lands in the current rows: its own row when
+ * that still exists, otherwise the nearest row in time with the intra-row
+ * offset dropped. Returns the row actually landed on, which restore has to
+ * keep mounted and measure against, not necessarily the one that was saved.
+ */
+export function resolveTimelineRestoreTarget(
+  rows: ReadonlyArray<{ readonly id: string; readonly createdAt?: string | null }>,
+  position: {
+    readonly rowId: string;
+    readonly offsetWithinRow: number;
+    readonly rowCreatedAt?: string | null;
+  },
+):
+  | { readonly index: number; readonly rowId: string; readonly offsetWithinRow: number }
+  | undefined {
+  const resolved = resolveWorkGroupScrollIndex(rows, {
+    entryId: position.rowId,
+    offset: position.offsetWithinRow,
+    createdAt: position.rowCreatedAt ?? null,
+  });
+  const row = resolved ? rows[resolved.index] : undefined;
+  if (!resolved || !row) return undefined;
+  return {
+    index: resolved.index,
+    rowId: row.id,
+    offsetWithinRow: row.id === position.rowId ? position.offsetWithinRow : 0,
+  };
+}
+
 /** Only newly appended calls may follow the end, never status or output updates. */
 export function shouldFollowWorkGroupAppend(
   previous: ReadonlyArray<{ readonly id: string }>,

@@ -100,7 +100,7 @@ vi.mock("@legendapp/list/react", async () => {
       anchorIndex: number;
       anchorMaxSize?: number;
       anchorOffset?: number;
-      onReady?: (info: { anchorIndex: number }) => void;
+      onReady?: (info: { anchorIndex: number; size: number }) => void;
       onSizeChanged?: (size: number) => void;
     };
     maintainScrollAtEnd?:
@@ -126,7 +126,12 @@ vi.mock("@legendapp/list/react", async () => {
   }) => {
     if (props.anchoredEndSpace) {
       props.anchoredEndSpace.onSizeChanged?.(240);
-      props.anchoredEndSpace.onReady?.({ anchorIndex: props.anchoredEndSpace.anchorIndex });
+      // LegendList always reports a numeric tail size, so the mock must too:
+      // ChatView releases the anchor on zero, so the size has to reach it.
+      props.anchoredEndSpace.onReady?.({
+        anchorIndex: props.anchoredEndSpace.anchorIndex,
+        size: 240,
+      });
     }
     return (
       <div
@@ -1135,7 +1140,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-maintain-visible-content-position-size="true"');
     expect(markup).toContain('data-maintain-visible-content-position-restore="true"');
     expect(onAnchorReady).toHaveBeenCalledOnce();
-    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
+    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1, 240);
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
   });
 
@@ -1156,7 +1161,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("t3code — Tests");
     expect(markup).toContain('src="data:image/png;base64,aWNvbg=="');
     expect(onAnchorReady).toHaveBeenCalledOnce();
-    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0);
+    expect(onAnchorReady).toHaveBeenCalledWith(firstEntry.message.id, 0, 240);
   });
 
   it("does not render SnapShot window details before the preview resolves", () => {
@@ -1195,7 +1200,7 @@ describe("MessagesTimeline", () => {
     // anchor is matched past the earlier user row rather than stopping there.
     expect(markup).toContain('data-anchor-index="1"');
     expect(markup).toContain('data-anchor-offset="24"');
-    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
+    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1, 240);
   });
 
   it("offers preview and download actions for PDF attachments", () => {
