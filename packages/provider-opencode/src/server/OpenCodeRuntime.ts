@@ -616,6 +616,103 @@ function ensureRuntimeError(
     : new OpenCodeRuntimeError({ operation, detail, cause });
 }
 
+// Runs the user's prelaunch shell line to completion before the server spawn.
+// Invokes the interpreter directly rather than `shell: true` so the line is
+// handed over verbatim instead of being re-joined and re-quoted by Node. The
+// 1.x runtime runs it inside its server spawn; OpenCode2Server runs it per
+// borrow, since one 2.x server outlives many sessions and their models.
+export const runOpenCodePrelaunchCommand = (
+  prelaunch: OpenCodePrelaunch,
+  environment?: NodeJS.ProcessEnv,
+) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const hostPlatform = yield* HostProcess.Platform;
+    const command = prelaunch.command.trim();
+    if (command.length === 0) {
+      return;
+    }
+    const prelaunchScope = yield* Scope.Scope;
+    const timeoutMs = prelaunch.timeoutMs ?? DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS;
+    const [interpreter, interpreterArgs]: [string, ReadonlyArray<string>] =
+      hostPlatform === "win32"
+        ? ["cmd.exe", ["/d", "/s", "/c", command]]
+        : ["/bin/sh", ["-c", command]];
+
+    // The command needs to know which model the session picked, so a setup that
+    // only some models need can skip the work. Left unset when the model is not
+    // known, which the command should read as "do the setup".
+    const prelaunchEnv = prelaunch.model ? { [PRELAUNCH_MODEL_ENV]: prelaunch.model } : undefined;
+    const spawnOptions = environment
+      ? { env: { ...environment, ...prelaunchEnv } }
+      : { ...(prelaunchEnv ? { env: prelaunchEnv } : {}), extendEnv: true };
+
+    const child = yield* spawner
+      .spawn(ChildProcess.make(interpreter, interpreterArgs, spawnOptions))
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new OpenCodeRuntimeError({
+              operation: "runOpenCodePrelaunchCommand",
+              detail: `Failed to spawn OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+              cause,
+            }),
+        ),
+      );
+
+    const outputRef = yield* Ref.make("");
+    const drain = (stream: typeof child.stdout) =>
+      stream.pipe(
+        Stream.decodeText(),
+        Stream.runForEach((chunk) => Ref.update(outputRef, (output) => `${output}${chunk}`)),
+        Effect.ignore,
+        Effect.forkIn(prelaunchScope),
+      );
+    // Drain both pipes so a chatty command cannot deadlock on a full buffer.
+    const drainFibers = [yield* drain(child.stdout), yield* drain(child.stderr)];
+
+    const exit = yield* child.exitCode.pipe(
+      Effect.timeoutOption(timeoutMs),
+      Effect.mapError(
+        (cause) =>
+          new OpenCodeRuntimeError({
+            operation: "runOpenCodePrelaunchCommand",
+            detail: `Failed while waiting for the OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+            cause,
+          }),
+      ),
+    );
+
+    // The drains are worth a brief wait — without it the diagnostics below are
+    // usually empty, since EOF lands after the exit code. But they cannot be
+    // waited on outright: a prelaunch that leaves a daemon running hands it
+    // these pipes, and they then stay open indefinitely.
+    yield* Effect.forEach(drainFibers, Fiber.await, { concurrency: "unbounded" }).pipe(
+      Effect.timeoutOption(PRELAUNCH_OUTPUT_DRAIN_GRACE_MS),
+      Effect.ignore,
+    );
+    yield* Effect.forEach(drainFibers, (fiber) => Fiber.interrupt(fiber).pipe(Effect.ignore), {
+      concurrency: "unbounded",
+    });
+
+    const output = (yield* Ref.get(outputRef)).trim();
+    const withOutput = (detail: string) => (output ? `${detail}\n\noutput:\n${output}` : detail);
+
+    if (Option.isNone(exit)) {
+      return yield* new OpenCodeRuntimeError({
+        operation: "runOpenCodePrelaunchCommand",
+        detail: withOutput(`OpenCode prelaunch command timed out after ${timeoutMs}ms: ${command}`),
+      });
+    }
+    const exitCode = Number(exit.value);
+    if (exitCode !== 0) {
+      return yield* new OpenCodeRuntimeError({
+        operation: "runOpenCodePrelaunchCommand",
+        detail: withOutput(`OpenCode prelaunch command exited with code ${exitCode}: ${command}`),
+        cause: { exitCode, output },
+      });
+    }
+  }).pipe(Effect.scoped);
 const makeOpenCodeRuntime = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const netService = yield* NetService.NetService;
@@ -680,98 +777,11 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       ),
     );
 
-  // Runs the user's prelaunch shell line to completion before the server spawn.
-  // Invokes the interpreter directly rather than `shell: true` so the line is
-  // handed over verbatim instead of being re-joined and re-quoted by Node.
   const runPrelaunchCommand = (prelaunch: OpenCodePrelaunch, environment?: NodeJS.ProcessEnv) =>
-    Effect.gen(function* () {
-      const command = prelaunch.command.trim();
-      if (command.length === 0) {
-        return;
-      }
-      const prelaunchScope = yield* Scope.Scope;
-      const timeoutMs = prelaunch.timeoutMs ?? DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS;
-      const [interpreter, interpreterArgs]: [string, ReadonlyArray<string>] =
-        hostPlatform === "win32"
-          ? ["cmd.exe", ["/d", "/s", "/c", command]]
-          : ["/bin/sh", ["-c", command]];
-
-      // The command needs to know which model the session picked, so a setup that
-      // only some models need can skip the work. Left unset when the model is not
-      // known, which the command should read as "do the setup".
-      const prelaunchEnv = prelaunch.model ? { [PRELAUNCH_MODEL_ENV]: prelaunch.model } : undefined;
-      const spawnOptions = environment
-        ? { env: { ...environment, ...prelaunchEnv } }
-        : { ...(prelaunchEnv ? { env: prelaunchEnv } : {}), extendEnv: true };
-
-      const child = yield* spawner
-        .spawn(ChildProcess.make(interpreter, interpreterArgs, spawnOptions))
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new OpenCodeRuntimeError({
-                operation: "runOpenCodePrelaunchCommand",
-                detail: `Failed to spawn OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
-                cause,
-              }),
-          ),
-        );
-
-      const outputRef = yield* Ref.make("");
-      const drain = (stream: typeof child.stdout) =>
-        stream.pipe(
-          Stream.decodeText(),
-          Stream.runForEach((chunk) => Ref.update(outputRef, (output) => `${output}${chunk}`)),
-          Effect.ignore,
-          Effect.forkIn(prelaunchScope),
-        );
-      // Drain both pipes so a chatty command cannot deadlock on a full buffer.
-      const drainFibers = [yield* drain(child.stdout), yield* drain(child.stderr)];
-
-      const exit = yield* child.exitCode.pipe(
-        Effect.timeoutOption(timeoutMs),
-        Effect.mapError(
-          (cause) =>
-            new OpenCodeRuntimeError({
-              operation: "runOpenCodePrelaunchCommand",
-              detail: `Failed while waiting for the OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
-              cause,
-            }),
-        ),
-      );
-
-      // The drains are worth a brief wait — without it the diagnostics below are
-      // usually empty, since EOF lands after the exit code. But they cannot be
-      // waited on outright: a prelaunch that leaves a daemon running hands it
-      // these pipes, and they then stay open indefinitely.
-      yield* Effect.forEach(drainFibers, Fiber.await, { concurrency: "unbounded" }).pipe(
-        Effect.timeoutOption(PRELAUNCH_OUTPUT_DRAIN_GRACE_MS),
-        Effect.ignore,
-      );
-      yield* Effect.forEach(drainFibers, (fiber) => Fiber.interrupt(fiber).pipe(Effect.ignore), {
-        concurrency: "unbounded",
-      });
-
-      const output = (yield* Ref.get(outputRef)).trim();
-      const withOutput = (detail: string) => (output ? `${detail}\n\noutput:\n${output}` : detail);
-
-      if (Option.isNone(exit)) {
-        return yield* new OpenCodeRuntimeError({
-          operation: "runOpenCodePrelaunchCommand",
-          detail: withOutput(
-            `OpenCode prelaunch command timed out after ${timeoutMs}ms: ${command}`,
-          ),
-        });
-      }
-      const exitCode = Number(exit.value);
-      if (exitCode !== 0) {
-        return yield* new OpenCodeRuntimeError({
-          operation: "runOpenCodePrelaunchCommand",
-          detail: withOutput(`OpenCode prelaunch command exited with code ${exitCode}: ${command}`),
-          cause: { exitCode, output },
-        });
-      }
-    }).pipe(Effect.scoped);
+    runOpenCodePrelaunchCommand(prelaunch, environment).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(HostProcess.Platform, hostPlatform),
+    );
 
   const createOpenCodeSdkClient: OpenCodeRuntime["Service"]["createOpenCodeSdkClient"] = (input) =>
     createOpencodeClient({
