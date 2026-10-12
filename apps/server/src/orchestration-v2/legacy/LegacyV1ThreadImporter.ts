@@ -69,6 +69,8 @@ interface LegacyThreadRow {
   readonly linked_pull_request_json: string | null;
   readonly branch_pull_request_json: string | null;
   readonly active_order_key: string | null;
+  /** The fork's title policy marker (migration 046): "manual" for a renamed thread. */
+  readonly title_provenance: string | null;
   readonly deleted_at: string | null;
 }
 
@@ -282,6 +284,8 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     // Omitted when empty so threads without bookmarks keep their payload unchanged.
     ...(bookmarks.length > 0 ? { bookmarks } : {}),
     activeOrderKey: row.active_order_key?.trim() || null,
+    // Only a rename needs carrying: absent already reads as automatic.
+    ...(row.title_provenance === "manual" ? { titleProvenance: "manual" as const } : {}),
     activeProviderThreadId: null,
     historyOrigin: "v1_import",
     lineage: {
@@ -590,6 +594,7 @@ const make = Effect.gen(function* () {
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
+        thread.title_provenance,
         thread.deleted_at,
         projection.payload_json
       FROM orchestration_v2_legacy_imports AS legacy_import
@@ -606,6 +611,11 @@ const make = Effect.gen(function* () {
          OR json_type(projection.payload_json, '$.pullRequests') IS NULL
          OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
          OR json_type(projection.payload_json, '$.activeOrderKey') IS NULL
+         -- Threads imported before the title policy lost their v1 renames.
+         OR (
+           json_type(projection.payload_json, '$.titleProvenance') IS NULL
+           AND thread.title_provenance = 'manual'
+         )
          -- Only threads that had v1 bookmarks: a written list, even an empty
          -- one after the user removed them all, is never re-imported.
          OR (
@@ -663,6 +673,9 @@ const make = Effect.gen(function* () {
         // Always written, so a thread whose v1 rows no longer decode is not
         // repaired again on every startup.
         bookmarks: current.bookmarks ?? legacy.bookmarks ?? [],
+        ...(current.titleProvenance === undefined && legacy.titleProvenance !== undefined
+          ? { titleProvenance: legacy.titleProvenance }
+          : {}),
       };
       // Later schema additions can require another repair for the same thread.
       const repairId = yield* randomUuidV4;
@@ -708,6 +721,7 @@ const make = Effect.gen(function* () {
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
+        thread.title_provenance,
         thread.deleted_at
       FROM projection_threads AS thread
       WHERE NOT EXISTS (
