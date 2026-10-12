@@ -19,6 +19,7 @@ import {
 } from "./runtime.ts";
 import {
   type ThreadCommandInput,
+  type AddThreadBookmarkInput,
   type ArchiveThreadInput,
   type CancelQueuedRunInput,
   type RetryWorkspacePreparationInput,
@@ -41,6 +42,7 @@ import {
   type PinThreadInput,
   type ReorderPinnedThreadInput,
   type ReorderActiveThreadInput,
+  type RemoveThreadBookmarkInput,
   type SetThreadAutoSettleInput,
   type SettleThreadInput,
   type SnoozeThreadInput,
@@ -54,6 +56,7 @@ import {
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
   type VisitThreadInput,
+  addThreadBookmark,
   archiveThread,
   cancelQueuedRun,
   createThread,
@@ -77,6 +80,7 @@ import {
   pinThread,
   reorderPinnedThread,
   reorderActiveThread,
+  removeThreadBookmark,
   setThreadAutoSettle,
   settleThread,
   snoozeThread,
@@ -101,6 +105,7 @@ export type LoadEarlierThreadHistoryInput = {
 };
 
 export type {
+  AddThreadBookmarkInput,
   ArchiveThreadInput,
   CancelQueuedRunInput,
   CreateThreadInput,
@@ -122,6 +127,7 @@ export type {
   PinThreadInput,
   ReorderPinnedThreadInput,
   ReorderActiveThreadInput,
+  RemoveThreadBookmarkInput,
   SetThreadAutoSettleInput,
   SettleThreadInput,
   SnoozeThreadInput,
@@ -224,6 +230,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     reorderActive: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:reorder-active",
       execute: (input: ReorderActiveThreadInput) => reorderActiveThread(input),
+      scheduler,
+      concurrency,
+    }),
+    addBookmark: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:add-bookmark",
+      execute: (input: AddThreadBookmarkInput) => addThreadBookmark(input),
+      scheduler,
+      concurrency,
+    }),
+    removeBookmark: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:remove-bookmark",
+      execute: (input: RemoveThreadBookmarkInput) => removeThreadBookmark(input),
       scheduler,
       concurrency,
     }),

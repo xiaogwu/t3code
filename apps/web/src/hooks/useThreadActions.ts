@@ -12,7 +12,9 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  type AssistantCitation,
   type ScopedThreadRef,
+  ThreadBookmarkId,
   ThreadId,
   sessionGrantsScope,
 } from "@t3tools/contracts";
@@ -36,6 +38,7 @@ import { useNewThreadHandler } from "./useHandleNewThread";
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
+import { randomUUID } from "../lib/utils";
 import {
   readEnvironmentSupportsAutoSettleOptOut,
   readEnvironmentSupportsPinning,
@@ -329,6 +332,12 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const reorderActiveThreadMutation = useOrchestrationCommand(threadEnvironment.reorderActive, {
+    reportFailure: false,
+  });
+  const addBookmarkMutation = useOrchestrationCommand(threadEnvironment.addBookmark, {
+    reportFailure: false,
+  });
+  const removeBookmarkMutation = useOrchestrationCommand(threadEnvironment.removeBookmark, {
     reportFailure: false,
   });
   const snoozeThreadMutation = useOrchestrationCommand(threadEnvironment.snooze, {
@@ -919,6 +928,30 @@ export function useThreadActions() {
     [reorderPinnedThreadMutation],
   );
 
+  const bookmarkAssistantText = useCallback(
+    async (target: ScopedThreadRef, citation: AssistantCitation) =>
+      addBookmarkMutation({
+        environmentId: target.environmentId,
+        input: {
+          threadId: target.threadId,
+          // Client-generated so this command's retry is the same bookmark,
+          // and so the id is known immediately for a later removal.
+          bookmarkId: ThreadBookmarkId.make(randomUUID()),
+          citation,
+        },
+      }),
+    [addBookmarkMutation],
+  );
+
+  const unbookmarkAssistantText = useCallback(
+    async (target: ScopedThreadRef, bookmarkId: ThreadBookmarkId) =>
+      removeBookmarkMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, bookmarkId },
+      }),
+    [removeBookmarkMutation],
+  );
+
   const reorderActiveThread = useCallback(
     async (target: ScopedThreadRef, orderKey: string) => {
       if (!readEnvironmentSupportsActiveReorder(target.environmentId)) {
@@ -1056,9 +1089,12 @@ export function useThreadActions() {
       reorderActiveThread,
       markThreadUnread,
       setThreadAutoSettle,
+      bookmarkAssistantText,
+      unbookmarkAssistantText,
     }),
     [
       archiveThread,
+      bookmarkAssistantText,
       confirmAndDeleteThread,
       confirmAndUnpinThread,
       deleteThread,
@@ -1073,6 +1109,7 @@ export function useThreadActions() {
       unpinThread,
       unsettleThread,
       unsnoozeThread,
+      unbookmarkAssistantText,
     ],
   );
 }

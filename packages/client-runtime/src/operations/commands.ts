@@ -1,5 +1,7 @@
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
+  type AssistantCitation,
+  type ThreadBookmarkId,
   type ThreadLinkedPullRequest,
   CommandId,
   CheckpointId,
@@ -105,6 +107,16 @@ export interface ReorderPinnedThreadInput extends ThreadCommandInput {
 export interface ReorderActiveThreadInput extends ThreadCommandInput {
   /** Fractional-index key that sorts between the drop position's neighbors. */
   readonly orderKey: string;
+}
+
+export interface AddThreadBookmarkInput extends ThreadCommandInput {
+  /** Client-generated, so a retry is the same bookmark and removal needs no round trip. */
+  readonly bookmarkId: ThreadBookmarkId;
+  readonly citation: AssistantCitation;
+}
+
+export interface RemoveThreadBookmarkInput extends ThreadCommandInput {
+  readonly bookmarkId: ThreadBookmarkId;
 }
 
 export interface SnoozeThreadInput extends ThreadCommandInput {
@@ -500,6 +512,29 @@ export const reorderActiveThread = Effect.fn("EnvironmentCommands.reorderActiveT
     orderKey: input.orderKey,
   });
 });
+
+export const addThreadBookmark = Effect.fn("EnvironmentCommands.addThreadBookmark")(function* (
+  input: AddThreadBookmarkInput,
+) {
+  return yield* dispatch({
+    type: "thread.bookmark.add",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    bookmarkId: input.bookmarkId,
+    citation: input.citation,
+  });
+});
+
+export const removeThreadBookmark = Effect.fn("EnvironmentCommands.removeThreadBookmark")(
+  function* (input: RemoveThreadBookmarkInput) {
+    return yield* dispatch({
+      type: "thread.bookmark.remove",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      bookmarkId: input.bookmarkId,
+    });
+  },
+);
 
 export const unpinThread = Effect.fn("EnvironmentCommands.unpinThread")(function* (
   input: UnpinThreadInput,
