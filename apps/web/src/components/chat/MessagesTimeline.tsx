@@ -1202,7 +1202,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     const config = resolveChatListAnchoredEndSpace(
       rows,
       anchorMessageId,
-      (row) => (row.kind === "message" && row.message.role === "user" ? row.message.id : null),
+      // A send anchors its user message; a palette reveal may anchor either role.
+      (row) => (row.kind === "message" ? row.message.id : null),
       // Every new turn anchors here, not just a thread's opening message, so the
       // anchor has to be matched wherever it sits in the history.
       { anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET, match: "latest" },

@@ -207,6 +207,7 @@ import {
   timelineContentOverflowsViewport,
   readTimelinePosition,
   observeTimelineRun,
+  resolveRevealHistoryRequest,
   resolveTimelineSendScrollBehavior,
   shouldReleaseCollapsedTimelineAnchor,
   type TimelineRunObservation,
@@ -6468,6 +6469,8 @@ export default function ChatView(props: ChatViewProps) {
   // cleanup on the very next render and cancel both timers before they fire.
   const revealStaleAnchorTimeoutRef = useRef<number | null>(null);
   const revealHighlightTimeoutRef = useRef<number | null>(null);
+  // The last earlier-history page requested for a reveal, as messageId:firstEntryId.
+  const revealHistoryRequestRef = useRef<string | null>(null);
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
     cancelPositionRestoreRef.current?.();
     anchorUserScrollGenerationRef.current += 1;
@@ -6836,6 +6839,19 @@ export default function ChatView(props: ChatViewProps) {
       }
       positionedTimelineAnchorRef.current = messageId;
       settledTimelineAnchorRef.current = null;
+      if (timelineScrollModeRef.current === "anchoring-reveal") {
+        // Pulse once the row is about to scroll in, which may be after earlier
+        // history loaded, not when the reveal was requested. Two cycles (650ms
+        // each) plus slack, so a later re-render cannot re-trigger it.
+        setHighlightedMessageId(messageId);
+        if (revealHighlightTimeoutRef.current !== null) {
+          window.clearTimeout(revealHighlightTimeoutRef.current);
+        }
+        revealHighlightTimeoutRef.current = window.setTimeout(() => {
+          revealHighlightTimeoutRef.current = null;
+          setHighlightedMessageId((current) => (current === messageId ? null : current));
+        }, 1500);
+      }
       const positionAnchor = (remainingAttempts: number) => {
         requestAnimationFrame(() => {
           if (positionedTimelineAnchorRef.current !== messageId) {
@@ -7045,7 +7061,7 @@ export default function ChatView(props: ChatViewProps) {
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: revealRequest.messageId });
-    setHighlightedMessageId(revealRequest.messageId);
+    revealHistoryRequestRef.current = null;
     useThreadMessageRevealStore.getState().clearReveal(revealRequest.requestId);
 
     // clearReveal above flips revealRequest to null next render, which
@@ -7062,20 +7078,40 @@ export default function ChatView(props: ChatViewProps) {
     // resolveChatListAnchoredEndSpace never finds it, onAnchorReady never
     // fires, and pendingTimelineAnchorRef would stay set forever, permanently
     // suppressing live-follow. Drop back to following-end if it never lands.
-    revealStaleAnchorTimeoutRef.current = window.setTimeout(() => {
-      revealStaleAnchorTimeoutRef.current = null;
-      if (pendingTimelineAnchorRef.current === revealRequest.messageId) {
+    // History paging toward the message (below) counts as progress and re-arms.
+    const armStaleAnchorGuard = (historyRequestAtArm: string | null) => {
+      revealStaleAnchorTimeoutRef.current = window.setTimeout(() => {
+        revealStaleAnchorTimeoutRef.current = null;
+        if (pendingTimelineAnchorRef.current !== revealRequest.messageId) return;
+        if (revealHistoryRequestRef.current !== historyRequestAtArm) {
+          armStaleAnchorGuard(revealHistoryRequestRef.current);
+          return;
+        }
         pendingTimelineAnchorRef.current = null;
         timelineScrollModeRef.current = "following-end";
-      }
-    }, 5000);
-    // Two pulse cycles (650ms each) plus slack, so a later unrelated
-    // re-render cannot re-trigger the animation.
-    revealHighlightTimeoutRef.current = window.setTimeout(() => {
-      revealHighlightTimeoutRef.current = null;
-      setHighlightedMessageId((current) => (current === revealRequest.messageId ? null : current));
-    }, 1500);
+      }, 5000);
+    };
+    armStaleAnchorGuard(null);
   }, [revealRequest?.requestId, activeThreadKey]);
+  // A revealed message can sit above the loaded history window. Page earlier
+  // history through it; the anchor positions the row once it is loaded. One
+  // request per loaded window, so a page that misses the message cannot loop.
+  useEffect(() => {
+    const messageId = timelineAnchor.messageId;
+    const requestKey = resolveRevealHistoryRequest({
+      messageId,
+      revealPending:
+        timelineScrollModeRef.current === "anchoring-reveal" &&
+        pendingTimelineAnchorRef.current === messageId,
+      messageLoaded: timelineMessages.some((message) => message.id === messageId),
+      firstEntryId: timelineEntries[0]?.id,
+      history: threadHistoryControls,
+      lastRequestKey: revealHistoryRequestRef.current,
+    });
+    if (requestKey === null || messageId === null) return;
+    revealHistoryRequestRef.current = requestKey;
+    threadHistoryControls?.onLoadEarlier(messageId);
+  }, [threadHistoryControls, timelineAnchor.messageId, timelineEntries, timelineMessages]);
   useEffect(
     () => () => {
       if (revealStaleAnchorTimeoutRef.current !== null) {
