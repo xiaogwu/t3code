@@ -13,8 +13,10 @@ import {
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   findHighlightedCommandPaletteItem,
+  parseArchivedScopeQuery,
   parseThreadStateFilterQuery,
   reduceCommandPaletteUiState,
+  toggleArchivedScopeQuery,
   toggleThreadStateFilterQuery,
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
@@ -705,6 +707,87 @@ describe("buildThreadActionItems", () => {
     });
 
     expect(items.map((item) => item.value)).toEqual(["thread:thread-active"]);
+  });
+
+  it("lists only archived threads, newest archived first, keyed by environment", () => {
+    const items = buildThreadActionItems({
+      threads: [
+        makeThread({ id: ThreadId.make("thread-active"), title: "Active thread" }),
+        makeThread({
+          id: ThreadId.make("thread-archived-old"),
+          title: "Old archive",
+          archivedAt: "2026-03-10T00:00:00.000Z",
+          updatedAt: "2026-03-25T00:00:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.make("thread-archived-new"),
+          title: "New archive",
+          archivedAt: "2026-03-20T00:00:00.000Z",
+          updatedAt: "2026-03-11T00:00:00.000Z",
+        }),
+      ],
+      archived: true,
+      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      sortOrder: "updated_at",
+      icon: null,
+      runThread: async (_thread) => undefined,
+    });
+
+    expect(items.map((item) => item.value)).toEqual([
+      `archived-thread:${LOCAL_ENVIRONMENT_ID}:thread-archived-new`,
+      `archived-thread:${LOCAL_ENVIRONMENT_ID}:thread-archived-old`,
+    ]);
+  });
+});
+
+describe("archived scope", () => {
+  it("strips the scope token from the text query and toggles it back off", () => {
+    expect(parseArchivedScopeQuery("  reconnect IS:ARCHIVED ")).toEqual({
+      archivedOnly: true,
+      searchQuery: "reconnect",
+    });
+    expect(parseArchivedScopeQuery("is:archivedx").archivedOnly).toBe(false);
+    expect(toggleArchivedScopeQuery("reconnect")).toBe("reconnect is:archived");
+    expect(toggleArchivedScopeQuery("reconnect is:archived")).toBe("reconnect");
+    expect(toggleArchivedScopeQuery("")).toBe("is:archived");
+  });
+
+  it("shows only archived results, matched by title or content snippet", () => {
+    const makeItem = (value: string, ...searchTerms: string[]) => ({
+      kind: "action" as const,
+      value,
+      searchTerms,
+      title: value,
+      icon: null,
+      run: async () => undefined,
+    });
+    const input = {
+      activeGroups: [
+        { value: "actions", label: "Actions", items: [makeItem("action:fix", "fix")] },
+      ],
+      isInSubmenu: false,
+      projectSearchItems: [makeItem("project:fix", "fix")],
+      threadSearchItems: [
+        makeItem("archived-thread:title", "Fix the reconnect loop"),
+        makeItem("archived-thread:content", "Unrelated", "the reconnect fix landed"),
+        makeItem("archived-thread:other", "Something else"),
+      ],
+      archivedOnly: true,
+    };
+
+    expect(filterCommandPaletteGroups({ ...input, query: "reconnect" })).toEqual([
+      {
+        value: "archived-threads",
+        label: "Archived Threads",
+        items: [
+          expect.objectContaining({ value: "archived-thread:title" }),
+          expect.objectContaining({ value: "archived-thread:content" }),
+        ],
+      },
+    ]);
+    // With no text the scope lists archived threads instead of the root groups.
+    expect(filterCommandPaletteGroups({ ...input, query: "" })[0]?.items).toHaveLength(3);
+    expect(filterCommandPaletteGroups({ ...input, query: "nothing matches" })).toEqual([]);
   });
 });
 

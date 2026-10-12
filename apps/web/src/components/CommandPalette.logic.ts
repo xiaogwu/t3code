@@ -17,6 +17,7 @@ import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
 export const RECENT_THREAD_LIMIT = 12;
+export const ARCHIVED_THREAD_VALUE_PREFIX = "archived-thread:";
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
 
@@ -284,6 +285,31 @@ export function toggleThreadStateFilterQuery(query: string, filter: ThreadStateF
   return nextTokens.join(" ");
 }
 
+const ARCHIVED_FILTER_TOKEN = "is:archived";
+
+/**
+ * Splits the `is:archived` scope token from the root query. Archived is a
+ * search scope, not a thread state: it swaps which threads are searched.
+ */
+export function parseArchivedScopeQuery(query: string): {
+  readonly searchQuery: string;
+  readonly archivedOnly: boolean;
+} {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const isArchivedToken = (token: string) => token.toLowerCase() === ARCHIVED_FILTER_TOKEN;
+  return {
+    archivedOnly: tokens.some(isArchivedToken),
+    searchQuery: tokens.filter((token) => !isArchivedToken(token)).join(" "),
+  };
+}
+
+export function toggleArchivedScopeQuery(query: string): string {
+  const parsed = parseArchivedScopeQuery(query);
+  return parsed.archivedOnly
+    ? parsed.searchQuery
+    : [parsed.searchQuery, ARCHIVED_FILTER_TOKEN].filter(Boolean).join(" ");
+}
+
 // A project as the palette shows it. `displayName` is the grouped label (for
 // example "owner/repo" when projects are merged across machines). Keep `title`
 // as the real project title: the automatic project icon is derived from it, and
@@ -371,11 +397,22 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   getThreadState?: (thread: TThread) => CommandPaletteItem["threadState"];
   runThread: (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) => Promise<void>;
   limit?: number;
+  /** Build items for archived threads only, newest archived first. */
+  archived?: boolean;
 }): CommandPaletteActionItem[] {
-  const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
-    input.sortOrder,
-  );
+  const sortedThreads = input.archived
+    ? input.threads
+        .filter((thread) => thread.archivedAt !== null)
+        .toSorted(
+          (left, right) =>
+            (right.archivedAt ?? right.createdAt).localeCompare(
+              left.archivedAt ?? left.createdAt,
+            ) || right.id.localeCompare(left.id),
+        )
+    : sortThreads(
+        input.threads.filter((thread) => thread.archivedAt === null),
+        input.sortOrder,
+      );
   const visibleThreads =
     input.limit === undefined ? sortedThreads : sortedThreads.slice(0, input.limit);
 
@@ -404,7 +441,10 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     return Object.assign(
       {
         kind: "action" as const,
-        value: `thread:${thread.id}`,
+        // Archived results come from several environments' snapshots at once.
+        value: input.archived
+          ? `${ARCHIVED_THREAD_VALUE_PREFIX}${thread.environmentId}:${thread.id}`
+          : `thread:${thread.id}`,
         searchTerms: [
           thread.title,
           ...threadPullRequestSearchTerms(thread),
@@ -419,7 +459,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         titleTooltip: thread.title,
         descriptionTooltip: description,
         timestamp: formatRelativeTimeLabel(
-          thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+          input.archived
+            ? (thread.archivedAt ?? thread.createdAt)
+            : (thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt),
         ),
         searchRecency: getThreadSortTimestamp(thread, "updated_at"),
         icon: input.icon,
@@ -493,7 +535,21 @@ export function filterCommandPaletteGroups(input: {
   projectSearchItems: ReadonlyArray<CommandPaletteActionItem>;
   settingsSearchItems?: ReadonlyArray<CommandPaletteActionItem>;
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
+  /** threadSearchItems are archived threads; the query has had `is:archived` removed. */
+  archivedOnly?: boolean;
 }): CommandPaletteGroup[] {
+  if (input.archivedOnly) {
+    const normalizedArchivedQuery = normalizeSearchText(input.query);
+    const items =
+      normalizedArchivedQuery.length === 0
+        ? [...input.threadSearchItems]
+        : input.threadSearchItems.filter((item) =>
+            normalizeSearchText(item.searchTerms.join(" ")).includes(normalizedArchivedQuery),
+          );
+    return items.length === 0
+      ? []
+      : [{ value: "archived-threads", label: "Archived Threads", items }];
+  }
   const isActionsFilter = input.query.startsWith(">");
   const parsedThreadStateQuery =
     !isActionsFilter && !input.isInSubmenu
