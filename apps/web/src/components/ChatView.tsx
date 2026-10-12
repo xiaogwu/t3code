@@ -56,6 +56,7 @@ import {
   AuthTerminalOperateScope,
   type AssistantCitation,
   type ChatFileAttachment,
+  type ThreadBookmarkId,
   CommandId,
   DEFAULT_MODEL,
   isProviderNativeSubagentThread,
@@ -1602,7 +1603,13 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const {
+    settleThread,
+    pinThread,
+    confirmAndUnpinThread,
+    bookmarkAssistantText,
+    unbookmarkAssistantText,
+  } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1873,6 +1880,23 @@ export default function ChatView(props: ChatViewProps) {
       return inserted;
     },
     [composerRef],
+  );
+  const toggleThreadBookmark = useCallback(
+    (citation: AssistantCitation, existingBookmarkId: ThreadBookmarkId | null) => {
+      const target = scopeThreadRef(environmentId, citation.threadId);
+      void (
+        existingBookmarkId
+          ? unbookmarkAssistantText(target, existingBookmarkId)
+          : bookmarkAssistantText(target, citation)
+      ).then((result) => {
+        if (result._tag !== "Failure") return;
+        toastManager.add({
+          type: "error",
+          title: existingBookmarkId ? "Could not remove bookmark" : "Could not bookmark selection",
+        });
+      });
+    },
+    [bookmarkAssistantText, environmentId, unbookmarkAssistantText],
   );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
@@ -11683,6 +11707,13 @@ export default function ChatView(props: ChatViewProps) {
                   ? {
                       onCiteAssistantText: citeAssistantText,
                       ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
+                      ...(serverProjection?.thread.bookmarks
+                        ? { threadBookmarks: serverProjection.thread.bookmarks }
+                        : {}),
+                      // The server refuses bookmark changes on archived threads.
+                      ...(canOperateThread && serverProjection?.thread.archivedAt == null
+                        ? { onToggleThreadBookmark: toggleThreadBookmark }
+                        : {}),
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}

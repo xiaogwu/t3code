@@ -11,6 +11,7 @@ import {
   CheckpointRef,
   CommandId,
   ContextTransferId,
+  EnvironmentId,
   EventId,
   MessageId,
   NodeId,
@@ -27,6 +28,7 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   RunId,
+  ThreadBookmarkId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -2028,6 +2030,104 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       const unlinkedShell = yield* orchestrator.getThreadShell(threadId);
       assert.isNotNull(unlinkedShell);
       assert.isNull(unlinkedShell.linkedPullRequest);
+    }),
+  );
+
+  it.effect("adds and removes bookmarks idempotently without counting as activity", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const threadId = ThreadId.make("runtime-layer-bookmarks-thread");
+      const citation = (text: string, start: number) => ({
+        version: 1 as const,
+        environmentId: EnvironmentId.make("environment:runtime-layer"),
+        threadId,
+        messageId: MessageId.make("message:runtime-layer-bookmarks"),
+        text,
+        start,
+        end: start + text.length,
+        prefix: "",
+        suffix: "",
+      });
+      const bookmarks = Effect.map(
+        orchestrator.getThreadProjection(threadId),
+        (projection) => projection.thread.bookmarks ?? [],
+      );
+      const add = (id: string, commandId: string, text: string, start: number) =>
+        orchestrator.dispatch({
+          type: "thread.bookmark.add",
+          commandId: CommandId.make(commandId),
+          threadId,
+          bookmarkId: ThreadBookmarkId.make(id),
+          citation: citation(text, start),
+        });
+      const remove = (id: string, commandId: string) =>
+        orchestrator.dispatch({
+          type: "thread.bookmark.remove",
+          commandId: CommandId.make(commandId),
+          threadId,
+          bookmarkId: ThreadBookmarkId.make(id),
+        });
+
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-bookmarks-create"),
+        threadId,
+        projectId: ProjectId.make("runtime-layer-bookmarks-project"),
+        title: "Bookmarked thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const createdAt = (yield* orchestrator.getThreadProjection(threadId)).thread.updatedAt;
+
+      yield* add("bookmark:a", "runtime-layer-bookmarks-add-a", "first quote", 0);
+      // A retry under a new command keeps the stored anchor rather than moving it.
+      yield* add("bookmark:a", "runtime-layer-bookmarks-add-a-retry", "moved quote", 40);
+      yield* add("bookmark:b", "runtime-layer-bookmarks-add-b", "second quote", 20);
+      assert.deepStrictEqual(
+        (yield* bookmarks).map((bookmark) => [bookmark.id, bookmark.citation.text]),
+        [
+          ["bookmark:a", "first quote"],
+          ["bookmark:b", "second quote"],
+        ],
+      );
+
+      yield* remove("bookmark:a", "runtime-layer-bookmarks-remove-a");
+      yield* remove("bookmark:a", "runtime-layer-bookmarks-remove-a-again");
+      assert.deepStrictEqual(
+        (yield* bookmarks).map((bookmark) => bookmark.id),
+        ["bookmark:b"],
+      );
+
+      const thread = (yield* orchestrator.getThreadProjection(threadId)).thread;
+      assert.deepEqual(thread.updatedAt, createdAt);
+      const shell = yield* orchestrator.getThreadShell(threadId);
+      assert.isNotNull(shell);
+      assert.isFalse("bookmarks" in shell);
+
+      assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.deepStrictEqual(
+        (yield* bookmarks).map((bookmark) => bookmark.id),
+        ["bookmark:b"],
+      );
+
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("runtime-layer-bookmarks-archive"),
+        threadId,
+      });
+      const refused = yield* add(
+        "bookmark:c",
+        "runtime-layer-bookmarks-add-archived",
+        "archived quote",
+        0,
+      ).pipe(Effect.flip);
+      assert.equal(refused._tag, "OrchestratorDispatchError");
     }),
   );
 

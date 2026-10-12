@@ -229,6 +229,8 @@ export const layer: Layer.Layer<
       "thread.provider-switched",
       "thread.visited",
       "thread.marked-unread",
+      "thread.bookmark-added",
+      "thread.bookmark-removed",
     ];
 
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);

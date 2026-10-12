@@ -32,10 +32,12 @@ import {
   RunId,
   RuntimeRequestId,
   ScheduledTaskId,
+  ThreadBookmarkId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnItemId,
 } from "./baseSchemas.ts";
+import { AssistantCitation, AssistantThreadBookmark } from "./assistantCitations.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import {
   OrchestrationGetFullThreadDiffInput,
@@ -378,6 +380,12 @@ export const OrchestrationV2AppThread = Schema.Struct({
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   /** Pull request discovered from the thread's current branch. */
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+  /**
+   * Bookmarked assistant text ranges, oldest first. Optional so threads
+   * written before bookmarks decode; read it as `bookmarks ?? []`. Never
+   * copied onto the shell: only the open thread needs them.
+   */
+  bookmarks: Schema.optional(Schema.Array(AssistantThreadBookmark)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   lineage: OrchestrationV2AppThreadLineage,
@@ -1765,6 +1773,14 @@ export const OrchestrationV2DomainEvent = Schema.Union([
     ]),
     payload: OrchestrationV2AppThread,
   }),
+  // Fork-only thread events, kept out of the shared list above so upstream
+  // merges do not touch them. Builds that do not know these types skip them
+  // on read (see KNOWN_AGENT_EVENT_TYPES in OrchestrationEventStore).
+  Schema.Struct({
+    ...OrchestrationV2EventBase.fields,
+    type: Schema.Literals(["thread.bookmark-added", "thread.bookmark-removed"]),
+    payload: OrchestrationV2AppThread,
+  }),
   Schema.Struct({
     ...OrchestrationV2EventBase.fields,
     type: Schema.Literal("run.created"),
@@ -2587,6 +2603,11 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
   }),
   Schema.Struct({
     ...OrchestrationV2JsonEventBaseFields,
+    type: Schema.Literals(["thread.bookmark-added", "thread.bookmark-removed"]),
+    payload: OrchestrationV2AppThreadJson,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2JsonEventBaseFields,
     type: Schema.Literal("run.created"),
     payload: OrchestrationV2RunJson,
   }),
@@ -2811,6 +2832,21 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     orderKey: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.bookmark.add"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    // Client-generated so a retry of the same command is the same bookmark,
+    // and so the client can remove it later without a round trip.
+    bookmarkId: ThreadBookmarkId,
+    citation: AssistantCitation,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.bookmark.remove"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    bookmarkId: ThreadBookmarkId,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.visit"),

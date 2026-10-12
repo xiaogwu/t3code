@@ -3,6 +3,7 @@ import {
   threadPullRequestsOf,
 } from "@t3tools/shared/threadPullRequests";
 import {
+  AssistantThreadBookmark,
   ChatAttachment,
   OrchestrationMessageContext,
   DEFAULT_MODEL,
@@ -57,6 +58,8 @@ interface LegacyThreadRow {
   readonly auto_settle_disabled_at: string | null;
   readonly pin_order_key: string | null;
   readonly pull_requests_json: string;
+  /** v1 `projection_thread_bookmarks` rows as a JSON array (migration 051 keeps the table). */
+  readonly bookmarks_json: string;
   readonly linked_pull_request_json: string | null;
   readonly branch_pull_request_json: string | null;
   readonly active_order_key: string | null;
@@ -123,6 +126,7 @@ const decodeModelSelection = Schema.decodeUnknownOption(ModelSelection);
 const decodeAttachments = Schema.decodeUnknownOption(Schema.Array(ChatAttachment));
 const decodePullRequests = Schema.decodeUnknownOption(Schema.Array(ThreadPullRequestLink));
 const decodeLinkedPullRequest = Schema.decodeUnknownOption(ThreadLinkedPullRequest);
+const decodeBookmark = Schema.decodeUnknownOption(AssistantThreadBookmark);
 const decodeStoredThread = Schema.decodeUnknownOption(
   Schema.fromJsonString(OrchestrationV2AppThreadJson),
 );
@@ -161,6 +165,54 @@ function branchPullRequestFor(row: LegacyThreadRow) {
   return Option.getOrNull(decodeLinkedPullRequest(parseJson(row.branch_pull_request_json)));
 }
 
+interface LegacyBookmarkRow {
+  readonly id: unknown;
+  readonly environmentId: unknown;
+  readonly messageId: unknown;
+  readonly text: unknown;
+  readonly comment: unknown;
+  readonly start: unknown;
+  readonly end: unknown;
+  readonly prefix: unknown;
+  readonly suffix: unknown;
+  readonly createdAt: unknown;
+}
+
+/**
+ * The fork's v1 bookmarks, oldest first. v1 kept them only in its own
+ * projection table, so the copied database still holds them there. A row that
+ * no longer decodes is dropped rather than failing the whole thread.
+ */
+function bookmarksFor(row: LegacyThreadRow): ReadonlyArray<AssistantThreadBookmark> {
+  const parsed = parseJson(row.bookmarks_json);
+  if (!Array.isArray(parsed)) return [];
+  return (parsed as ReadonlyArray<LegacyBookmarkRow>)
+    .flatMap((bookmark) =>
+      Option.toArray(
+        decodeBookmark({
+          id: bookmark.id,
+          citation: {
+            version: 1,
+            environmentId: bookmark.environmentId,
+            threadId: row.thread_id,
+            messageId: bookmark.messageId,
+            text: bookmark.text,
+            ...(bookmark.comment === null ? {} : { comment: bookmark.comment }),
+            start: bookmark.start,
+            end: bookmark.end,
+            prefix: bookmark.prefix,
+            suffix: bookmark.suffix,
+          },
+          createdAt: bookmark.createdAt,
+        }),
+      ),
+    )
+    .toSorted(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+}
+
 function runtimeModeFor(value: string): OrchestrationV2AppThread["runtimeMode"] {
   return value === "approval-required" ||
     value === "auto-accept-edits" ||
@@ -196,6 +248,7 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     () => [],
   );
   const linkedPullRequest = linkedPullRequestFor(row);
+  const bookmarks = bookmarksFor(row);
   const legacyLink = threadPullRequestsOf({ linkedPullRequest })[0];
   const importedPullRequests =
     legacyLink !== undefined &&
@@ -217,6 +270,8 @@ function importedThread(row: LegacyThreadRow): OrchestrationV2AppThread {
     linkedPullRequest,
     pullRequests: importedPullRequests,
     branchPullRequest: branchPullRequestFor(row),
+    // Omitted when empty so threads without bookmarks keep their payload unchanged.
+    ...(bookmarks.length > 0 ? { bookmarks } : {}),
     activeOrderKey: row.active_order_key?.trim() || null,
     activeProviderThreadId: null,
     historyOrigin: "v1_import",
@@ -464,6 +519,7 @@ const make = Effect.gen(function* () {
         thread.auto_settle_disabled_at,
         thread.pin_order_key,
         (SELECT json_group_array(json_object('host', pr.host, 'repository', pr.repository, 'number', pr.number, 'url', pr.url, 'source', pr.source, 'linkedAt', pr.linked_at, 'snapshot', json(pr.snapshot_json), 'stack', json(pr.stack_json))) FROM projection_thread_pull_requests pr WHERE pr.thread_id = thread.thread_id) AS pull_requests_json,
+        (SELECT json_group_array(json_object('id', bookmark.bookmark_id, 'environmentId', bookmark.environment_id, 'messageId', bookmark.message_id, 'text', bookmark.text, 'comment', bookmark.comment, 'start', bookmark.start_offset, 'end', bookmark.end_offset, 'prefix', bookmark.prefix, 'suffix', bookmark.suffix, 'createdAt', bookmark.created_at)) FROM projection_thread_bookmarks bookmark WHERE bookmark.thread_id = thread.thread_id) AS bookmarks_json,
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
@@ -483,6 +539,16 @@ const make = Effect.gen(function* () {
          OR json_type(projection.payload_json, '$.pullRequests') IS NULL
          OR json_type(projection.payload_json, '$.branchPullRequest') IS NULL
          OR json_type(projection.payload_json, '$.activeOrderKey') IS NULL
+         -- Only threads that had v1 bookmarks: a written list, even an empty
+         -- one after the user removed them all, is never re-imported.
+         OR (
+           json_type(projection.payload_json, '$.bookmarks') IS NULL
+           AND EXISTS (
+             SELECT 1
+             FROM projection_thread_bookmarks AS bookmark
+             WHERE bookmark.thread_id = legacy_import.thread_id
+           )
+         )
       ORDER BY thread.created_at ASC, thread.thread_id ASC
     `;
     let repairedThreadCount = 0;
@@ -527,6 +593,9 @@ const make = Effect.gen(function* () {
             : current.branchPullRequest,
         activeOrderKey:
           current.activeOrderKey === undefined ? legacy.activeOrderKey : current.activeOrderKey,
+        // Always written, so a thread whose v1 rows no longer decode is not
+        // repaired again on every startup.
+        bookmarks: current.bookmarks ?? legacy.bookmarks ?? [],
       };
       // Later schema additions can require another repair for the same thread.
       const repairId = yield* randomUuidV4;
@@ -568,6 +637,7 @@ const make = Effect.gen(function* () {
         thread.auto_settle_disabled_at,
         thread.pin_order_key,
         (SELECT json_group_array(json_object('host', pr.host, 'repository', pr.repository, 'number', pr.number, 'url', pr.url, 'source', pr.source, 'linkedAt', pr.linked_at, 'snapshot', json(pr.snapshot_json), 'stack', json(pr.stack_json))) FROM projection_thread_pull_requests pr WHERE pr.thread_id = thread.thread_id) AS pull_requests_json,
+        (SELECT json_group_array(json_object('id', bookmark.bookmark_id, 'environmentId', bookmark.environment_id, 'messageId', bookmark.message_id, 'text', bookmark.text, 'comment', bookmark.comment, 'start', bookmark.start_offset, 'end', bookmark.end_offset, 'prefix', bookmark.prefix, 'suffix', bookmark.suffix, 'createdAt', bookmark.created_at)) FROM projection_thread_bookmarks bookmark WHERE bookmark.thread_id = thread.thread_id) AS bookmarks_json,
         thread.linked_pull_request_json,
         thread.branch_pull_request_json,
         thread.active_order_key,
