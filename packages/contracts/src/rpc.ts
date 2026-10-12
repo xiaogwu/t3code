@@ -142,6 +142,7 @@ import {
   VcsStatusSubscriptionInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  TextGenerationError,
 } from "./git.ts";
 import {
   ReviewDiffFileContentsInput,
@@ -331,6 +332,7 @@ import {
   ServerSettingsError,
   ServerSettingsPatch,
 } from "./settings.ts";
+import { TitlePolicy, TitlePolicyPreviewResult } from "./titlePolicy.ts";
 import {
   ScheduledTaskDeleteInput,
   ScheduledTaskDeleteResult,
@@ -487,6 +489,7 @@ export const WS_METHODS = {
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverPreviewTitlePolicy: "server.previewTitlePolicy",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
   serverPrepareAcpRegistryAgent: "server.prepareAcpRegistryAgent",
@@ -776,6 +779,13 @@ const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   }),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+/** Runs an unsaved title policy against its own examples, for the settings editor. */
+const WsServerPreviewTitlePolicyRpc = Rpc.make(WS_METHODS.serverPreviewTitlePolicy, {
+  payload: Schema.Struct({ policy: TitlePolicy }),
+  success: Schema.Array(TitlePolicyPreviewResult),
+  error: Schema.Union([TextGenerationError, ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
 const WsServerDiscoverSourceControlRpc = Rpc.make(WS_METHODS.serverDiscoverSourceControl, {
@@ -1911,6 +1921,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetStorageCleanupReportRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerPreviewTitlePolicyRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,
   WsServerPrepareAcpRegistryAgentRpc,

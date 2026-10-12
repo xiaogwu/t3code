@@ -577,6 +577,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "thread-title-policy",
+    title: "Thread title policy",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["automatic thread titles rules prefix PR number issue radar date refresh rename"],
+  },
+  {
     id: "app-version",
     title: "Version",
     to: "/settings/general",

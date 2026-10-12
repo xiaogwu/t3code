@@ -106,6 +106,20 @@ describe("command permissions", () => {
     ),
   );
 
+  it.effect("requires the destination operate grant to preview a title policy", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const preview = createCommandPermissions(runtime, WS_METHODS.serverPreviewTitlePolicy);
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(preview.permissionAtom(env))).toBe(false);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(preview.permissionAtom(env))).toBe(true);
+        yield* preview.authorize(registry, env);
+      }),
+    ),
+  );
+
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {
