@@ -15,6 +15,7 @@ import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -519,3 +520,202 @@ it.effect("releases consumed application replay pages", () =>
     assert.equal(count, 1501);
   }).pipe(Effect.provide(layerTest)),
 );
+
+// Stand-ins for types written by a newer or forked build that this one lacks.
+const UNKNOWN_AGENT_EVENT_TYPE = "thread.from-the-future";
+const UNKNOWN_PROJECT_EVENT_TYPE = "project.from-the-future";
+
+const insertRawEvents = (input: {
+  readonly aggregateKind: "project" | "thread";
+  readonly streamId: string;
+  readonly type: string;
+  readonly payload: string;
+  readonly count: number;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM rows WHERE n < ${input.count})
+      INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type,
+        occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+      )
+      SELECT ${`raw:${input.streamId}:${input.type}:`} || n, ${input.aggregateKind},
+        ${input.streamId}, 10000 + n, ${input.type}, '2026-01-01T00:00:00.000Z', 'server',
+        ${input.payload}, '{}', 2
+      FROM rows
+    `;
+  });
+
+const threadCreated = (threadId: ThreadId): OrchestrationV2DomainEvent => {
+  const providerInstanceId = ProviderInstanceId.make("codex");
+  const occurredAt = DateTime.makeUnsafe("2026-01-02T00:00:00.000Z");
+  return {
+    id: EventId.make(`event:${threadId}:created`),
+    type: "thread.created",
+    threadId,
+    providerInstanceId,
+    occurredAt,
+    payload: {
+      id: threadId,
+      projectId: ProjectId.make("project-unknown-types"),
+      title: "Thread",
+      providerInstanceId,
+      modelSelection: { instanceId: providerInstanceId, model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      activeProviderThreadId: null,
+      lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
+      forkedFrom: null,
+      createdBy: "user",
+      creationSource: "web",
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      lastVisitedAt: null,
+      deletedAt: null,
+    },
+  };
+};
+
+it.effect("skips stored event types this build does not know on every replay path", () =>
+  Effect.gen(function* () {
+    const store = yield* OrchestrationEventStore.OrchestrationEventStore;
+    const sql = yield* SqlClient.SqlClient;
+    const threadId = ThreadId.make("thread-unknown-types");
+    const baseline = yield* store.latestApplicationSequence;
+    const [first] = yield* store.appendAgentEvents({ events: [threadCreated(threadId)] });
+    // More rows than one read page: filtering after the fetch would end the
+    // replay on a short page and silently drop the known events after it.
+    yield* insertRawEvents({
+      aggregateKind: "thread",
+      streamId: threadId,
+      type: UNKNOWN_AGENT_EVENT_TYPE,
+      payload: '{"note":"from a build we do not have"}',
+      count: 600,
+    });
+    yield* insertRawEvents({
+      aggregateKind: "project",
+      streamId: "project-unknown-types",
+      type: UNKNOWN_PROJECT_EVENT_TYPE,
+      payload: "{}",
+      count: 1,
+    });
+    const [second] = yield* store.appendAgentEvents({
+      events: [threadCreated(ThreadId.make("thread-unknown-types-after"))],
+    });
+    const known = [first!.sequence, second!.sequence];
+    const sequences = (events: Iterable<{ readonly sequence: number }>) =>
+      Array.from(events, (event) => event.sequence);
+
+    assert.deepEqual(
+      sequences(yield* Stream.runCollect(store.readAgentEvents({ afterSequence: baseline }))),
+      known,
+    );
+    assert.deepEqual(
+      sequences(
+        yield* Stream.runCollect(
+          store.readAgentEvents({ afterSequence: baseline, threadId, limit: 10 }),
+        ),
+      ),
+      [first!.sequence],
+    );
+    assert.deepEqual(
+      sequences(
+        yield* Stream.runCollect(
+          store.readApplicationEvents({
+            afterSequence: baseline,
+            throughSequence: yield* store.latestApplicationSequence,
+          }),
+        ),
+      ),
+      known,
+    );
+    assert.deepEqual(
+      sequences(
+        yield* store
+          .streamApplicationEvents({ afterSequence: baseline })
+          .pipe(Stream.take(2), Stream.runCollect),
+      ),
+      known,
+    );
+    // Skipping is read-side only; a build that knows the types still finds them.
+    const stored = yield* sql<{ readonly count: number }>`
+      SELECT COUNT(*) AS "count" FROM orchestration_events
+      WHERE event_type IN (${UNKNOWN_AGENT_EVENT_TYPE}, ${UNKNOWN_PROJECT_EVENT_TYPE})
+    `;
+    assert.equal(stored[0]?.count, 601);
+  }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
+
+it.effect("still fails when a known event type does not decode", () =>
+  Effect.gen(function* () {
+    const store = yield* OrchestrationEventStore.OrchestrationEventStore;
+    yield* insertRawEvents({
+      aggregateKind: "thread",
+      streamId: "thread-malformed-known",
+      type: "thread.created",
+      payload: '{"id":1}',
+      count: 1,
+    });
+    const result = yield* Effect.result(Stream.runCollect(store.readAgentEvents()));
+    assert.equal(result._tag, "Failure");
+    if (result._tag === "Failure") {
+      assert.ok(isPersistenceDecodeError(result.failure));
+    }
+  }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
+
+it.effect("warns once at construction, naming the unknown types and their counts", () => {
+  const messages: Array<unknown> = [];
+  const logger = Logger.make(({ message }) => {
+    messages.push(message);
+  });
+  const construct = OrchestrationEventStore.OrchestrationEventStore.pipe(
+    Effect.provide(Layer.fresh(OrchestrationEventStore.layer)),
+  );
+  const warnings = () =>
+    messages.filter(
+      (message) =>
+        Array.isArray(message) && message[0] === "orchestration.event-store.unknown-event-types",
+    );
+  return Effect.gen(function* () {
+    yield* construct;
+    assert.deepEqual(warnings(), []);
+    yield* insertRawEvents({
+      aggregateKind: "thread",
+      streamId: "thread-warned",
+      type: UNKNOWN_AGENT_EVENT_TYPE,
+      payload: "{}",
+      count: 2,
+    });
+    yield* insertRawEvents({
+      aggregateKind: "project",
+      streamId: "project-warned",
+      type: UNKNOWN_PROJECT_EVENT_TYPE,
+      payload: "{}",
+      count: 1,
+    });
+    yield* construct;
+    assert.deepEqual(warnings(), [
+      [
+        "orchestration.event-store.unknown-event-types",
+        {
+          types: [`${UNKNOWN_PROJECT_EVENT_TYPE} (1)`, `${UNKNOWN_AGENT_EVENT_TYPE} (2)`],
+          total: 3,
+        },
+      ],
+    ]);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.fresh(SqlitePersistence.layerMemory),
+        Logger.layer([logger], { mergeWithExisting: false }),
+      ),
+    ),
+  );
+});

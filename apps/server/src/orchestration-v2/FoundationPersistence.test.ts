@@ -218,6 +218,42 @@ it.effect("rebuilds event history one bounded page at a time", () =>
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("rebuilds past event types this build does not know", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const eventStore = yield* EventStore.EventStoreV2;
+    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    const now = yield* DateTime.now;
+    const threadId = ThreadId.make("thread:foundation-unknown-type-rebuild");
+    yield* eventStore.append({
+      events: [
+        threadCreatedEvent({
+          id: "event:unknown-type-rebuild:created",
+          thread: makeThread(threadId, now),
+          now,
+        }),
+      ],
+    });
+    // A trailing row written by a newer build: the rebuilt projection must still
+    // count as caught up, or verify would report it stale forever.
+    yield* sql`
+      INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type,
+        occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+      ) VALUES (
+        'event:unknown-type-rebuild:future', 'thread', ${threadId}, 1,
+        'thread.from-the-future', ${DateTime.formatIso(now)}, 'server', '{}', '{}', 2
+      )
+    `;
+    assert.isTrue((yield* maintenance.rebuild).valid);
+    assert.equal(
+      (yield* projectionStore.getThreadProjection(threadId)).thread.title,
+      `Thread ${threadId}`,
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("verifies thread membership using only the thread-created partial index", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

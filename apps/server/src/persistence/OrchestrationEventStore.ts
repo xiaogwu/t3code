@@ -196,6 +196,19 @@ interface ApplicationEventRow {
   readonly correlation_id: string | null;
 }
 
+// The event types this build can decode. A store written by a newer or forked
+// build can hold other types; the paged reads exclude them in SQL so one such
+// row cannot fail a whole replay. Filtering after the fetch would hand the
+// paginators a short page while known rows remain and end the replay early.
+// A known type whose payload does not decode still fails: that is corruption,
+// not version skew. The replay stats still count every row, which only
+// over-estimates the replay budget.
+const KNOWN_PROJECT_EVENT_TYPES = ProjectEventType.literals;
+const KNOWN_AGENT_EVENT_TYPES = OrchestrationV2DomainEventJson.members.flatMap((member) => {
+  const type = member.fields.type;
+  return "literals" in type ? type.literals : [type.literal];
+});
+
 const decodeV2EventJson = Schema.decodeUnknownEffect(OrchestrationV2DomainEventJson);
 const encodeV2EventJson = Schema.encodeEffect(OrchestrationV2DomainEventJson);
 const decodeV2StoredEvent = Schema.decodeUnknownEffect(OrchestrationV2StoredEvent);
@@ -425,6 +438,15 @@ const makeEventStore = Effect.gen(function* () {
                     OR (application_event_version = 2 AND aggregate_kind = 'thread')`
           }
         )
+        AND ${
+          // A separate term, so the partial index's own predicate above still matches verbatim.
+          input.onlyAgentEvents === true
+            ? sql.in("event_type", KNOWN_AGENT_EVENT_TYPES)
+            : sql`(
+                (aggregate_kind = 'project' AND ${sql.in("event_type", KNOWN_PROJECT_EVENT_TYPES)})
+                OR (aggregate_kind = 'thread' AND ${sql.in("event_type", KNOWN_AGENT_EVENT_TYPES)})
+              )`
+        }
         AND ${sql.and([
           ...(input.threadId === undefined ? [] : [sql`stream_id = ${input.threadId}`]),
           ...(input.commandId === undefined ? [] : [sql`command_id = ${input.commandId}`]),
@@ -697,6 +719,32 @@ const makeEventStore = Effect.gen(function* () {
   const streamApplicationEvents: OrchestrationEventStore["Service"]["streamApplicationEvents"] = (
     input,
   ) => streamProjectedApplicationEvents({ ...input, project: (event) => event });
+
+  // Say once at startup that the store holds events this build skips; otherwise
+  // the only symptom is a feature silently missing from the read model. Never
+  // fails construction, since the table may not exist yet on a fresh database.
+  yield* sql<{ readonly type: string; readonly count: number }>`
+    SELECT event_type AS "type", COUNT(*) AS "count"
+    FROM orchestration_events
+    WHERE (aggregate_kind = 'project' AND NOT ${sql.in("event_type", KNOWN_PROJECT_EVENT_TYPES)})
+      OR (
+        application_event_version = 2
+        AND aggregate_kind = 'thread'
+        AND NOT ${sql.in("event_type", KNOWN_AGENT_EVENT_TYPES)}
+      )
+    GROUP BY event_type
+    ORDER BY event_type ASC
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows.length === 0
+        ? Effect.void
+        : Effect.logWarning("orchestration.event-store.unknown-event-types", {
+            types: rows.map((row) => `${row.type} (${row.count})`),
+            total: rows.reduce((sum, row) => sum + row.count, 0),
+          }),
+    ),
+    Effect.ignore,
+  );
 
   return {
     appendProjectEvent,
