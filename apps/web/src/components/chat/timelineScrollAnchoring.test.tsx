@@ -11,6 +11,7 @@ import {
   readTimelinePosition,
   rememberTimelinePosition,
   resolveTimelineSendScrollBehavior,
+  shouldReleaseCollapsedTimelineAnchor,
   timelineContentOverflowsViewport,
 } from "./timelineScrollAnchoring";
 
@@ -204,6 +205,51 @@ describe("timeline scroll anchoring", () => {
 
     expect(withoutComposer?.overflowsUsableViewport).toBe(false);
     expect(withComposer?.overflowsUsableViewport).toBe(true);
+  });
+});
+
+describe("shouldReleaseCollapsedTimelineAnchor", () => {
+  // A send-time anchor that has landed, in a settled turn, whose response has
+  // outgrown the reserved end space.
+  const landed = {
+    endSpaceCollapsed: true,
+    turnInProgress: false,
+    mode: "anchoring-new-turn",
+    pendingAnchorId: null,
+    positionedAnchorId: "message-1",
+    settledAnchorId: "message-1",
+  } as const;
+
+  it("releases a landed send-time anchor once its end space is gone", () => {
+    expect(shouldReleaseCollapsedTimelineAnchor(landed)).toBe(true);
+  });
+
+  it("keeps the anchor while its end space still reserves blank space", () => {
+    expect(shouldReleaseCollapsedTimelineAnchor({ ...landed, endSpaceCollapsed: false })).toBe(
+      false,
+    );
+  });
+
+  it("keeps the anchor while the turn is still in progress", () => {
+    expect(shouldReleaseCollapsedTimelineAnchor({ ...landed, turnInProgress: true })).toBe(false);
+  });
+
+  it("waits for positioning to land", () => {
+    expect(
+      shouldReleaseCollapsedTimelineAnchor({
+        ...landed,
+        pendingAnchorId: "message-1",
+        positionedAnchorId: null,
+        settledAnchorId: null,
+      }),
+    ).toBe(false);
+    expect(shouldReleaseCollapsedTimelineAnchor({ ...landed, settledAnchorId: null })).toBe(false);
+  });
+
+  it("leaves reveals and other scroll modes alone", () => {
+    for (const mode of ["anchoring-reveal", "free-scrolling", "following-end"] as const) {
+      expect(shouldReleaseCollapsedTimelineAnchor({ ...landed, mode })).toBe(false);
+    }
   });
 });
 

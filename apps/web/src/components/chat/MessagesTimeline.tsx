@@ -523,7 +523,12 @@ interface MessagesTimelineProps {
   runs: ReadonlyArray<HandoffTimelineRun>;
   anchorMessageId: MessageId | null;
   highlightedMessageId: MessageId | null;
-  onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
+  /**
+   * `endSpaceSize` is the blank space still reserved below the anchored turn.
+   * Zero means the response has outgrown it, so the anchored view is now
+   * identical to ordinary end-following and ChatView can release the anchor.
+   */
+  onAnchorReady: (messageId: MessageId, anchorIndex: number, endSpaceSize: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
   contentInsetEndAdjustment: number;
   onIsAtEndChange: (isAtEnd: boolean) => void;
@@ -1134,9 +1139,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
   const [minimapCurrentIndex, setMinimapCurrentIndex] = useState<number | null>(null);
   const handleAnchorReady = useCallback(
-    (info: { anchorIndex: number | undefined }) => {
+    (info: { anchorIndex: number | undefined; size: number }) => {
       if (anchorMessageId !== null && info.anchorIndex !== undefined) {
-        onAnchorReady(anchorMessageId, info.anchorIndex);
+        onAnchorReady(anchorMessageId, info.anchorIndex, info.size);
       }
     },
     [anchorMessageId, onAnchorReady],
