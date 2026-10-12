@@ -1,4 +1,10 @@
-import { ASSISTANT_CITATION_CONTEXT_LENGTH, type AssistantCitation } from "@t3tools/contracts";
+import {
+  ASSISTANT_CITATION_CONTEXT_LENGTH,
+  ASSISTANT_CITATION_MAX_TEXT_LENGTH,
+  MessageId,
+  type AssistantCitation,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 
 export type AssistantTextSelector = {
   readonly text: string;
@@ -195,8 +201,17 @@ function isUnselectable(text: Text): boolean {
   return !!element && !!view && view.getComputedStyle(element).userSelect === "none";
 }
 
-function selectedTextBoundary(range: Range, node: Node, last: boolean): Text | null {
+function selectedTextBoundary(
+  range: Range,
+  node: Node,
+  last: boolean,
+  skipExcluded = false,
+): Text | null {
   if (!range.intersectsNode(node)) return null;
+  // A block reply spans its own reply button; that control is not quoted text.
+  if (skipExcluded && node.nodeType === 1 && (node as Element).matches(EXCLUDED_SELECTOR)) {
+    return null;
+  }
   if (node.nodeType === 3) {
     const text = node as Text;
     const start = node === range.startContainer ? range.startOffset : 0;
@@ -210,7 +225,7 @@ function selectedTextBoundary(range: Range, node: Node, last: boolean): Text | n
     child !== null;
     child = last ? child.previousSibling : child.nextSibling
   ) {
-    const boundary = selectedTextBoundary(range, child, last);
+    const boundary = selectedTextBoundary(range, child, last, skipExcluded);
     if (boundary !== null) return boundary;
   }
   return null;
@@ -222,9 +237,45 @@ export function captureAssistantTextSelection(
   selection: Selection | null,
 ): { source: HTMLElement; selector: AssistantTextSelector; range: Range } | null {
   if (selection === null || selection.isCollapsed || selection.rangeCount !== 1) return null;
-  const range = selection.getRangeAt(0).cloneRange();
-  const first = selectedTextBoundary(range, range.commonAncestorContainer, false);
-  const last = selectedTextBoundary(range, range.commonAncestorContainer, true);
+  return captureAssistantTextRange(viewport, selection.getRangeAt(0).cloneRange());
+}
+
+/**
+ * A block reply: the whole rendered block (paragraph, list item, table, code)
+ * cited as if the user had selected all of it. A block longer than a citation
+ * allows keeps its first characters.
+ */
+export function captureAssistantBlockCitation(
+  block: HTMLElement,
+  threadRef: ScopedThreadRef,
+): { citation: AssistantCitation; sourceAnchor: AssistantCitationSourceAnchor } | null {
+  const viewport = block.closest<HTMLElement>("[data-assistant-citation-viewport]");
+  if (!viewport) return null;
+  const range = block.ownerDocument.createRange();
+  range.selectNodeContents(block);
+  const captured = captureAssistantTextRange(viewport, range, ASSISTANT_CITATION_MAX_TEXT_LENGTH);
+  const messageId = captured?.source.dataset.assistantCitationSource;
+  if (!captured || !messageId) return null;
+  return {
+    citation: {
+      version: 1,
+      ...threadRef,
+      messageId: MessageId.make(messageId),
+      ...captured.selector,
+    },
+    sourceAnchor: { source: captured.source, range: captured.range, viewport },
+  };
+}
+
+/** Shared by selections and block replies; `blockMaxLength` turns on block trimming and clamping. */
+export function captureAssistantTextRange(
+  viewport: HTMLElement,
+  range: Range,
+  blockMaxLength?: number,
+): { source: HTMLElement; selector: AssistantTextSelector; range: Range } | null {
+  const block = blockMaxLength !== undefined;
+  const first = selectedTextBoundary(range, range.commonAncestorContainer, false, block);
+  const last = selectedTextBoundary(range, range.commonAncestorContainer, true, block);
   if (first === null || last === null) return null;
   const source = first.parentElement?.closest<HTMLElement>("[data-assistant-citation-source]");
   if (!source || !viewport.contains(source)) return null;
@@ -247,6 +298,16 @@ export function captureAssistantTextSelection(
     rawEnd = chunk.start + end;
   }
   if (rawStart === null) return null;
+  if (blockMaxLength !== undefined) {
+    // A code block's text ends in its final line break; the quote does not.
+    while (rawEnd > rawStart && /\s/.test(stream.text[rawEnd - 1]!)) rawEnd -= 1;
+    if (rawEnd - rawStart > blockMaxLength) {
+      rawEnd = rawStart + blockMaxLength;
+      if (splitsSurrogatePair(stream.text, rawEnd)) rawEnd -= 1;
+    }
+    const end = stream.chunks.findLast((chunk) => chunk.start < rawEnd);
+    if (end) range.setEnd(end.node, Math.min(end.node.length, rawEnd - end.start));
+  }
   const selector = createAssistantTextSelector(stream.text, rawStart, rawEnd);
   return selector === null ? null : { source, selector, range };
 }

@@ -43,6 +43,7 @@ import {
   SparklesIcon,
   TriangleAlertIcon,
   WorkflowIcon,
+  ReplyIcon,
   WrapTextIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -107,6 +108,7 @@ import { parseAssistantCitationHref } from "@t3tools/shared/assistantCitations";
 import { parseComposerContextHref } from "@t3tools/shared/composerContextReferences";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
+import { REPLY_BLOCK_PROPERTY, rehypeMarkReplyBlocks } from "./chat/markdownReplyBlocks";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
@@ -238,6 +240,8 @@ interface ChatMarkdownProps {
   imageBaseDir?: string | undefined;
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
   extraRemarkPlugins?: NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+  /** Offers an inline reply on each block; receives the block's rendered element. */
+  onReplyToBlock?: ((block: HTMLElement) => void) | undefined;
   /** Renders a `t3-context://` link as a chip; without it the link shows its label as text. */
   renderContextReference?: ((reference: ChatMarkdownContextReference) => ReactNode) | undefined;
   /** Loads GitHub-hosted media through `cwd`'s GitHub credential, which a private repository's
@@ -559,7 +563,11 @@ function readInitialWordWrapSetting(): boolean {
   return getClientSettings().wordWrap;
 }
 
-function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
+function MarkdownTable({
+  children,
+  replyAction,
+  ...props
+}: React.ComponentProps<"table"> & { replyAction?: ReactNode }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(readInitialWordWrapSetting);
   const [copied, setCopied] = useState(false);
@@ -634,31 +642,34 @@ function MarkdownTable({ children, ...props }: React.ComponentProps<"table">) {
           </TooltipTrigger>
           <TooltipPopup side="top">{expandLabel}</TooltipPopup>
         </Tooltip>
-        <Menu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <MenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost-muted"
-                      size="icon-xs"
-                      aria-label={copyLabel}
-                    />
-                  }
-                />
-              }
-            >
-              <MorphIcon className="size-3" icon={copied ? Check : Copy} />
-            </TooltipTrigger>
-            <TooltipPopup side="top">{copyLabel}</TooltipPopup>
-          </Tooltip>
-          <MenuPopup align="end">
-            <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
-            <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
-          </MenuPopup>
-        </Menu>
+        <span className="flex items-center gap-0.5">
+          {replyAction}
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost-muted"
+                        size="icon-xs"
+                        aria-label={copyLabel}
+                      />
+                    }
+                  />
+                }
+              >
+                <MorphIcon className="size-3" icon={copied ? Check : Copy} />
+              </TooltipTrigger>
+              <TooltipPopup side="top">{copyLabel}</TooltipPopup>
+            </Tooltip>
+            <MenuPopup align="end">
+              <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
+              <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
+            </MenuPopup>
+          </Menu>
+        </span>
       </div>
     </div>
   );
@@ -1894,6 +1905,16 @@ const CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS = [rehypeHeadingIds] satisfies N
   ReactMarkdownOptions["rehypePlugins"]
 >;
 
+const CHAT_MARKDOWN_RENDER_REPLY_REHYPE_PLUGINS = [
+  ...CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS,
+  rehypeMarkReplyBlocks,
+] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
+const CHAT_MARKDOWN_LITERAL_HTML_REPLY_REHYPE_PLUGINS = [
+  ...CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS,
+  rehypeMarkReplyBlocks,
+] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
 function MarkdownExternalLinkContent({
   host,
   href,
@@ -2335,6 +2356,7 @@ function useChatMarkdownState({
   renderContextReference,
   headingLevelOffset = 0,
   githubMedia = false,
+  onReplyToBlock,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const [localMediaPreview, setLocalMediaPreview] = useState<ExpandedImagePreview | null>(null);
@@ -2751,6 +2773,7 @@ function useChatMarkdownState({
       markdownFileLinkMetaByHref,
       onTaskListChange,
       onUseArtifactTemplate,
+      onReplyToBlock,
       onRunShellCommand,
       openChangeRequestLink,
       openDeferredMarkdownLink,
@@ -2784,6 +2807,7 @@ function useChatMarkdownState({
       markdownFileLinkMetaByHref,
       onTaskListChange,
       onUseArtifactTemplate,
+      onReplyToBlock,
       onRunShellCommand,
       openChangeRequestLink,
       openDeferredMarkdownLink,
@@ -2814,13 +2838,77 @@ const ChatMarkdownRendererContext = React.createContext<
   ReturnType<typeof useChatMarkdownState>["componentState"]
 >(null!);
 
+function isReplyBlock(node: ReactMarkdownExtraProps["node"]): boolean {
+  return node?.properties?.[REPLY_BLOCK_PROPERTY] !== undefined;
+}
+
+/**
+ * Inline reply at the end of a marked block, shown on hover. The button is a
+ * control, so the quote taken from its block leaves it out.
+ */
+function MarkdownBlockReplyButton({ node }: { node: ReactMarkdownExtraProps["node"] }) {
+  const { onReplyToBlock } = use(ChatMarkdownRendererContext);
+  if (!onReplyToBlock || !isReplyBlock(node)) return null;
+  return (
+    <button
+      type="button"
+      aria-label="Reply to this block"
+      className="ms-1 inline-flex size-5 select-none items-center justify-center rounded align-middle text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring pointer-coarse:opacity-100 [[data-reply-block]:hover>&]:opacity-100"
+      onClick={(event) => {
+        const block = event.currentTarget.closest<HTMLElement>("[data-reply-block]");
+        if (block) onReplyToBlock(block);
+      }}
+    >
+      <ReplyIcon aria-hidden className="size-3.5" />
+    </button>
+  );
+}
+
+/** Reply for blocks with their own action row: quotes the `target` element inside `container`. */
+function MarkdownBlockReplyAction({
+  container,
+  target,
+  label,
+}: {
+  container: string;
+  target: string;
+  label: string;
+}) {
+  const { onReplyToBlock } = use(ChatMarkdownRendererContext);
+  if (!onReplyToBlock) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost-muted"
+            size="icon-xs"
+            aria-label={label}
+            onClick={(event) => {
+              const block = event.currentTarget
+                .closest(container)
+                ?.querySelector<HTMLElement>(target);
+              if (block) onReplyToBlock(block);
+            }}
+          />
+        }
+      >
+        <ReplyIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Reply</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 // Screen readers take a heading's level from its tag, which would let a `#` in a
 // message outrank the heading placed above it. Override only the exposed level:
 // the tag keeps driving the stylesheet and copy-as-markdown.
 function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   const Tag = `h${level}` as const;
   return function MarkdownHeading({
-    node: _node,
+    node,
+    children,
     ...props
   }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
     const { headingLevelOffset } = use(ChatMarkdownRendererContext);
@@ -2828,7 +2916,10 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
       <Tag
         {...props}
         aria-level={headingLevelOffset > 0 ? Math.min(level + headingLevelOffset, 6) : undefined}
-      />
+      >
+        {children}
+        <MarkdownBlockReplyButton node={node} />
+      </Tag>
     );
   };
 }
@@ -2851,9 +2942,14 @@ const CHAT_MARKDOWN_COMPONENTS = {
     }
     return <div {...props}>{children}</div>;
   },
-  p: function MarkdownParagraph({ node: _node, children, ...props }) {
+  p: function MarkdownParagraph({ node, children, ...props }) {
     const { skills } = use(ChatMarkdownRendererContext);
-    return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
+    return (
+      <p {...props}>
+        {renderSkillInlineMarkdownChildren(children, skills)}
+        <MarkdownBlockReplyButton node={node} />
+      </p>
+    );
   },
   blockquote: function MarkdownBlockquote({ node: _node, children, ...props }) {
     const alert =
@@ -2893,6 +2989,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
     return (
       <li {...props} data-task-marker-offset={markerOffset ?? undefined}>
         {renderSkillInlineMarkdownChildren(children, skills)}
+        <MarkdownBlockReplyButton node={node} />
       </li>
     );
   },
@@ -3344,8 +3441,21 @@ const CHAT_MARKDOWN_COMPONENTS = {
     }
     return <ChatMarkdownImageFallback alt={altText} copyMarkdown={copyMarkdown} kind={kind} />;
   },
-  table: function MarkdownTableRenderer({ node: _node, ...props }) {
-    return <MarkdownTable {...props} />;
+  table: function MarkdownTableRenderer({ node, ...props }) {
+    return (
+      <MarkdownTable
+        {...props}
+        replyAction={
+          isReplyBlock(node) ? (
+            <MarkdownBlockReplyAction
+              container=".chat-markdown-table-container"
+              target="table"
+              label="Reply to this table"
+            />
+          ) : null
+        }
+      />
+    );
   },
   details: function MarkdownDetailsRenderer({ node: _node, children, open: detailsOpen }) {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
@@ -3403,6 +3513,15 @@ const CHAT_MARKDOWN_COMPONENTS = {
         language={language}
         fenceTitle={fenceTitle}
         theme={resolvedTheme}
+        leadingActions={
+          isReplyBlock(node) ? (
+            <MarkdownBlockReplyAction
+              container=".chat-markdown-codeblock"
+              target="pre"
+              label="Reply to this code block"
+            />
+          ) : null
+        }
         onRunShellCommand={
           onRunShellCommand && !isStreaming && isClosedCodeFence(node, text)
             ? onRunShellCommand
@@ -3463,9 +3582,13 @@ function ChatMarkdown({
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
           rehypePlugins={
-            parseRawHtml
-              ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
-              : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
+            props.onReplyToBlock
+              ? parseRawHtml
+                ? CHAT_MARKDOWN_RENDER_REPLY_REHYPE_PLUGINS
+                : CHAT_MARKDOWN_LITERAL_HTML_REPLY_REHYPE_PLUGINS
+              : parseRawHtml
+                ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
+                : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
           }
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}
