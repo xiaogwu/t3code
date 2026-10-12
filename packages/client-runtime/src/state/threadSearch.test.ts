@@ -28,12 +28,34 @@ it("creates keys without array methods unavailable in Hermes", () => {
   Reflect.deleteProperty(Array.prototype, "toSorted");
 
   try {
-    expect(makeThreadSearchKey([envB, envA], "needle")).toBe('[["env-a","env-b"],"needle"]');
+    expect(makeThreadSearchKey([envB, envA], "needle")).toBe(
+      '[["env-a","env-b"],"needle","active"]',
+    );
   } finally {
     if (descriptor !== undefined) {
       Reflect.defineProperty(Array.prototype, "toSorted", descriptor);
     }
   }
+});
+
+it("keeps active and archived searches under separate keys", () => {
+  const scopes: string[] = [];
+  const searchAtom = createThreadSearchResultsAtomFamily<Error>({
+    getSearchAtom: (_environmentId, _query, scope) => {
+      scopes.push(scope);
+      return Atom.make(AsyncResult.success({ matches: [] }));
+    },
+    labelPrefix: "test:thread-search-scope",
+  });
+  const active = makeThreadSearchKey([envA], "needle");
+  const archived = makeThreadSearchKey([envA], "needle", "archived");
+  expect(active).not.toBe(archived);
+
+  const registry = AtomRegistry.make();
+  registry.get(searchAtom(active));
+  registry.get(searchAtom(archived));
+  expect(scopes).toEqual(["active", "archived"]);
+  registry.dispose();
 });
 
 it("encodes scoped thread keys without delimiter collisions", () => {

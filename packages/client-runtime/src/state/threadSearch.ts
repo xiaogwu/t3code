@@ -2,6 +2,7 @@ import {
   EnvironmentId,
   OrchestrationSearchThreadsInput,
   type OrchestrationSearchThreadsResult,
+  OrchestrationThreadSearchScope,
   type OrchestrationThreadSearchMatch,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -18,17 +19,23 @@ export interface ThreadSearchResultsState {
 }
 
 const ThreadSearchKey = Schema.fromJsonString(
-  Schema.Tuple([Schema.Array(EnvironmentId), OrchestrationSearchThreadsInput.fields.query]),
+  Schema.Tuple([
+    Schema.Array(EnvironmentId),
+    OrchestrationSearchThreadsInput.fields.query,
+    OrchestrationThreadSearchScope,
+  ]),
 );
 const decodeThreadSearchKey = Schema.decodeUnknownOption(ThreadSearchKey);
 
 export function makeThreadSearchKey(
   environmentIds: ReadonlyArray<EnvironmentId>,
   query: string,
+  scope: OrchestrationThreadSearchScope = "active",
 ): string {
   return JSON.stringify([
     [...environmentIds].sort((left, right) => left.localeCompare(right)),
     query,
+    scope,
   ]);
 }
 
@@ -51,6 +58,7 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
   readonly getSearchAtom: (
     environmentId: EnvironmentId,
     query: string,
+    scope: OrchestrationThreadSearchScope,
   ) => Atom.Atom<AsyncResult.AsyncResult<OrchestrationSearchThreadsResult, E>>;
   readonly labelPrefix: string;
 }) {
@@ -61,12 +69,12 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
         return { matches: [], isLoading: false };
       }
 
-      const [environmentIds, query] = parsedKey.value;
+      const [environmentIds, query, scope] = parsedKey.value;
       const matches: EnvironmentThreadSearchMatch[] = [];
       let isLoading = false;
 
       for (const environmentId of environmentIds) {
-        const result = get(options.getSearchAtom(environmentId, query));
+        const result = get(options.getSearchAtom(environmentId, query, scope));
         isLoading ||= result.waiting;
         const value = Option.getOrNull(AsyncResult.value(result));
         if (value !== null) {
