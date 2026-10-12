@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { EventId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, EventId, MessageId, ThreadBookmarkId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -412,6 +412,154 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
           AND stream_id = ${threadId}
       `;
       assert.equal(eventCountAfterRetry[0]?.count, eventCountBeforeRetry[0]?.count);
+    }),
+  );
+
+  it.effect("carries v1 bookmarks over once, without resurrecting removed ones", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("thread:legacy-bookmarks");
+      const bookmarkIds = () =>
+        projections
+          .getThreadProjection(threadId)
+          .pipe(
+            Effect.map((projection) =>
+              (projection.thread.bookmarks ?? []).map((bookmark) => bookmark.id),
+            ),
+          );
+      const eventIds = sql<{ readonly event_id: string }>`
+        SELECT event_id
+        FROM orchestration_events
+        WHERE application_event_version = 2 AND stream_id = ${threadId}
+        ORDER BY sequence
+      `;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, scripts_json, created_at, updated_at
+        ) VALUES (
+          'project:legacy-bookmarks',
+          'Legacy project',
+          '/tmp/legacy-bookmarks',
+          '[]',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, created_at, updated_at
+        ) VALUES (
+          ${threadId},
+          'project:legacy-bookmarks',
+          'Bookmarked thread',
+          '{"instanceId":"codex","model":"gpt-5.4"}',
+          'full-access',
+          'default',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-02T00:00:00.000Z'
+        )
+      `;
+      // Shaped like the real v1 rows: message ids keep their "assistant:" prefix,
+      // and the anchor is the citation the v1 decider stored.
+      yield* sql`
+        INSERT INTO projection_thread_bookmarks (
+          bookmark_id, thread_id, environment_id, message_id, text, comment,
+          start_offset, end_offset, prefix, suffix, created_at
+        ) VALUES
+          ('bookmark:second', ${threadId}, 'environment:local', 'assistant:message-2',
+            'Later passage', 'why it matters', 4, 17, 'see ', ' here',
+            '2026-01-01T03:00:00.000Z'),
+          ('bookmark:first', ${threadId}, 'environment:local', 'assistant:message-1',
+            'Earlier passage', NULL, 0, 15, '', ' and more',
+            '2026-01-01T02:00:00.000Z'),
+          ('bookmark:corrupt', ${threadId}, 'environment:local', 'assistant:message-1',
+            'Inverted range', NULL, 9, 3, '', '',
+            '2026-01-01T04:00:00.000Z')
+      `;
+
+      yield* importer.reconcileShells;
+      const imported = yield* projections.getThreadProjection(threadId);
+      assert.deepStrictEqual(imported.thread.bookmarks, [
+        {
+          id: ThreadBookmarkId.make("bookmark:first"),
+          citation: {
+            version: 1,
+            environmentId: EnvironmentId.make("environment:local"),
+            threadId,
+            messageId: MessageId.make("assistant:message-1"),
+            text: "Earlier passage",
+            start: 0,
+            end: 15,
+            prefix: "",
+            suffix: " and more",
+          },
+          createdAt: "2026-01-01T02:00:00.000Z",
+        },
+        {
+          id: ThreadBookmarkId.make("bookmark:second"),
+          citation: {
+            version: 1,
+            environmentId: EnvironmentId.make("environment:local"),
+            threadId,
+            messageId: MessageId.make("assistant:message-2"),
+            text: "Later passage",
+            comment: "why it matters",
+            start: 4,
+            end: 17,
+            prefix: "see ",
+            suffix: " here",
+          },
+          createdAt: "2026-01-01T03:00:00.000Z",
+        },
+      ]);
+      assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.deepStrictEqual(yield* bookmarkIds(), ["bookmark:first", "bookmark:second"]);
+
+      // A thread imported before bookmarks were carried has none in its payload.
+      yield* sql`
+        UPDATE orchestration_v2_projection_threads
+        SET payload_json = json_remove(payload_json, '$.bookmarks')
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 1,
+        importedMessageCount: 0,
+      });
+      assert.deepStrictEqual(yield* bookmarkIds(), ["bookmark:first", "bookmark:second"]);
+      const eventsAfterRepair = yield* eventIds;
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 0,
+        importedMessageCount: 0,
+      });
+      assert.deepStrictEqual(yield* eventIds, eventsAfterRepair);
+
+      // Removing every bookmark in v2 leaves an empty list, which never re-imports.
+      const current = yield* projections.getThreadProjection(threadId);
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("event:legacy-bookmarks:remove-all"),
+            type: "thread.bookmark-removed",
+            threadId,
+            providerInstanceId: current.thread.providerInstanceId,
+            occurredAt: DateTime.makeUnsafe("2026-01-05T00:00:00.000Z"),
+            payload: { ...current.thread, bookmarks: [] },
+          },
+        ],
+      });
+      assert.deepStrictEqual(yield* importer.reconcileShells, {
+        importedThreadCount: 0,
+        importedMessageCount: 0,
+      });
+      assert.deepStrictEqual(yield* bookmarkIds(), []);
+      assert.isTrue((yield* maintenance.rebuild).valid);
+      assert.deepStrictEqual(yield* bookmarkIds(), []);
     }),
   );
 
