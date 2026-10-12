@@ -110,6 +110,30 @@ export function shouldReleaseCollapsedTimelineAnchor(input: {
   return !positioningInFlight;
 }
 
+/**
+ * The earlier-history request that would load a palette-revealed message, as a
+ * `messageId:firstEntryId` key, or null when none is needed or possible. Keying
+ * on the loaded window's first entry allows one request per window, so a page
+ * that misses the message cannot loop.
+ */
+export function resolveRevealHistoryRequest(input: {
+  readonly messageId: string | null;
+  readonly revealPending: boolean;
+  readonly messageLoaded: boolean;
+  readonly firstEntryId: string | undefined;
+  readonly history:
+    | { readonly hasMoreHistory: boolean; readonly loading: boolean; readonly error: string | null }
+    | undefined;
+  readonly lastRequestKey: string | null;
+}): string | null {
+  if (input.messageId === null || !input.revealPending || input.messageLoaded) return null;
+  if (!input.history?.hasMoreHistory || input.history.loading || input.history.error !== null) {
+    return null;
+  }
+  const requestKey = `${input.messageId}:${input.firstEntryId ?? ""}`;
+  return requestKey === input.lastRequestKey ? null : requestKey;
+}
+
 export interface TimelineListMeasurementState {
   readonly data: readonly unknown[];
   readonly scroll: number;

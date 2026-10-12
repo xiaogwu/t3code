@@ -10,6 +10,7 @@ import {
   getRowBottom,
   readTimelinePosition,
   rememberTimelinePosition,
+  resolveRevealHistoryRequest,
   resolveTimelineSendScrollBehavior,
   shouldReleaseCollapsedTimelineAnchor,
   timelineContentOverflowsViewport,
@@ -421,5 +422,46 @@ describe("remembered timeline positions", () => {
       atEnd: true,
     });
     expect(readThreadTimelinePosition(threadKey)).toBeUndefined();
+  });
+});
+
+describe("resolveRevealHistoryRequest", () => {
+  const base = {
+    messageId: "message-old",
+    revealPending: true,
+    messageLoaded: false,
+    firstEntryId: "entry-40",
+    history: { hasMoreHistory: true, loading: false, error: null },
+    lastRequestKey: null,
+  };
+
+  it("pages toward a revealed message that is not loaded yet, once per window", () => {
+    expect(resolveRevealHistoryRequest(base)).toBe("message-old:entry-40");
+    expect(resolveRevealHistoryRequest({ ...base, lastRequestKey: "message-old:entry-40" })).toBe(
+      null,
+    );
+    // A page landed without the message: the window moved, so ask again.
+    expect(
+      resolveRevealHistoryRequest({
+        ...base,
+        firstEntryId: "entry-20",
+        lastRequestKey: "message-old:entry-40",
+      }),
+    ).toBe("message-old:entry-20");
+  });
+
+  it("stops once the message is loaded, history is exhausted, or paging is busy or failed", () => {
+    expect(resolveRevealHistoryRequest({ ...base, messageLoaded: true })).toBe(null);
+    expect(resolveRevealHistoryRequest({ ...base, revealPending: false })).toBe(null);
+    expect(
+      resolveRevealHistoryRequest({ ...base, history: { ...base.history, hasMoreHistory: false } }),
+    ).toBe(null);
+    expect(
+      resolveRevealHistoryRequest({ ...base, history: { ...base.history, loading: true } }),
+    ).toBe(null);
+    expect(
+      resolveRevealHistoryRequest({ ...base, history: { ...base.history, error: "offline" } }),
+    ).toBe(null);
+    expect(resolveRevealHistoryRequest({ ...base, history: undefined })).toBe(null);
   });
 });
