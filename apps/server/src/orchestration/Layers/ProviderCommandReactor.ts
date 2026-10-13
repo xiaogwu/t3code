@@ -3,6 +3,8 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  MESSAGE_STEERED_ACTIVITY_KIND,
+  type MessageId,
   type ModelSelection,
   type OrchestrationEvent,
   ProviderDriverKind,
@@ -328,6 +330,43 @@ const make = Effect.gen(function* () {
           createdAt: input.createdAt,
         }),
       ),
+    );
+
+  /**
+   * Records that a provider folded a mid-turn message into the turn already
+   * running instead of queueing a turn of its own. Without it, settle
+   * eligibility reads the unadopted message as queued work.
+   */
+  const appendMessageSteeredActivity = (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: MessageId;
+    readonly turnId: TurnId;
+    readonly createdAt: string;
+  }) =>
+    Effect.all({
+      commandId: serverCommandId("message-steered-activity"),
+      eventId: serverEventId(),
+    }).pipe(
+      Effect.flatMap(({ commandId, eventId }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "info",
+            kind: MESSAGE_STEERED_ACTIVITY_KIND,
+            summary: "Message joined the running turn",
+            payload: { messageId: input.messageId },
+            turnId: input.turnId,
+            createdAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
+        }),
+      ),
+      // The message already reached the provider; a lost marker only delays
+      // settle until the queued-turn grace window ends.
+      Effect.ignore,
     );
 
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
@@ -1586,9 +1625,20 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const send = providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure));
+    const runningTurnId = thread.latestTurn?.turnId ?? null;
+    const send = providerService.sendTurn(sendTurnRequest.value).pipe(
+      Effect.flatMap((result) =>
+        result.turnId === runningTurnId
+          ? appendMessageSteeredActivity({
+              threadId: thread.id,
+              messageId: message.id,
+              turnId: result.turnId,
+              createdAt: event.payload.createdAt,
+            })
+          : Effect.void,
+      ),
+      Effect.catchCause(recoverTurnStartFailure),
+    );
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.
     if (resumed && event.commandId !== null) resumedTurnStarts.delete(event.commandId);
     yield* send.pipe(

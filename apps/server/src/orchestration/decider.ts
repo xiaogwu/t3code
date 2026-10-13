@@ -1,6 +1,7 @@
 import {
   EventId,
   MAX_SCRIPT_ID_LENGTH,
+  MESSAGE_STEERED_ACTIVITY_KIND,
   SCRIPT_RUN_COMMAND_PATTERN,
   MessageId,
   ThreadLinkedPullRequest,
@@ -110,13 +111,21 @@ function openRequests(thread: Pick<OrchestrationThread, "activities">) {
 
 /** Apply the shared shell-level rule to the detailed command read model. */
 function hasQueuedTurnStartForThread(
-  thread: Pick<OrchestrationThread, "messages" | "latestTurn" | "session">,
+  thread: Pick<OrchestrationThread, "messages" | "activities" | "latestTurn" | "session">,
   now: string,
 ): boolean {
+  // A message the provider folded into the running turn never gets a turn of
+  // its own, so it would otherwise read as queued until the grace window ends.
+  const steeredMessageIds = new Set<unknown>();
+  for (const activity of thread.activities) {
+    if (activity.kind !== MESSAGE_STEERED_ACTIVITY_KIND) continue;
+    if (Predicate.isObject(activity.payload)) steeredMessageIds.add(activity.payload.messageId);
+  }
   let latestUserMessageAt: string | null = null;
   let latestUserMessageAtMs = Number.NEGATIVE_INFINITY;
   for (const message of thread.messages) {
     if (message.role !== "user" || isImportedAgentSessionMessageId(message.id)) continue;
+    if (steeredMessageIds.has(message.id)) continue;
     const messageAtMs = Date.parse(message.createdAt);
     latestUserMessageAtMs = Math.max(latestUserMessageAtMs, messageAtMs);
     if (messageAtMs === latestUserMessageAtMs) {
