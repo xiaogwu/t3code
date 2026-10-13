@@ -2,7 +2,10 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
+import {
+  MESSAGE_STEERED_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+} from "@t3tools/contracts";
 import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -551,6 +554,7 @@ export function deriveWorkLogEntries(
     // log renders a second reply icon under the block.
     if (activity.kind === "user-input.resolved") continue;
     if (activity.kind === "context-window.updated") continue;
+    if (activity.kind === MESSAGE_STEERED_ACTIVITY_KIND) continue;
     if (activity.kind === "turn.plan.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isNoContentRuntimeWarning(activity)) continue;

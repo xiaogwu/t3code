@@ -2,6 +2,8 @@ import {
   CheckpointRef,
   CommandId,
   EventId,
+  MESSAGE_STEERED_ACTIVITY_KIND,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -254,6 +256,68 @@ it.layer(NodeServices.layer)("agent settle decider", (it) => {
       });
       const events = Array.isArray(result) ? result : [result];
       expect(events.map((event) => event.type)).toEqual(["thread.session-set", "thread.settled"]);
+    }),
+  );
+
+  it.effect("settles over a message the provider folded into the armed turn", () =>
+    Effect.gen(function* () {
+      // The user wrote mid-turn, after the turn started and before it ended.
+      // No turn adopts the message, so only the steered activity marks it as
+      // delivered rather than queued.
+      const midTurnMessage: OrchestrationThread["messages"][number] = {
+        id: MessageId.make("message-mid-turn"),
+        role: "user",
+        text: "you can settle this thread when done",
+        turnId: null,
+        streaming: false,
+        createdAt: "2025-12-31T23:59:30.000Z",
+        updatedAt: "2025-12-31T23:59:30.000Z",
+      };
+      const midTurnThread = {
+        latestTurn: {
+          turnId: TURN_ID,
+          state: "running" as const,
+          requestedAt: "2025-12-31T23:58:00.000Z",
+          startedAt: "2025-12-31T23:58:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [midTurnMessage],
+      };
+
+      const unmarked = yield* decideOrchestrationCommand({
+        command: sessionSetCommand("ready"),
+        readModel: armedReadModel(midTurnThread),
+      });
+      const unmarkedEvents = Array.isArray(unmarked) ? unmarked : [unmarked];
+      expect(unmarkedEvents.map((event) => event.type)).toEqual([
+        "thread.session-set",
+        "thread.agent-settle-cancelled",
+        "thread.activity-appended",
+      ]);
+
+      const steered = yield* decideOrchestrationCommand({
+        command: sessionSetCommand("ready"),
+        readModel: armedReadModel({
+          ...midTurnThread,
+          activities: [
+            {
+              id: EventId.make("activity-steered"),
+              kind: MESSAGE_STEERED_ACTIVITY_KIND,
+              summary: "Message joined the running turn",
+              tone: "info",
+              turnId: TURN_ID,
+              createdAt: midTurnMessage.createdAt,
+              payload: { messageId: midTurnMessage.id },
+            },
+          ],
+        }),
+      });
+      const steeredEvents = Array.isArray(steered) ? steered : [steered];
+      expect(steeredEvents.map((event) => event.type)).toEqual([
+        "thread.session-set",
+        "thread.settled",
+      ]);
     }),
   );
 

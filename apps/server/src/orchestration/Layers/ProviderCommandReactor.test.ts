@@ -19,6 +19,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EnvironmentId,
   EventId,
+  MESSAGE_STEERED_ACTIVITY_KIND,
   MessageId,
   ProjectId,
   ThreadId,
@@ -930,6 +931,69 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
     expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("title");
   });
+
+  effectIt.effect(
+    "marks a mid-turn message as steered only when the provider folds it into the running turn",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const threadId = ThreadId.make("thread-1");
+        const now = "2026-01-01T00:00:00.000Z";
+        const startTurn = (id: string) =>
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`cmd-turn-start-${id}`),
+            threadId,
+            message: {
+              messageId: asMessageId(`message-${id}`),
+              role: "user",
+              text: id,
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: now,
+          });
+        const steeredMessageIds = async () =>
+          (
+            (await harness.readModel()).threads.find((entry) => entry.id === threadId)
+              ?.activities ?? []
+          )
+            .filter((activity) => activity.kind === MESSAGE_STEERED_ACTIVITY_KIND)
+            .map((activity) => (activity.payload as { messageId: string }).messageId);
+
+        yield* startTurn("first");
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-running"),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "approval-required",
+            activeTurnId: asTurnId("turn-1"),
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
+
+        // Codex-style: the follow-up becomes a turn of its own.
+        harness.sendTurn.mockImplementationOnce(() =>
+          Effect.succeed({ threadId, turnId: asTurnId("turn-2") }),
+        );
+        yield* startTurn("queued");
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 2));
+        // Claude-style: the follow-up joins the running turn.
+        yield* startTurn("steered");
+        yield* Effect.promise(() => waitFor(async () => (await steeredMessageIds()).length > 0));
+
+        expect(yield* Effect.promise(steeredMessageIds)).toEqual(["message-steered"]);
+      }),
+  );
 
   effectIt.effect("forwards only a user-renamed title when starting a provider session", () =>
     Effect.gen(function* () {
