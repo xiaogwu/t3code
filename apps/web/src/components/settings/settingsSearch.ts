@@ -68,6 +68,7 @@ export interface SettingsSearchItem {
   readonly requiresAgentThreadSettle?: boolean;
   readonly requiresAgentThreadSnooze?: boolean;
   readonly requiresAgentThreadRename?: boolean;
+  readonly requiresAgentThreadPin?: boolean;
 }
 
 export interface SettingsSearchAvailability {
@@ -82,6 +83,7 @@ export interface SettingsSearchAvailability {
   readonly hasAgentThreadSettle: boolean;
   readonly hasAgentThreadSnooze: boolean;
   readonly hasAgentThreadRename: boolean;
+  readonly hasAgentThreadPin: boolean;
 }
 
 /**
@@ -342,6 +344,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     searchTerms: ["mcp tool rename_thread title permission"],
     requiresAgentThreadRename: true,
+  },
+  {
+    id: "agent-thread-pin",
+    title: "Let agents pin their thread",
+    to: "/settings/general",
+    searchTerms: ["mcp tool pin_thread unpin_thread pinned permission"],
+    requiresAgentThreadPin: true,
   },
   {
     id: "external-terminal",
@@ -1038,7 +1047,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
       (!item.requiresAgentThreadSettle || availability.hasAgentThreadSettle) &&
       (!item.requiresAgentThreadSnooze || availability.hasAgentThreadSnooze) &&
-      (!item.requiresAgentThreadRename || availability.hasAgentThreadRename),
+      (!item.requiresAgentThreadRename || availability.hasAgentThreadRename) &&
+      (!item.requiresAgentThreadPin || availability.hasAgentThreadPin),
   );
 }
 

@@ -15,7 +15,8 @@ export type McpCapability =
   | "threads"
   | "thread-settle"
   | "thread-snooze"
-  | "thread-rename";
+  | "thread-rename"
+  | "thread-pin";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;

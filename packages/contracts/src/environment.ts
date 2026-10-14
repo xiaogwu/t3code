@@ -125,6 +125,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       gates it does not exist either, so clients hide the toggle rather than
       write a key the server would drop. */
   agentThreadRename: Schema.optionalKey(Schema.Boolean),
+  /** Server understands the pin_thread and unpin_thread MCP tools, gated by
+      enableAgentThreadPin. Same version-skew contract as agentThreadSettle. */
+  agentThreadPin: Schema.optionalKey(Schema.Boolean),
   storageCleanup: Schema.optionalKey(Schema.Boolean),
   projectWorktreeCleanup: Schema.optionalKey(Schema.Boolean),
   /** Server persists the opt-in for continuing interrupted threads after restarts. */

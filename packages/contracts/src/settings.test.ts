@@ -723,6 +723,13 @@ describe("ServerSettings thread settlement", () => {
     });
   });
 
+  it("defaults agent thread pinning off and accepts the opt-in patch", () => {
+    expect(decodeServerSettings({}).enableAgentThreadPin).toBe(false);
+    expect(decodeServerSettingsPatch({ enableAgentThreadPin: true })).toEqual({
+      enableAgentThreadPin: true,
+    });
+  });
+
   it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
     expect(() => decodeServerSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
     expect(() => decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();

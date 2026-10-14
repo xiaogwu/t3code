@@ -2262,6 +2262,11 @@ export function GeneralSettingsPanel() {
     connectedEnvironments.every(
       (target) => target.serverConfig?.environment.capabilities.agentThreadRename === true,
     );
+  const supportsAgentThreadPin =
+    connectedEnvironments.length > 0 &&
+    connectedEnvironments.every(
+      (target) => target.serverConfig?.environment.capabilities.agentThreadPin === true,
+    );
   const supportsRestartContinuation =
     connectedEnvironments.length > 0 &&
     connectedEnvironments.every(
@@ -2629,6 +2634,22 @@ export function GeneralSettingsPanel() {
                   updateSettings({ enableAgentThreadRename: Boolean(checked) })
                 }
                 aria-label="Let agents rename their thread"
+              />
+            }
+          />
+        ) : null}
+        {supportsAgentThreadPin ? (
+          <SettingsRow
+            serverScoped
+            {...searchableSetting("agent-thread-pin")}
+            description="Agents may pin or unpin their own thread. Pinning brings a settled or snoozed thread back to the inbox."
+            control={
+              <Switch
+                checked={settings.enableAgentThreadPin}
+                onCheckedChange={(checked) =>
+                  updateSettings({ enableAgentThreadPin: Boolean(checked) })
+                }
+                aria-label="Let agents pin their thread"
               />
             }
           />

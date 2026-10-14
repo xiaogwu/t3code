@@ -5074,6 +5074,7 @@ describe("agent browser access", () => {
           readonly settle?: boolean;
           readonly snooze?: boolean;
           readonly rename?: boolean;
+          readonly pin?: boolean;
         },
     threadId: ThreadId,
     projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
@@ -5099,6 +5100,7 @@ describe("agent browser access", () => {
         typeof access === "boolean" ? false : (access.snooze ?? false);
       const enableAgentThreadRename =
         typeof access === "boolean" ? false : (access.rename ?? false);
+      const enableAgentThreadPin = typeof access === "boolean" ? false : (access.pin ?? false);
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
@@ -5183,6 +5185,7 @@ describe("agent browser access", () => {
               enableAgentThreadSettle,
               enableAgentThreadSnooze,
               enableAgentThreadRename,
+              enableAgentThreadPin,
               projectSettingsOverrides:
                 projectOverride === undefined
                   ? {}
@@ -5334,6 +5337,21 @@ describe("agent browser access", () => {
       assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
       assert.deepEqual(on, [
         { threadId: onThreadId, capabilities: ["pull-requests", "thread-rename"] },
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("carries thread-pin only when agents may pin their own thread", () =>
+    Effect.gen(function* () {
+      const offThreadId = asThreadId("thread-pin-off");
+      const onThreadId = asThreadId("thread-pin-on");
+
+      const off = yield* startSessionWith({ browser: false, device: false }, offThreadId);
+      const on = yield* startSessionWith({ browser: false, device: false, pin: true }, onThreadId);
+
+      assert.deepEqual(off, [{ threadId: offThreadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(on, [
+        { threadId: onThreadId, capabilities: ["pull-requests", "thread-pin"] },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
