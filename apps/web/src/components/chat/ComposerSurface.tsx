@@ -70,7 +70,7 @@ function Main({ className, ...props }: ComponentProps<"div">) {
         "group-data-model-strip-transition/composer-surface:bg-(--chat-composer-glass-surface)",
         outlineClasses,
         contextSeamClasses,
-        "after:z-20 after:hidden group-has-data-[composer-banner-surface=attached]/composer-surface:after:block",
+        "after:z-20 after:hidden group-has-data-[composer-banner-surface=attached]/composer-surface:after:block group-data-model-strip-transition/composer-surface:after:block",
         "group-has-data-[composer-banner-surface=attached]/composer-surface:bg-(--chat-composer-glass-surface)",
         "group-has-data-[composer-banner-surface=attached]/composer-surface:shadow-composer dark:group-has-data-[composer-banner-surface=attached]/composer-surface:shadow-none",
         "group-has-data-[composer-banner-surface=attached]/composer-surface:**:data-[chat-composer-mobile-collapsed=true]:min-h-[calc(1rem+1px)]",

@@ -1,6 +1,12 @@
 import type { EnvironmentId, SidebarV2ThreadSortOrder } from "@t3tools/contracts";
 
-import { THREAD_SORT_OPTIONS } from "./home-list-options";
+export const THREAD_SORT_OPTIONS: ReadonlyArray<{
+  readonly value: SidebarV2ThreadSortOrder;
+  readonly label: string;
+}> = [
+  { value: "updated_at", label: "Last user message" },
+  { value: "created_at", label: "Created at" },
+];
 
 export interface HomeListFilterMenuEnvironment {
   readonly environmentId: EnvironmentId;

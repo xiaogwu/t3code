@@ -7,22 +7,28 @@ import {
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
   DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER,
 } from "@t3tools/contracts";
+import { useAtomSet } from "@effect/atom-react";
 import {
   createContext,
   createElement,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
   type Dispatch,
   type SetStateAction,
 } from "react";
 
+import type { ThreadListFilters } from "../../persistence/mobile-preferences";
+import { updateMobilePreferencesAtom } from "../../state/preferences";
 import type { HomeProjectSortOrder } from "./homeThreadList";
 
 export interface HomeListOptions {
   readonly selectedEnvironmentId: EnvironmentId | null;
+  readonly selectedProjectKey: string | null;
   readonly projectSortOrder: HomeProjectSortOrder;
   /** The list's thread order (the fork's Sidebar v2 thread sort). v2 starts
       in creation order; "Last user message" opts into activity ordering. */
@@ -33,17 +39,13 @@ export interface ResolvedHomeListOptions extends HomeListOptions {
   readonly projectGroupingMode: SidebarProjectGroupingMode;
 }
 
-export const THREAD_SORT_OPTIONS: ReadonlyArray<{
-  readonly value: SidebarV2ThreadSortOrder;
-  readonly label: string;
-}> = [
-  { value: "updated_at", label: "Last user message" },
-  { value: "created_at", label: "Created at" },
-];
+// Lives with the menu builder, which must stay free of app-runtime imports.
+export { THREAD_SORT_OPTIONS } from "./home-list-filter-menu";
 
-function defaultHomeListOptions(): HomeListOptions {
+function defaultHomeListOptions(filters?: ThreadListFilters): HomeListOptions {
   return {
-    selectedEnvironmentId: null,
+    selectedEnvironmentId: filters?.environmentId ?? null,
+    selectedProjectKey: filters?.projectKey ?? null,
     projectSortOrder:
       DEFAULT_SIDEBAR_PROJECT_SORT_ORDER === "manual"
         ? "updated_at"
@@ -60,14 +62,31 @@ interface HomeListOptionsContextValue {
 
 const HomeListOptionsContext = createContext<HomeListOptionsContextValue | null>(null);
 
-/** Keeps list preferences stable while the app moves between compact and split shells. */
+/**
+ * Keeps list preferences stable while the app moves between compact and split shells.
+ * Filters start from the saved preference, and changes are saved for the next launch.
+ */
 export function HomeListOptionsProvider({
   children,
   projectGroupingMode,
+  savedFilters,
 }: PropsWithChildren<{
   readonly projectGroupingMode: SidebarProjectGroupingMode;
+  readonly savedFilters?: ThreadListFilters | undefined;
 }>) {
-  const [options, setOptions] = useState<HomeListOptions>(defaultHomeListOptions);
+  const [options, setOptions] = useState(() => defaultHomeListOptions(savedFilters));
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const saved = useRef(savedFilters);
+  const { selectedEnvironmentId: environmentId, selectedProjectKey: projectKey } = options;
+  useEffect(() => {
+    if (
+      (saved.current?.environmentId ?? null) === environmentId &&
+      (saved.current?.projectKey ?? null) === projectKey
+    )
+      return;
+    saved.current = { environmentId, projectKey };
+    savePreferences({ threadListFilters: saved.current });
+  }, [environmentId, projectKey, savePreferences]);
   const value = useMemo(
     () => ({ options, setOptions, projectGroupingMode }),
     [options, projectGroupingMode],
@@ -78,13 +97,14 @@ export function HomeListOptionsProvider({
 /** Whether the filter icon should show its "customized" state: any scope
     filter, or a thread order other than v2's creation-order default. */
 export function hasCustomHomeListOptions(
-  options: Pick<HomeListOptions, "selectedEnvironmentId" | "v2ThreadSortOrder"> & {
-    readonly selectedProjectKey?: string | null;
-  },
+  options: Pick<
+    HomeListOptions,
+    "selectedEnvironmentId" | "selectedProjectKey" | "v2ThreadSortOrder"
+  >,
 ): boolean {
   return (
     options.selectedEnvironmentId !== null ||
-    (options.selectedProjectKey !== null && options.selectedProjectKey !== undefined) ||
+    options.selectedProjectKey !== null ||
     options.v2ThreadSortOrder !== DEFAULT_SIDEBAR_V2_THREAD_SORT_ORDER
   );
 }
@@ -111,6 +131,12 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
   const setSelectedEnvironmentId = useCallback((value: EnvironmentId | null) => {
     setOptions((current) => ({ ...current, selectedEnvironmentId: value }));
   }, []);
+  const setSelectedProjectKey = useCallback(
+    (value: string | null) => {
+      setOptions((current) => ({ ...current, selectedProjectKey: value }));
+    },
+    [setOptions],
+  );
   const setProjectSortOrder = useCallback((value: HomeProjectSortOrder) => {
     setOptions((current) => ({ ...current, projectSortOrder: value }));
   }, []);
@@ -120,6 +146,7 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
   return {
     options: resolvedOptions,
     setSelectedEnvironmentId,
+    setSelectedProjectKey,
     setProjectSortOrder,
     setV2ThreadSortOrder,
   } as const;

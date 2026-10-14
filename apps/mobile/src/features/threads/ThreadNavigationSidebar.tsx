@@ -1,4 +1,5 @@
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
+import { resolveScratchProjectScopeKey } from "@t3tools/client-runtime/state/project-grouping";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
 import type {
@@ -180,7 +181,7 @@ function ThreadNavigationSidebarPane(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const { options, setSelectedEnvironmentId, setV2ThreadSortOrder } =
+  const { options, setSelectedEnvironmentId, setSelectedProjectKey, setV2ThreadSortOrder } =
     useHomeListOptions(availableEnvironmentIds);
   const searchEnvironmentIds = useMemo(
     () =>
@@ -211,7 +212,16 @@ function ThreadNavigationSidebarPane(
     () => new Set(threadSearch.matches.map(threadSearchMatchKey)),
     [threadSearch.matches],
   );
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const projectScopeKey = options.selectedProjectKey;
+  const resolvedProjectKey = resolveScratchProjectScopeKey(projectScopeKey, projects, {
+    sidebarProjectGroupingMode: options.projectGroupingMode,
+    sidebarProjectGroupingOverrides: {},
+  });
+  useEffect(() => {
+    if (resolvedProjectKey !== projectScopeKey) {
+      setSelectedProjectKey(resolvedProjectKey);
+    }
+  }, [projectScopeKey, resolvedProjectKey, setSelectedProjectKey]);
   const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
@@ -245,20 +255,11 @@ function ThreadNavigationSidebarPane(
     [projectScopes],
   );
   const selectedProjectScope = useMemo(
-    () =>
-      selectedProjectKey === null
-        ? null
-        : (projectScopes.find((scope) => scope.key === selectedProjectKey) ?? null),
-    [projectScopes, selectedProjectKey],
+    () => projectScopes.find((scope) => scope.key === resolvedProjectKey) ?? null,
+    [projectScopes, resolvedProjectKey],
   );
-  useEffect(() => {
-    if (
-      selectedProjectKey !== null &&
-      !projectFilterOptions.some((project) => project.key === selectedProjectKey)
-    ) {
-      setSelectedProjectKey(null);
-    }
-  }, [projectFilterOptions, selectedProjectKey]);
+  // A saved project stays selected while its environment is offline or filtered out.
+  const selectedProjectKey = selectedProjectScope?.key ?? null;
   const selectedProjectRefs = useMemo(
     () =>
       selectedProjectScope === null
@@ -576,7 +577,13 @@ function ThreadNavigationSidebarPane(
         return;
       }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId, setV2ThreadSortOrder],
+    [
+      environments,
+      projectFilterOptions,
+      setSelectedEnvironmentId,
+      setSelectedProjectKey,
+      setV2ThreadSortOrder,
+    ],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -888,6 +895,7 @@ function ThreadNavigationSidebarPane(
       projectFilterOptions,
       selectedProjectKey,
       setSelectedEnvironmentId,
+      setSelectedProjectKey,
       setV2ThreadSortOrder,
     ],
   );
