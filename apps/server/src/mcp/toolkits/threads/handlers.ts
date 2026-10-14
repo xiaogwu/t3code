@@ -12,6 +12,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
+import { pinOrderKeyBetween } from "@t3tools/shared/pinOrder";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -31,6 +32,7 @@ import { ServerConfig } from "../../../config.ts";
 import { WorkspacePaths } from "../../../workspace/WorkspacePaths.ts";
 import {
   type ListChildThreadsInput,
+  type PinThreadResult,
   type RenameThreadInput,
   type RenameThreadResult,
   type SendThreadMessageInput,
@@ -535,6 +537,76 @@ const make = Effect.gen(function* () {
       return { threadId: scope.threadId, snoozedUntil: null } satisfies SnoozeThreadResult;
     });
 
+  const requireOwnShell = (threadId: ThreadId) =>
+    snapshots.getThreadShellById(threadId).pipe(
+      Effect.mapError(() => new ThreadNotFoundError({ threadId })),
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new ThreadNotFoundError({ threadId })),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+
+  /** Key that sorts before every arranged pinned thread on this server, so an
+      agent's pin lands at the top like a pin from the sidebar. Undefined
+      (keyless) when the read or key math fails: placement never fails a pin. */
+  const topOfPinnedRunOrderKey = snapshots.getShellSnapshot().pipe(
+    Effect.map((snapshot) => {
+      let firstKey: string | null = null;
+      for (const shell of snapshot.threads) {
+        if (shell.pinnedAt == null || shell.pinOrderKey == null) continue;
+        if (firstKey === null || shell.pinOrderKey < firstKey) firstKey = shell.pinOrderKey;
+      }
+      return pinOrderKeyBetween(null, firstKey) ?? undefined;
+    }),
+    Effect.orElseSucceed(() => undefined),
+  );
+
+  const pinThread = () =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-pin");
+      const thread = yield* requireOwnShell(scope.threadId);
+      if (thread.pinnedAt != null) {
+        return { threadId: scope.threadId, pinned: true } satisfies PinThreadResult;
+      }
+      const orderKey = yield* topOfPinnedRunOrderKey;
+      yield* engine
+        .dispatch({
+          type: "thread.pin",
+          // Each pin cycle needs a distinct command, or dedup would swallow a
+          // re-pin after an unpin.
+          commandId: CommandId.make(`mcp:threads:pin:${scope.threadId}:${NodeCrypto.randomUUID()}`),
+          threadId: scope.threadId,
+          ...(orderKey === undefined ? {} : { orderKey }),
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      return { threadId: scope.threadId, pinned: true } satisfies PinThreadResult;
+    });
+
+  const unpinThread = () =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireMcpCapability("thread-pin");
+      const thread = yield* requireOwnShell(scope.threadId);
+      if (thread.pinnedAt == null) {
+        return { threadId: scope.threadId, pinned: false } satisfies PinThreadResult;
+      }
+      yield* engine
+        .dispatch({
+          type: "thread.unpin",
+          commandId: CommandId.make(
+            `mcp:threads:unpin:${scope.threadId}:${NodeCrypto.randomUUID()}`,
+          ),
+          threadId: scope.threadId,
+        })
+        .pipe(
+          Effect.mapError((error) => new ThreadDelegationFailedError({ message: error.message })),
+        );
+      return { threadId: scope.threadId, pinned: false } satisfies PinThreadResult;
+    });
+
   const renameThread = (input: RenameThreadInput) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireMcpCapability("thread-rename");
@@ -608,6 +680,8 @@ const make = Effect.gen(function* () {
     settle_thread: settleThread,
     snooze_thread: snoozeThread,
     unsnooze_thread: unsnoozeThread,
+    pin_thread: pinThread,
+    unpin_thread: unpinThread,
     rename_thread: renameThread,
     start_thread: startThread,
     list_child_threads: listChildren,

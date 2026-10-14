@@ -46,6 +46,7 @@ const TURN_ID = TurnId.make("turn-1");
 const SETTLE_CAPABILITIES = ["threads", "thread-settle"] as const;
 const SNOOZE_CAPABILITIES = ["threads", "thread-snooze"] as const;
 const RENAME_CAPABILITIES = ["threads", "thread-rename"] as const;
+const PIN_CAPABILITIES = ["threads", "thread-pin"] as const;
 
 const runningSession: OrchestrationSession = {
   threadId: PARENT_ID,
@@ -515,6 +516,75 @@ describe("thread toolkit handlers", () => {
 
       expect(result).toEqual({ threadId: PARENT_ID, title: "Parent" });
       expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("refuses to pin or unpin without the thread-pin grant", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      for (const tool of ["pin_thread", "unpin_thread"] as const) {
+        const error = yield* harness.call(tool, {}).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "McpCapabilityUnavailableError",
+          capability: "thread-pin",
+        });
+      }
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("pins the calling thread above every arranged pin", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: PIN_CAPABILITIES,
+        initialChildren: [
+          makeShell(ThreadId.make("pinned-a"), { pinnedAt: NOW, pinOrderKey: "m" }),
+          makeShell(ThreadId.make("pinned-b"), { pinnedAt: NOW, pinOrderKey: "f" }),
+          // An unpinned thread's leftover key does not hold a slot.
+          makeShell(ThreadId.make("unpinned"), { pinnedAt: null, pinOrderKey: "b" }),
+        ],
+      });
+
+      expect(yield* harness.call("pin_thread", {})).toEqual({ threadId: PARENT_ID, pinned: true });
+      const [command] = yield* Ref.get(harness.commands);
+      expect(command).toMatchObject({ type: "thread.pin", threadId: PARENT_ID });
+      const orderKey = (command as Extract<OrchestrationCommand, { type: "thread.pin" }>).orderKey;
+      expect(orderKey !== undefined && orderKey < "f").toBe(true);
+    }),
+  );
+
+  it.effect("dispatches nothing when the thread is already pinned", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        capabilities: PIN_CAPABILITIES,
+        parent: { pinnedAt: NOW, pinOrderKey: "m" },
+      });
+
+      expect(yield* harness.call("pin_thread", {})).toEqual({ threadId: PARENT_ID, pinned: true });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("unpins the calling thread, and does nothing when it is not pinned", () =>
+    Effect.gen(function* () {
+      const unpinned = yield* makeHarness({ capabilities: PIN_CAPABILITIES });
+      expect(yield* unpinned.call("unpin_thread", {})).toEqual({
+        threadId: PARENT_ID,
+        pinned: false,
+      });
+      expect(yield* Ref.get(unpinned.commands)).toEqual([]);
+
+      const pinned = yield* makeHarness({
+        capabilities: PIN_CAPABILITIES,
+        parent: { pinnedAt: NOW },
+      });
+      expect(yield* pinned.call("unpin_thread", {})).toEqual({
+        threadId: PARENT_ID,
+        pinned: false,
+      });
+      expect(yield* Ref.get(pinned.commands)).toEqual([
+        expect.objectContaining({ type: "thread.unpin", threadId: PARENT_ID }),
+      ]);
     }),
   );
 

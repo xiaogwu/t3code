@@ -162,6 +162,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     });
 
     const gatedIds = new Set<string>([
@@ -182,6 +183,7 @@ describe("searchSettings", () => {
       "agent-thread-settle",
       "agent-thread-snooze",
       "agent-thread-rename",
+      "agent-thread-pin",
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
@@ -198,6 +200,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     };
     const itemIds = (macAvailable: boolean) =>
       filterAvailableSettingsSearchItems({
@@ -220,6 +223,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     };
     const remoteOnly = filterAvailableSettingsSearchItems({
       ...availability,
@@ -246,6 +250,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     });
 
     expect(searchSettings("auto-settle", available).map((item) => item.id)).toEqual([
@@ -266,6 +271,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
       hasMacProviderSettingsEnvironment: false,
     };
 
@@ -293,6 +299,7 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: false,
       hasAgentThreadSettle: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
       hasMacProviderSettingsEnvironment: false,
       hasAgentThreadSnooze: false,
     };
@@ -322,6 +329,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
       hasMacProviderSettingsEnvironment: false,
     };
 
@@ -335,6 +343,34 @@ describe("searchSettings", () => {
       searchSettings(
         "rename their thread",
         filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadRename: false }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("shows agent thread pinning only on servers that support it", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: false,
+      hasProviderSettingsEnvironment: false,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+      hasAgentThreadSettle: false,
+      hasAgentThreadSnooze: false,
+      hasAgentThreadRename: false,
+      hasMacProviderSettingsEnvironment: false,
+    };
+
+    expect(
+      searchSettings(
+        "pin their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadPin: true }),
+      ).map((item) => item.id),
+    ).toEqual(["agent-thread-pin"]);
+    expect(
+      searchSettings(
+        "pin their thread",
+        filterAvailableSettingsSearchItems({ ...availability, hasAgentThreadPin: false }),
       ),
     ).toEqual([]);
   });
@@ -471,6 +507,7 @@ describe("searchSettings", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     });
     expect(searchSettings("writing style", available)[0]?.id).toBe("source-control-writing-style");
     expect(searchSettings("auto-settle", available)).toHaveLength(3);
@@ -569,6 +606,7 @@ describe("auto-settlement search availability", () => {
       hasAgentThreadSettle: false,
       hasAgentThreadSnooze: false,
       hasAgentThreadRename: false,
+      hasAgentThreadPin: false,
     });
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
       "auto-settle-inactive-threads",

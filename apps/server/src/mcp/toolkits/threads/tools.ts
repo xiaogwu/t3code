@@ -159,6 +159,12 @@ export const RenameThreadResult = Schema.Struct({
 });
 export type RenameThreadResult = typeof RenameThreadResult.Type;
 
+export const PinThreadResult = Schema.Struct({
+  threadId: ThreadId,
+  pinned: Schema.Boolean,
+});
+export type PinThreadResult = typeof PinThreadResult.Type;
+
 export class ThreadDelegationFailedError extends Schema.TaggedError<ThreadDelegationFailedError>()(
   "ThreadDelegationFailedError",
   { message: Schema.String },
@@ -255,6 +261,33 @@ const UnsnoozeThreadTool = Tool.make("unsnooze_thread", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const PinThreadTool = Tool.make("pin_thread", {
+  description:
+    "Pin this thread to the top of the user's pinned threads. Pinning also brings a settled or snoozed thread back to the inbox. Use it only when the user asks or the thread needs to stay in view.",
+  parameters: Tool.EmptyParams,
+  success: PinThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Pin this thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const UnpinThreadTool = Tool.make("unpin_thread", {
+  description: "Unpin this thread, moving it out of the user's pinned threads.",
+  parameters: Tool.EmptyParams,
+  success: PinThreadResult,
+  failure: ThreadToolError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Unpin this thread")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const RenameThreadTool = Tool.make("rename_thread", {
   description:
     "Rename this thread, or a thread this thread started with start_thread. Use this when the auto-generated title no longer fits the work.",
@@ -340,6 +373,8 @@ export const ThreadsToolkit = Toolkit.make(
   SettleThreadTool,
   SnoozeThreadTool,
   UnsnoozeThreadTool,
+  PinThreadTool,
+  UnpinThreadTool,
   RenameThreadTool,
   StartThreadTool,
   ListChildThreadsTool,

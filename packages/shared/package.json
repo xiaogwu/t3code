@@ -358,6 +358,10 @@
     "./codexAuthHandoff": {
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
+    },
+    "./pinOrder": {
+      "types": "./src/pinOrder.ts",
+      "import": "./src/pinOrder.ts"
     }
   },
   "scripts": {

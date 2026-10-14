@@ -1267,6 +1267,12 @@ export const ServerSettings = Schema.Struct({
    */
   enableAgentThreadRename: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /**
+   * Whether an agent may pin or unpin its own thread. Gates the `pin_thread`
+   * and `unpin_thread` MCP tools. Per-environment like
+   * `enableAgentThreadSettle`.
+   */
+  enableAgentThreadPin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
    * Whether this server may install and run T3's device helper processes.
    * Kept separate from agent access so enabling the user's Device panel does
    * not also grant providers control of simulators and emulators.
@@ -1633,6 +1639,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAgentThreadSettle: Schema.optionalKey(Schema.Boolean),
   enableAgentThreadSnooze: Schema.optionalKey(Schema.Boolean),
   enableAgentThreadRename: Schema.optionalKey(Schema.Boolean),
+  enableAgentThreadPin: Schema.optionalKey(Schema.Boolean),
   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),

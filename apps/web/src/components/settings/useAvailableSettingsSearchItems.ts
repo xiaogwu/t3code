@@ -74,6 +74,11 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
             environment.connection.phase === "connected" &&
             environment.serverConfig?.environment.capabilities.agentThreadRename === true,
         ),
+        hasAgentThreadPin: environments.some(
+          (environment) =>
+            environment.connection.phase === "connected" &&
+            environment.serverConfig?.environment.capabilities.agentThreadPin === true,
+        ),
       }),
     [
       canManageLocalBackend,
