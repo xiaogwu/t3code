@@ -22,10 +22,13 @@ function interpolate(template: string, values: Record<string, string>): string {
 // Glob-style rule pattern ("linear.app/*/issue/{identifier}") to a linear regex.
 // Escape literals first, then substitute `*` and `{name}` placeholders so no
 // user-controlled quantifier or alternation reaches the compiled pattern.
+// Placeholders capture only identifier characters: agents write links as
+// markdown (`**[#548](…/pull/548)**`), and a looser class would swallow the
+// trailing `)**` into the title prefix.
 function globPatternToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const withWildcards = escaped.replace(/\*/g, "[^/\\s]+");
-  const withCapture = withWildcards.replace(/\\\{(\w+)\\\}/g, "([^/\\s]+)");
+  const withCapture = withWildcards.replace(/\\\{(\w+)\\\}/g, "([\\w-]+)");
   return new RegExp(withCapture);
 }
 

@@ -28,6 +28,16 @@ describe("resolveProtectedPrefix", () => {
     expect(result).toEqual({ prefix: "PR#391:", ruleName: "ProdGit pull requests" });
   });
 
+  it("stops a urlMatches capture at markdown and table punctuation", () => {
+    const url = "https://prodgit.apple.com/content-engineering/politics-embeds-us/pull/548";
+    for (const text of [`Opened **[#548](${url})**: ready`, `| ${url}|PR |`]) {
+      expect(resolveProtectedPrefix(text, defaultTitlePolicy.rules)).toEqual({
+        prefix: "PR#548:",
+        ruleName: "ProdGit pull requests",
+      });
+    }
+  });
+
   it("extracts a GitHub issue prefix", () => {
     const result = resolveProtectedPrefix(
       "See https://github.com/acme/app/issues/932",
