@@ -35,6 +35,12 @@ describe("resolveTitlePolicyRule", () => {
     ).toBe("ENG-417");
   });
 
+  it("stops a glob capture at markdown and table punctuation", () => {
+    const url = "https://prodgit.apple.com/team/repo/pull/548";
+    expect(prefixOf(`Opened **[#548](${url})**: ready`)).toBe("PR#548:");
+    expect(prefixOf(`| ${url}|PR |`)).toBe("PR#548:");
+  });
+
   it("matches a command only as the first word of the first user message", () => {
     expect(prefixOf("USER:\n/oliver brief me")).toBe("Oliver");
     expect(prefixOf("USER:\nplease run /oliver")).toBeNull();
