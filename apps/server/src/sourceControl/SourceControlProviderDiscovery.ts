@@ -1,12 +1,17 @@
 import * as NodeUtil from "node:util";
-import type {
-  SourceControlProviderAuth,
-  SourceControlProviderDiscoveryItem,
-  SourceControlProviderInfo,
-  SourceControlProviderKind,
+import {
+  VcsProcessSpawnError,
+  type SourceControlProviderAuth,
+  type VcsError,
+  type SourceControlProviderDiscoveryItem,
+  type SourceControlProviderInfo,
+  type SourceControlProviderKind,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 import type * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -289,47 +294,73 @@ export function probeSourceControlProvider(input: {
   );
 }
 
+const isVcsProcessSpawnError = Schema.is(VcsProcessSpawnError);
+
+/** A hosting CLI that is not installed claims no remote. */
+function isMissingExecutable(error: VcsError): boolean {
+  return (
+    isVcsProcessSpawnError(error) &&
+    error.cause instanceof PlatformError.PlatformError &&
+    error.cause.reason._tag === "NotFound" &&
+    error.cause.reason.module === "ChildProcess"
+  );
+}
+
+export interface UnknownRemoteVerdict {
+  readonly provider: SourceControlProviderInfo | null;
+  /** Every integration answered, so the verdict holds for other checkouts of the same server. */
+  readonly settled: boolean;
+}
+
+function refineWithSpec(input: {
+  readonly spec: SourceControlProviderDiscoverySpec;
+  readonly process: VcsProcess.VcsProcess["Service"];
+  readonly cwd: string;
+  readonly context: SourceControlProvider.SourceControlProviderContext;
+}): Effect.Effect<SourceControlProviderInfo | null, VcsError> {
+  const { spec, context } = input;
+  if (spec.type === "managed-cli") {
+    return spec.refineUnknownRemote({ cwd: input.cwd, context });
+  }
+  if (!isCliRemoteRefinementSpec(spec)) return Effect.succeed(null);
+  return input.process
+    .run({
+      operation: "source-control.discovery.refine-unknown-remote",
+      command: spec.executable,
+      args: spec.remoteRefinementArgs ?? spec.authArgs,
+      cwd: input.cwd,
+      allowNonZeroExit: true,
+      timeoutMs: probeTimeoutMs(spec),
+      maxOutputBytes: 8_000,
+      appendTruncationMarker: true,
+    })
+    .pipe(
+      Effect.map((auth) => spec.refineUnknownRemote({ cwd: input.cwd, context, auth })),
+      Effect.catchIf(isMissingExecutable, () => Effect.succeed(null)),
+    );
+}
+
+/**
+ * Asks every integration whether it holds the remote's server; the first claim wins. Backport of
+ * upstream #19692: callers cache a settled verdict, so this must report whether any probe failed.
+ */
 export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvider")(
   function* (input: {
     readonly specs: ReadonlyArray<SourceControlProviderDiscoverySpec>;
     readonly process: VcsProcess.VcsProcess["Service"];
     readonly cwd: string;
-    readonly context: SourceControlProvider.SourceControlProviderContext | null;
-  }): Effect.fn.Return<SourceControlProvider.SourceControlProviderContext | null> {
-    if (input.context === null || input.context.provider.kind !== "unknown") {
-      return input.context;
+    readonly context: SourceControlProvider.SourceControlProviderContext;
+  }): Effect.fn.Return<UnknownRemoteVerdict> {
+    const results = yield* Effect.forEach(input.specs, (spec) =>
+      refineWithSpec({ ...input, spec }).pipe(Effect.result),
+    );
+    // A claim reached after another integration could not answer is not settled: that one might
+    // have claimed the host first.
+    let settled = true;
+    for (const result of results) {
+      if (Result.isFailure(result)) settled = false;
+      else if (result.success !== null) return { provider: result.success, settled };
     }
-    const context = input.context;
-
-    const providers = yield* Effect.forEach(input.specs, (spec) => {
-      if (spec.type === "managed-cli") {
-        return spec.refineUnknownRemote({ cwd: input.cwd, context });
-      }
-      if (!isCliRemoteRefinementSpec(spec)) return Effect.succeed(null);
-      return input.process
-        .run({
-          operation: "source-control.discovery.refine-unknown-remote",
-          command: spec.executable,
-          args: spec.remoteRefinementArgs ?? spec.authArgs,
-          cwd: input.cwd,
-          allowNonZeroExit: true,
-          timeoutMs: probeTimeoutMs(spec),
-          maxOutputBytes: 8_000,
-          appendTruncationMarker: true,
-        })
-        .pipe(
-          Effect.map((auth) =>
-            spec.refineUnknownRemote({
-              cwd: input.cwd,
-              context,
-              auth,
-            }),
-          ),
-          Effect.orElseSucceed(() => null),
-        );
-    });
-    const provider = providers.find((candidate) => candidate !== null);
-
-    return provider ? { ...context, provider } : context;
+    return { provider: null, settled };
   },
 );

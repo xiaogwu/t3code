@@ -2,7 +2,9 @@ import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Hash from "effect/Hash";
 import * as Layer from "effect/Layer";
 import {
   SourceControlProviderError,
@@ -21,6 +23,7 @@ import {
   probeSourceControlProvider,
   refineUnknownRemoteProvider,
   type SourceControlProviderDiscoverySpec,
+  type UnknownRemoteVerdict,
 } from "./SourceControlProviderDiscovery.ts";
 import { ServerConfig } from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -28,6 +31,9 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
 const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
+const UNKNOWN_REMOTE_CACHE_CAPACITY = 512;
+// Outlasts the one-minute pull request sweep. A CLI login made since is noticed after this.
+const UNKNOWN_REMOTE_CACHE_TTL = Duration.minutes(5);
 
 export interface SourceControlProviderRegistration {
   readonly kind: SourceControlProviderKind;
@@ -152,6 +158,38 @@ function selectProviderContext(
   );
 }
 
+/**
+ * One lookup per server: remotes that differ only in `owner/repo` share a verdict, and callers
+ * that arrive while it runs wait on it. `cwd` is left out because it only matters when a probe
+ * fails there, and a failed probe is not kept. Equality ignores `lookup`, so this is not a
+ * `Data.Class`.
+ */
+class UnknownRemoteLookup {
+  readonly key: string;
+  readonly lookup: Effect.Effect<UnknownRemoteVerdict>;
+
+  constructor(
+    context: SourceControlProvider.SourceControlProviderContext,
+    lookup: Effect.Effect<UnknownRemoteVerdict>,
+  ) {
+    this.lookup = lookup;
+    this.key = [
+      context.provider.name,
+      context.provider.baseUrl,
+      // Strip a trailing `owner/repo`, never the host after `//`, so one-segment remotes stay apart.
+      context.remoteUrl.trim().replace(/(?<!\/\/[^/]*)[^/:]+\/[^/:]+\/?$/u, ""),
+      context.requestedHost ?? "",
+    ].join("\n");
+  }
+
+  [Equal.symbol](that: unknown): boolean {
+    return that instanceof UnknownRemoteLookup && that.key === this.key;
+  }
+  [Hash.symbol](): number {
+    return Hash.string(this.key);
+  }
+}
+
 function bindProviderContext(
   provider: SourceControlProvider.SourceControlProvider["Service"],
   context: SourceControlProvider.SourceControlProviderContext | null,
@@ -212,6 +250,33 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
     const get: SourceControlProviderRegistry["Service"]["get"] = (kind) =>
       Effect.succeed(providers.get(kind) ?? unsupportedProvider(kind));
 
+    // Backport of upstream #19692. Without this, every git-status refresh of a repository on an
+    // unrecognized host (prodgit) spawned `gh auth status`, which validates every logged-in host
+    // and spent the whole github.com API quota. "No integration holds this host" is the common
+    // verdict and the one worth keeping; one reached while a probe failed is not kept.
+    const unknownRemoteCache = yield* Cache.makeWith(
+      (request: UnknownRemoteLookup) => request.lookup,
+      {
+        capacity: UNKNOWN_REMOTE_CACHE_CAPACITY,
+        timeToLive: (exit) =>
+          Exit.isSuccess(exit) && exit.value.settled ? UNKNOWN_REMOTE_CACHE_TTL : Duration.zero,
+      },
+    );
+
+    const refineContext = (
+      cwd: string,
+      context: SourceControlProvider.SourceControlProviderContext | null,
+    ): Effect.Effect<SourceControlProvider.SourceControlProviderContext | null> =>
+      context === null || context.provider.kind !== "unknown"
+        ? Effect.succeed(context)
+        : Cache.get(
+            unknownRemoteCache,
+            new UnknownRemoteLookup(
+              context,
+              refineUnknownRemoteProvider({ specs: discoverySpecs, process, cwd, context }),
+            ),
+          ).pipe(Effect.map(({ provider }) => (provider ? { ...context, provider } : context)));
+
     const detectProviderContext = Effect.fn("SourceControlProviderRegistry.detectProviderContext")(
       function* (cwd: string) {
         const handle = yield* vcsRegistry.resolve({ cwd }).pipe(
@@ -238,14 +303,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
               }),
           ),
         );
-        const context = selectProviderContext(remotes.remotes);
-
-        return yield* refineUnknownRemoteProvider({
-          specs: discoverySpecs,
-          process,
-          cwd,
-          context,
-        });
+        return yield* refineContext(cwd, selectProviderContext(remotes.remotes));
       },
     );
 
@@ -261,12 +319,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
     const resolveHandle: SourceControlProviderRegistry["Service"]["resolveHandle"] = (input) =>
       (input.context === undefined
         ? Cache.get(providerContextCache, input.cwd)
-        : refineUnknownRemoteProvider({
-            specs: discoverySpecs,
-            process,
-            cwd: input.cwd,
-            context: input.context,
-          })
+        : refineContext(input.cwd, input.context)
       ).pipe(
         Effect.map((context) => {
           const kind = context?.provider.kind ?? "unknown";
