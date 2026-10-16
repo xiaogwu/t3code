@@ -152,10 +152,15 @@ it("resolves relay client tracing from runtime config with build-time fallback",
     tracesToken: "embedded-token",
   };
 
-  assert.deepEqual(resolveRelayClientTracingConfig({}, fallback), fallback);
+  assert.equal(resolveRelayClientTracingConfig({}, fallback), null);
+  assert.deepEqual(
+    resolveRelayClientTracingConfig({ T3CODE_TELEMETRY_ENABLED: "true" }, fallback),
+    fallback,
+  );
   assert.deepEqual(
     resolveRelayClientTracingConfig(
       {
+        T3CODE_TELEMETRY_ENABLED: "true",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: "https://runtime.example.test/v1/traces",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: "runtime-dataset",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: "runtime-token",
@@ -171,6 +176,7 @@ it("resolves relay client tracing from runtime config with build-time fallback",
   assert.equal(
     resolveRelayClientTracingConfig(
       {
+        T3CODE_TELEMETRY_ENABLED: "true",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: "http://insecure.example.test/v1/traces",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: "runtime-dataset",
         T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: "runtime-token",
