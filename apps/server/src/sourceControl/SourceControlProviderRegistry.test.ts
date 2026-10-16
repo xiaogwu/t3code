@@ -4,8 +4,14 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { VcsRepositoryDetectionError } from "@t3tools/contracts";
+import {
+  VcsProcessSpawnError,
+  VcsProcessTimeoutError,
+  VcsRepositoryDetectionError,
+} from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import type * as VcsDriver from "../vcs/VcsDriver.ts";
@@ -392,4 +398,82 @@ it.effect(
         );
       }
     }).pipe(Effect.scoped),
+);
+
+const notFound = (command: string, cwd: string) =>
+  new VcsProcessSpawnError({
+    operation: "test",
+    command,
+    cwd,
+    cause: PlatformError.systemError({ _tag: "NotFound", module: "ChildProcess", method: "spawn" }),
+  });
+
+const resolveUnknown = (
+  registry: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"],
+  repository: string,
+) =>
+  registry.resolveHandle({
+    cwd: `/${repository}`,
+    context: {
+      provider: {
+        kind: "unknown",
+        name: "git.example.internal",
+        baseUrl: "https://git.example.internal",
+      },
+      remoteName: "origin",
+      remoteUrl: `git@git.example.internal:team/${repository}.git`,
+    },
+  });
+
+it.effect("asks once for every checkout of a server no integration claims", () =>
+  Effect.gen(function* () {
+    const asked: Array<string> = [];
+    const registry = yield* makeRegistry({
+      remotes: [],
+      process: {
+        run: ({ command, args, cwd }) => {
+          asked.push([command, ...args].join(" "));
+          // gh holds no login for the host; glab is not installed, which also claims nothing.
+          return command === "gh"
+            ? Effect.succeed(processOutput("{}"))
+            : Effect.fail(notFound(command, cwd));
+        },
+      },
+    });
+
+    for (const repository of ["a", "b", "c"]) {
+      const handle = yield* resolveUnknown(registry, repository);
+      assert.strictEqual(handle.provider.kind, "unknown");
+    }
+    const once = asked.slice();
+    assert.isAbove(once.length, 0);
+    assert.isTrue(once.some((command) => command.startsWith("gh auth status")));
+
+    // A login made in a terminal sends no signal, so the server is asked again later.
+    yield* TestClock.adjust("5 minutes");
+    yield* resolveUnknown(registry, "a");
+    assert.deepStrictEqual(asked, [...once, ...once]);
+  }),
+);
+
+it.effect("asks again after a check that could not answer", () =>
+  Effect.gen(function* () {
+    let asks = 0;
+    const registry = yield* makeRegistry({
+      remotes: [],
+      process: {
+        run: ({ command, cwd }) => {
+          asks += 1;
+          return Effect.fail(
+            new VcsProcessTimeoutError({ operation: "test", command, cwd, timeoutMs: 1 }),
+          );
+        },
+      },
+    });
+    yield* resolveUnknown(registry, "a");
+    const first = asks;
+    yield* resolveUnknown(registry, "b");
+    assert.isAbove(first, 0);
+    assert.strictEqual(asks, first * 2);
+  }),
 );
