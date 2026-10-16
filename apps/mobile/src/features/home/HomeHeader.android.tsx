@@ -1,7 +1,7 @@
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useMemo } from "react";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { MaterialThreadListToolbar } from "./MaterialThreadListToolbar";
+import { ThreadListToolbar } from "./ThreadListToolbar";
 import { hasCustomHomeListOptions, THREAD_SORT_OPTIONS } from "./home-list-options";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
@@ -115,7 +115,7 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions options={{ headerShown: false }} />
-      <MaterialThreadListToolbar
+      <ThreadListToolbar
         searchQuery={props.searchQuery}
         onSearchQueryChange={props.onSearchQueryChange}
         filterActions={menuActions}

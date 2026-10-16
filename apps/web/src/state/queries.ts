@@ -80,7 +80,6 @@ export function useThreadSearch(
   scope: OrchestrationThreadSearchScope = "active",
 ): {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
-  /** The settled query `matches` came from; it only changes when results do. */
   readonly query: string;
   readonly isPending: boolean;
 } {
@@ -385,7 +384,6 @@ export function useCheckpointDiff(
   return fullThreadTarget === null ? turn : fullThread;
 }
 
-/** Full input and output of one timeline item, fetched only while its row is open. */
 export function useTurnItemDetail(
   target: {
     readonly environmentId: EnvironmentId;

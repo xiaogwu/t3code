@@ -23,7 +23,6 @@ export type TimelineMinimapItem =
       readonly userText: string | null;
     };
 
-/** Keep full source text untouched until a minimap preview is opened. */
 export function deriveTimelineMinimapItems(
   rows: ReadonlyArray<MessagesTimelineRow>,
   bookmarksByMessageId: ReadonlyMap<MessageId, ReadonlyArray<AssistantThreadBookmark>>,

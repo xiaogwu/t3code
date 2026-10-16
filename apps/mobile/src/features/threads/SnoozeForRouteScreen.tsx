@@ -11,9 +11,9 @@ import { useCallback, useState } from "react";
 import { Alert, Platform, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppText as Text } from "../../components/AppText";
-import { SegmentedControl } from "../../components/SegmentedControl";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { Button } from "../../components/ui/Button";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useThreadShell } from "../../state/entities";
 import { useThreadListActions } from "../home/useThreadListActions";
@@ -181,7 +181,7 @@ export function SnoozeForRouteScreen({ route }: StaticScreenProps<SnoozeForRoute
               </Text>
             ) : null}
 
-            <MaterialButton
+            <Button
               fullWidth
               label={isSubmitting ? "Snoozing..." : "Snooze thread"}
               loading={isSubmitting}
