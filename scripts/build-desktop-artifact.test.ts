@@ -2167,6 +2167,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       // prompt for screen recording, so the window-capture shortcut dies in
       // dev builds only.
       const baseExtendInfo = {
+        NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
         NSLocalNetworkUsageDescription:
           "T3 Code connects to devices on your local network for remote environments and commands run by terminals and coding agents.",
         NSScreenCaptureUsageDescription:
