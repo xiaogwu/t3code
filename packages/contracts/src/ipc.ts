@@ -544,6 +544,19 @@ export const PickedThemeFileSchema = Schema.Struct({
   text: Schema.String,
 });
 
+/** A standalone HTML document the shell prints to a PDF the user names. */
+export const ExportThreadPdfInputSchema = Schema.Struct({
+  html: Schema.String,
+  defaultFileName: Schema.String,
+});
+export type ExportThreadPdfInput = typeof ExportThreadPdfInputSchema.Type;
+
+export const ExportThreadPdfResultSchema = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("saved"), path: Schema.String }),
+  Schema.Struct({ status: Schema.Literal("cancelled") }),
+]);
+export type ExportThreadPdfResult = typeof ExportThreadPdfResultSchema.Type;
+
 export interface DesktopWslDistro {
   name: string;
   isDefault: boolean;
@@ -1122,6 +1135,8 @@ export interface DesktopBridge {
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   pickProjectFavicon: (initialPath?: string) => Promise<string | null>;
   pickThemeFiles: () => Promise<readonly PickedThemeFile[] | null>;
+  /** Optional while older desktop shells can host a newer web client; web falls back to the print dialog. */
+  exportThreadPdf?: (input: ExportThreadPdfInput) => Promise<ExportThreadPdfResult>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   /** Optional while older desktop shells can host a newer web client. */
   setDockIcon?: (icon: DesktopDockIcon) => Promise<void>;

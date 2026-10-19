@@ -17,14 +17,53 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { focusedWebContents, ownerWindow } = vi.hoisted(() => ({
+const { focusedWebContents, ownerWindow, printBehavior, printWindows } = vi.hoisted(() => ({
   focusedWebContents: vi.fn(),
   ownerWindow: vi.fn(),
+  printBehavior: { fail: false },
+  printWindows: [] as Array<{
+    readonly options: unknown;
+    readonly loadFile: ReturnType<typeof vi.fn>;
+    readonly printToPDF: ReturnType<typeof vi.fn>;
+    readonly destroy: ReturnType<typeof vi.fn>;
+    destroyed: boolean;
+  }>,
 }));
-vi.mock("electron", () => ({
-  webContents: { getFocusedWebContents: focusedWebContents },
-  BrowserWindow: { fromWebContents: ownerWindow },
-}));
+vi.mock("electron", () => {
+  class BrowserWindow {
+    static fromWebContents = ownerWindow;
+    readonly webContents: { readonly printToPDF: ReturnType<typeof vi.fn> };
+    readonly loadFile = vi.fn(async () => undefined);
+    readonly destroy = vi.fn(() => {
+      record.destroyed = true;
+    });
+    constructor(options: unknown) {
+      this.webContents = {
+        printToPDF: vi.fn(async () => {
+          if (printBehavior.fail) throw new Error("print failed");
+          return Buffer.from("%PDF-test");
+        }),
+      };
+      record = {
+        options,
+        loadFile: this.loadFile,
+        printToPDF: this.webContents.printToPDF,
+        destroy: this.destroy,
+        destroyed: false,
+      };
+      printWindows.push(record);
+    }
+    isDestroyed() {
+      return record.destroyed;
+    }
+  }
+  let record: (typeof printWindows)[number];
+  return {
+    app: { getPath: () => "/downloads" },
+    webContents: { getFocusedWebContents: focusedWebContents },
+    BrowserWindow,
+  };
+});
 
 import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
@@ -37,6 +76,7 @@ import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import {
   getLocalEnvironmentBootstraps,
+  exportThreadPdf,
   installRelayTelemetryEnabled,
   pickProjectFavicon,
   probeRemoteEditors,
@@ -495,3 +535,71 @@ it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32")(
       assert.include(editors, "webstorm");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+describe("exportThreadPdf", () => {
+  const exportLayer = (showSaveDialog: () => Effect.Effect<Option.Option<string>>) =>
+    Layer.mergeAll(
+      Layer.mock(ElectronDialog.ElectronDialog)({ showSaveDialog }),
+      Layer.mock(ElectronWindow.ElectronWindow)({
+        focusedMainOrFirst: Effect.succeedNone,
+      }),
+      NodeServices.layer,
+    );
+
+  it.effect("prints nothing when the save dialog is cancelled", () =>
+    Effect.gen(function* () {
+      printWindows.length = 0;
+      const result = yield* exportThreadPdf
+        .handler({ html: "<p>hi</p>", defaultFileName: "thread.pdf" })
+        .pipe(Effect.provide(exportLayer(() => Effect.succeedNone)));
+
+      assert.deepEqual(result, { status: "cancelled" });
+      assert.strictEqual(printWindows.length, 0);
+    }),
+  );
+
+  it.effect("writes the printed PDF to the chosen path and destroys the hidden window", () =>
+    Effect.gen(function* () {
+      printWindows.length = 0;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fileSystem.makeTempDirectoryScoped();
+      const target = path.join(directory, "out.pdf");
+      const result = yield* exportThreadPdf
+        .handler({ html: "<p>hi</p>", defaultFileName: "thread.pdf" })
+        .pipe(Effect.provide(exportLayer(() => Effect.succeedSome(target))));
+
+      assert.deepEqual(result, { status: "saved", path: target });
+      assert.strictEqual(yield* fileSystem.readFileString(target), "%PDF-test");
+      assert.strictEqual(printWindows.length, 1);
+      assert.strictEqual(printWindows[0]?.destroyed, true);
+      assert.deepEqual(printWindows[0]?.options, {
+        show: false,
+        webPreferences: {
+          javascript: false,
+          sandbox: true,
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("destroys the hidden window when printing fails", () =>
+    Effect.gen(function* () {
+      printWindows.length = 0;
+      printBehavior.fail = true;
+      const exit = yield* exportThreadPdf
+        .handler({ html: "<p>hi</p>", defaultFileName: "thread.pdf" })
+        .pipe(
+          Effect.provide(exportLayer(() => Effect.succeedSome("/never-written.pdf"))),
+          Effect.exit,
+          Effect.ensuring(Effect.sync(() => (printBehavior.fail = false))),
+        );
+
+      assert.strictEqual(exit._tag, "Failure");
+      assert.strictEqual(printWindows.length, 1);
+      assert.strictEqual(printWindows[0]?.destroyed, true);
+    }),
+  );
+});

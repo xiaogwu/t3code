@@ -52,6 +52,7 @@ import {
   pickFolder,
   pickProjectFavicon,
   pickThemeFiles,
+  exportThreadPdf,
   setTheme,
   setDockIcon,
   syncHtmlFullscreen,
@@ -148,6 +149,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(pickFolder);
   yield* ipc.handle(pickProjectFavicon);
   yield* ipc.handle(pickThemeFiles);
+  yield* ipc.handle(exportThreadPdf);
   yield* ipc.handle(setTheme);
   yield* ipc.handle(setDockIcon);
   yield* ipc.handle(showContextMenu);
