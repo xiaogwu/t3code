@@ -185,6 +185,11 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       label: "environment-data:orchestration:force-stop-thread",
       tag: ORCHESTRATION_V2_WS_METHODS.forceStopThread,
     }),
+    // One-shot read of the whole thread as Markdown; nothing is cached.
+    exportThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:export-thread",
+      tag: ORCHESTRATION_V2_WS_METHODS.exportThread,
+    }),
     turnItem: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-item",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnItem,
