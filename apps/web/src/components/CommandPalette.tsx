@@ -66,6 +66,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
+  DownloadIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -152,6 +153,7 @@ import {
 import { visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { useThreadExport } from "../hooks/useThreadExport";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -546,6 +548,7 @@ function OpenCommandPaletteDialog(props: {
   const threadSearchQuery =
     currentView === null && !isActionsOnly ? parsedThreadStateQuery.searchQuery : "";
   const { unarchiveThread } = useThreadActions();
+  const exportThread = useThreadExport();
   const [pendingArchivedThread, setPendingArchivedThread] = useState<ScopedThreadRef | null>(null);
   // Guards double Enter before the pending state renders.
   const pendingArchivedThreadRef = useRef<ScopedThreadRef | null>(null);
@@ -1629,6 +1632,27 @@ function OpenCommandPaletteDialog(props: {
         icon: <ArrowDownToLineIcon className={ITEM_ICON_CLASS} />,
         shortcutCommand: "thread.scrollToEnd",
         run: async () => requestThreadScroll("end"),
+      },
+    );
+    const exportRef = scopeThreadRef(thread.environmentId, thread.id);
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:export-thread-markdown",
+        searchTerms: ["export", "download", "save", "markdown", "md", "transcript"],
+        title: "Export thread as Markdown",
+        icon: <DownloadIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.exportMarkdown",
+        run: () => exportThread(exportRef, "markdown"),
+      },
+      {
+        kind: "action",
+        value: "action:export-thread-pdf",
+        searchTerms: ["export", "download", "save", "pdf", "print", "transcript"],
+        title: "Export thread as PDF",
+        icon: <DownloadIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "thread.exportPdf",
+        run: () => exportThread(exportRef, "pdf"),
       },
     );
     actionItems.push({
@@ -2742,7 +2766,12 @@ function OpenCommandPaletteDialog(props: {
       }
       return;
     }
-    if (command === "thread.scrollToTop" || command === "thread.scrollToEnd") {
+    if (
+      command === "thread.scrollToTop" ||
+      command === "thread.scrollToEnd" ||
+      command === "thread.exportMarkdown" ||
+      command === "thread.exportPdf"
+    ) {
       event.preventDefault();
       event.stopPropagation();
       const matchingItem = displayedGroups

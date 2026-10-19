@@ -169,6 +169,10 @@ the live end, and work while the composer has focus. Their defaults are `mod+alt
 `mod+alt+arrowdown`, and they do not run while the terminal has focus. Both are also in the command
 palette.
 
+`thread.exportPdf` and `thread.exportMarkdown` export the whole active thread. `thread.exportPdf`
+defaults to `mod+alt+e` and does not run while the terminal has focus; `thread.exportMarkdown` has no
+default shortcut. See [Working with threads](./thread-sidebar.md#export-a-thread).
+
 `thread.settle` settles the active thread or restores it when it is already settled. Its default
 shortcut is `mod+shift+s`, and it does not run while the terminal has focus.
 

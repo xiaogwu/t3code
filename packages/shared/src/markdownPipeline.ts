@@ -384,6 +384,20 @@ function remarkBreakAroundImageLines() {
   };
 }
 
+const chatMarkdownProcessor = unified()
+  .use(remarkParse)
+  .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
+
+/**
+ * Markdown to the same sanitized HAST the chat renders, for callers that
+ * serialize it themselves (such as a standalone export document).
+ */
+export function chatMarkdownToHast(markdown: string) {
+  return chatMarkdownProcessor.runSync(chatMarkdownProcessor.parse(markdown));
+}
+
 type MarkdownAstNode = {
   type?: string;
   meta?: unknown;

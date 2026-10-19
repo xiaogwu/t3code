@@ -47,6 +47,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
+import { useThreadExport } from "./useThreadExport";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -94,6 +95,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const exportThread = useThreadExport();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -316,6 +318,12 @@ export function useThreadActionMenu(input: {
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+          return;
+        case "export-markdown":
+          await exportThread(threadRef, "markdown");
+          return;
+        case "export-pdf":
+          await exportThread(threadRef, "pdf");
           return;
         case "archive": {
           if (confirmThreadArchive) {

@@ -118,6 +118,10 @@ vi.mock("./useSettings", () => ({
       timestampFormat: "12-hour",
     }),
 }));
+vi.mock("./useThreadExport", () => ({
+  useThreadExport: () => async (_threadRef: unknown, format: string) =>
+    recordEffect(`export:${format}`),
+}));
 vi.mock("./useThreadActions", () => ({
   canTurnThreadIntoProject: () => false,
   useThreadActions: () =>

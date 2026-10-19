@@ -31,6 +31,9 @@ export type ThreadActionMenuId =
   | "copy-branch"
   | "copy-thread"
   | "copy-thread-id"
+  | "export"
+  | "export-markdown"
+  | "export-pdf"
   | "archive"
   | "delete";
 
@@ -115,7 +118,7 @@ export interface ThreadActionMenuState {
   readonly canTurnIntoProject?: boolean;
 }
 
-/** Local navigation, read markers, and copying remain available to read-only clients. */
+/** Local navigation, read markers, copying, and exporting remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
@@ -130,6 +133,9 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-branch",
     "copy-thread",
     "copy-thread-id",
+    "export",
+    "export-markdown",
+    "export-pdf",
   ].includes(action);
 }
 
@@ -268,6 +274,15 @@ export function buildThreadActionMenuItems(
           : []),
         { id: "copy-thread", label: "Thread", icon: "message-square" },
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+      ],
+    },
+    {
+      id: "export",
+      label: "Export",
+      icon: "download",
+      children: [
+        { id: "export-markdown", label: "Markdown" },
+        { id: "export-pdf", label: "PDF" },
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },
