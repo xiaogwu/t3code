@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   MessageId,
   type OrchestrationV2Command,
+  type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2Run,
   type OrchestrationV2ProviderThread,
   ProviderThreadId,
@@ -37,6 +38,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import { THREAD_HISTORY_SNAPSHOT_ROW_LIMIT } from "./threadHistoryPaging.ts";
 
 it("stamps authoritative provenance on commands that create threads or messages", () => {
   const command: OrchestrationV2Command = {
@@ -197,6 +199,61 @@ it.effect(
     }).pipe(Effect.provide(layerTest));
   },
 );
+
+it.effect("exports every message even when the thread exceeds one history page", () => {
+  const threadId = ThreadId.make("thread:thread-management:export-all");
+  const total = THREAD_HISTORY_SNAPSHOT_ROW_LIMIT * 3 + 5;
+  const rows = Array.from(
+    { length: total },
+    (_, position) =>
+      ({
+        position,
+        sourceThreadId: threadId,
+        sourceItemId: `item:${position}`,
+        visibility: "visible",
+        item: {
+          type: position % 2 === 0 ? "user_message" : "assistant_message",
+          text: `message ${position}`,
+          attachments: [],
+          startedAt: null,
+          updatedAt: DateTime.makeUnsafe("2026-10-19T10:00:00.000Z"),
+        },
+      }) as unknown as OrchestrationV2ProjectedTurnItem,
+  );
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getThreadRecords: () =>
+          Effect.succeed({
+            thread: { id: threadId, title: "Long thread", branch: null },
+          } as unknown as OrchestrationV2ThreadProjection),
+        getTimelinePage: (_threadId, options) => {
+          const matching = rows.filter((row) => row.position > (options.afterPosition ?? -1));
+          const items = matching.slice(0, options.limit);
+          return Effect.succeed({
+            items,
+            totalItems: rows.length,
+            hasMore: matching.length > items.length,
+          });
+        },
+      }),
+    ),
+    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const service = yield* ThreadManagementService.ThreadManagementService;
+    const result = yield* service.exportThreadMarkdown(threadId);
+
+    expect(result.title).toBe("Long thread");
+    expect(result.fileName).toBe("long-thread.md");
+    expect(result.markdown).toContain("message 0");
+    expect(result.markdown).toContain(`message ${total - 1}`);
+    expect(result.markdown.match(/^## (User|Assistant) · /gm)).toHaveLength(total);
+  }).pipe(Effect.provide(layerTest));
+});
 
 it.effect("waitForThread follows a restart continuation instead of the cut run", () =>
   Effect.gen(function* () {

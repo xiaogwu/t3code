@@ -3683,6 +3683,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   stopWorkflow: "orchestration.stopWorkflow",
   forceStopThread: "orchestration.forceStopThread",
   getTurnItem: "orchestration.getTurnItem",
+  exportThread: "orchestration.exportThread",
   launchThread: "orchestration.launchThread",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
@@ -4240,6 +4241,19 @@ export const OrchestrationV2GetTurnItemResult = Schema.Struct({
 });
 export type OrchestrationV2GetTurnItemResult = typeof OrchestrationV2GetTurnItemResult.Type;
 
+export const OrchestrationV2ExportThreadInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationV2ExportThreadInput = typeof OrchestrationV2ExportThreadInput.Type;
+
+/** The whole thread rendered as Markdown. Clients only save or share it. */
+export const OrchestrationV2ExportThreadResult = Schema.Struct({
+  title: Schema.String,
+  fileName: Schema.String,
+  markdown: Schema.String,
+});
+export type OrchestrationV2ExportThreadResult = typeof OrchestrationV2ExportThreadResult.Type;
+
 const WORKFLOW_SCRIPT_ERROR_MESSAGES = {
   "invalid-path": "Workflow scripts must be absolute .js paths.",
   "root-unavailable": "Script root unavailable.",
@@ -4389,6 +4403,10 @@ export const OrchestrationV2RpcSchemas = {
   getTurnItem: {
     input: OrchestrationV2GetTurnItemInput,
     output: OrchestrationV2GetTurnItemResult,
+  },
+  exportThread: {
+    input: OrchestrationV2ExportThreadInput,
+    output: OrchestrationV2ExportThreadResult,
   },
   launchThread: {
     input: OrchestrationV2ThreadLaunchInput,
