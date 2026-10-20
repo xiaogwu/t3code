@@ -152,7 +152,7 @@ export function useSidebarPeekFocusHold(panelRef: RefObject<HTMLElement | null>)
     if (!panel) return;
     let release: (() => void) | null = null;
     const onFocusIn = () => {
-      release ??= acquireSidebarPeekHold();
+      if (release === null) release = acquireSidebarPeekHold();
     };
     const onFocusOut = () => {
       // A focus move between two panel descendants fires focusout then
@@ -226,13 +226,11 @@ export function useSidebarPeekController(enabled: boolean): SidebarPeekControlle
     scheduledForRef.current = null;
   }, []);
 
-  // A stable ref, not a `useCallback`, precisely because `step` reschedules
-  // itself: closing over the callback's own identity would read it before
-  // its declaration finishes initializing. Everything it closes over (refs,
-  // the `setPhase` setter) is already stable, so the function itself never
-  // needs to change.
-  const stepRef = useRef<() => void>(null);
-  stepRef.current ??= () => {
+  // `step` reschedules itself through its own function-expression name, not the
+  // `const` it is assigned to, which would be read before it finishes
+  // initializing. Everything it closes over (refs, the `setPhase` setter) is
+  // already stable, so the function itself never needs to change.
+  const step = useCallback(function step(): void {
     const now = performance.now();
     const holds = getSidebarPeekHoldCount();
     const next = reduceSidebarPeekState(stateRef.current, {
@@ -262,12 +260,9 @@ export function useSidebarPeekController(enabled: boolean): SidebarPeekControlle
       if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
       scheduledForRef.current = target;
       timeoutRef.current =
-        target === null
-          ? null
-          : window.setTimeout(() => stepRef.current?.(), Math.max(0, target - now));
+        target === null ? null : window.setTimeout(step, Math.max(0, target - now));
     }
-  };
-  const step = useCallback(() => stepRef.current?.(), []);
+  }, []);
 
   // A hold releasing is what unblocks a retreat that the delay alone already
   // qualified for; re-run the step whenever the count changes.

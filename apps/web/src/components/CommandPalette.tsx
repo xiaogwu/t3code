@@ -273,7 +273,7 @@ import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
 } from "../sidebarProjectGrouping";
-import type { Project } from "../types";
+import type { Project, SidebarThreadSummary } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -1373,24 +1373,10 @@ function OpenCommandPaletteDialog(props: {
   });
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
 
-  const archivedThreadItems = buildThreadActionItems({
-    threads: archivedThreadSnapshots.snapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
-    ),
-    archived: true,
-    projectTitleById,
-    sortOrder: clientSettings.sidebarThreadSortOrder,
-    ...(threadSearchQuery.length < 2 ? { limit: RECENT_THREAD_LIMIT } : {}),
-    icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
-    getContentMatch: (thread) => {
-      const match = threadContentMatchByKey.get(
-        threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
-      );
-      return match
-        ? { source: match.source, snippet: match.snippet, query: threadSearch.query }
-        : undefined;
-    },
-    runThread: async (thread) => {
+  // A stable callback, so the ref it guards with is read when the item runs,
+  // never while buildThreadActionItems assembles the items during render.
+  const unarchiveAndOpenThread = useStableCallback(
+    async (thread: Pick<SidebarThreadSummary, "environmentId" | "id">): Promise<void> => {
       if (pendingArchivedThreadRef.current !== null) return;
       const ref = scopeThreadRef(thread.environmentId, thread.id);
       pendingArchivedThreadRef.current = ref;
@@ -1413,6 +1399,26 @@ function OpenCommandPaletteDialog(props: {
         );
       }
     },
+  );
+
+  const archivedThreadItems = buildThreadActionItems({
+    threads: archivedThreadSnapshots.snapshots.flatMap(({ environmentId, snapshot }) =>
+      snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
+    ),
+    archived: true,
+    projectTitleById,
+    sortOrder: clientSettings.sidebarThreadSortOrder,
+    ...(threadSearchQuery.length < 2 ? { limit: RECENT_THREAD_LIMIT } : {}),
+    icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
+    getContentMatch: (thread) => {
+      const match = threadContentMatchByKey.get(
+        threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
+      );
+      return match
+        ? { source: match.source, snippet: match.snippet, query: threadSearch.query }
+        : undefined;
+    },
+    runThread: unarchiveAndOpenThread,
   }).map((item) => ({ ...item, keepOpen: true }));
 
   // An unarchived thread is absent from the client shell until the shell stream

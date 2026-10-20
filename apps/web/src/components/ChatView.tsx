@@ -1745,10 +1745,13 @@ export default function ChatView(props: ChatViewProps) {
       anchorRun.status !== "waiting"
     );
   })();
+  // Declared ahead of the effect below that reads it, so React Compiler sees a
+  // ref there rather than a not-yet-declared value.
+  const timelineScrollModeRef = useRef<TimelineScrollMode>("following-end");
   // Released from an effect, not during render: a palette reveal anchors a
   // message whose run settled long ago and owns that anchor until the user
   // scrolls back to the end or switches threads, and the scroll mode that says
-  // so lives in a ref declared further down.
+  // so lives in a ref.
   useEffect(() => {
     if (!anchorRunSettled) return;
     if (timelineScrollModeRef.current === "anchoring-reveal") return;
@@ -4219,7 +4222,6 @@ export default function ChatView(props: ChatViewProps) {
     new Debouncer(() => setShowScrollToBottom(true), { wait: 150 }),
   );
   const timelineScrollIntentRef = useRef<"toward-end" | "away-from-end" | null>(null);
-  const timelineScrollModeRef = useRef<TimelineScrollMode>("following-end");
   // State mirror of the follow mode refs. LegendList's maintainScrollAtEnd
   // re-pins on its own (independent of the refs), so the timeline needs a
   // render-visible flag to switch it off once the user scrolls away.
