@@ -4208,7 +4208,8 @@ it.layer(
       {
         name: "bounds a hung claude --version probe",
         answer: Effect.never,
-        elapsed: 21_000,
+        // Fork: a timed-out probe retries once after 2s, so two 20s timeouts bound it.
+        elapsed: 43_000,
         status: "error",
         version: null,
       },
