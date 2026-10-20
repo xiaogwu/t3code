@@ -330,9 +330,11 @@ describe("rightPanelStore", () => {
 
       store.close(refA);
       expect(store.openProactive(refA, surface, store.getUserActionRevision(refA))).toBe(false);
+      // Fork (ui/sticky-panel-dismissal): the user's close is recorded as a standing dismissal.
       expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
         ...chosen,
         isOpen: false,
+        proactiveDismissed: true,
       });
     },
   );
@@ -405,6 +407,9 @@ describe("rightPanelStore", () => {
     }
 
     const nextTurn = { ...completedDiff, turnId: RunId.make("turn-2") };
+    // Fork (ui/sticky-panel-dismissal): closeAllSurfaces left a standing dismissal, which a
+    // new turn lifts the way useProactivePanels does when it observes the turn start.
+    store.clearProactiveDismissal(refA);
     expect(store.openProactive(refA, nextTurn, store.getUserActionRevision(refA))).toBe(true);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
 
@@ -436,6 +441,8 @@ describe("rightPanelStore", () => {
     );
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
 
+    // Fork: the new turn lifts the dismissal left by closing the diff.
+    store.clearProactiveDismissal(refA);
     expect(
       store.openProactive(
         refA,
@@ -481,6 +488,9 @@ describe("rightPanelStore", () => {
     expect(store.openProactive(refA, nextTurn, store.getUserActionRevision(refA))).toBe(false);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
 
+    // Fork (ui/sticky-panel-dismissal): closing the PR tab left a standing dismissal, which
+    // the new turn lifts the way useProactivePanels does when it observes the turn start.
+    store.clearProactiveDismissal(refA);
     expect(
       store.openProactive(
         refA,
