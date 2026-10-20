@@ -1852,11 +1852,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     );
 
     const clicked = await api.contextMenu.show(
-      buildMultiSelectThreadContextMenuItems({ count, hasRunningThread, allUnread }).map(
-        (item) =>
-          item.id === "archive" || item.id === "delete"
-            ? { ...item, disabled: item.disabled || !canOperateSelection }
-            : item,
+      buildMultiSelectThreadContextMenuItems({ count, hasRunningThread, allUnread }).map((item) =>
+        item.id === "archive" || item.id === "delete"
+          ? { ...item, disabled: item.disabled || !canOperateSelection }
+          : item,
       ),
       position,
     );
