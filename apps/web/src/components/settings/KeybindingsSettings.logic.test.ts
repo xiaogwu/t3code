@@ -198,8 +198,8 @@ describe("KeybindingsSettings.logic", () => {
   });
 
   it("searches the displayed command label", () => {
-    const rows = buildKeybindingRows(
-      [
+    const rows = filterKeybindingRows(
+      buildKeybindingRows([
         {
           command: "shell.openInTerminal",
           shortcut: {
@@ -215,7 +215,7 @@ describe("KeybindingsSettings.logic", () => {
             node: { type: "identifier", name: "terminalFocus" },
           },
         },
-      ] satisfies ResolvedKeybindingsConfig,
+      ] satisfies ResolvedKeybindingsConfig),
       "external terminal",
     );
 
