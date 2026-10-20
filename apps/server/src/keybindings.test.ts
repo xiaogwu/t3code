@@ -307,9 +307,13 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
         );
 
+        // The fork binds mod+shift+b to rightPanel.toggle with no `when`, so the
+        // user's unconditional mod+shift+b rule keeps that default out.
         for (const defaultRule of Keybindings.DEFAULT_KEYBINDINGS) {
+          if (defaultRule.command === "rightPanel.toggle") continue;
           assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
         }
+        assert.isFalse(byCommand.has("rightPanel.toggle"));
         assert.isTrue(byCommand.has("script.run-tests.run"));
 
         const configState = yield* keybindings.loadConfigState;
@@ -317,7 +321,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           configState.keybindings
             .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
             .map((entry) => entry.command),
-          ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
+          ["rightPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
       }).pipe(Effect.provide(layerKeybindings())),
   );

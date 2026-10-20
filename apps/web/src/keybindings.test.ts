@@ -811,7 +811,9 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
-  it("toggles the thread panel by default without taking terminal keystrokes", () => {
+  // Upstream gives mod+shift+b to threadPanel.toggle; the fork keeps it on
+  // rightPanel.toggle and leaves the thread panel unbound.
+  it("toggles the right panel on mod+shift+b by default", () => {
     for (const platform of ["MacIntel", "Win32", "Linux"]) {
       const input = event({
         key: "b",
@@ -824,13 +826,7 @@ describe("chat/editor shortcuts", () => {
           platform,
           context: { terminalFocus: false, editableFocus: true },
         }),
-        "threadPanel.toggle",
-      );
-      assert.isNull(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { terminalFocus: true },
-        }),
+        "rightPanel.toggle",
       );
     }
   });
@@ -853,10 +849,11 @@ describe("chat/editor shortcuts", () => {
       ),
       "threadPanel.toggle",
     );
-    assert.isNull(
+    assert.strictEqual(
       resolveShortcutCommand(event({ key: "b", metaKey: true, shiftKey: true }), bindings, {
         platform: "MacIntel",
       }),
+      "rightPanel.toggle",
     );
   });
 

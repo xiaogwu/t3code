@@ -184,13 +184,14 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const stateDir = path.join(sourceDir, "userdata");
       const source = path.join(stateDir, "statev2.sqlite");
       yield* fs.makeDirectory(stateDir, { recursive: true });
-      yield* withDatabase(source, runMigrations({ toMigrationInclusive: 54 }));
+      // Fork ids run 7 past upstream's, so upstream's 54/55 are 61/62 here.
+      yield* withDatabase(source, runMigrations({ toMigrationInclusive: 61 }));
 
       const result = yield* runMigrateDevDb(
         { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
         { sharedHome: sourceDir },
       );
-      assert.include(result.executedMigrations, "55_OrchestrationV2");
+      assert.include(result.executedMigrations, "62_OrchestrationV2");
     }),
   );
 

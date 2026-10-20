@@ -1,5 +1,5 @@
 import type { ResolvedKeybindingsConfig, ScopedThreadRef } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { compileResolvedKeybindingsConfig, DEFAULT_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { act } from "react";
@@ -102,10 +102,17 @@ function press(overrides: Record<string, unknown> = {}) {
   return event;
 }
 
+// The fork leaves view.reopenClosed unbound and gives mod+shift+t to
+// shell.openInTerminal, so bind upstream's chord back for these tests.
+const REOPEN_KEYBINDINGS = compileResolvedKeybindingsConfig([
+  ...DEFAULT_KEYBINDINGS.filter((rule) => rule.key !== "mod+shift+t"),
+  { key: "mod+shift+t", command: "view.reopenClosed" },
+]);
+
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(state, {
-    keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+    keybindings: REOPEN_KEYBINDINGS,
     params: {},
     paletteOpen: false,
     workspaceAvailable: true,
