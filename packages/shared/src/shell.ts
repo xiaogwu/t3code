@@ -185,6 +185,28 @@ export function readPathFromLoginShell(
   return readEnvironmentFromLoginShell(shell, ["PATH"], execFile).PATH;
 }
 
+// Async so a retry inside a running server never blocks the event loop for the
+// whole timeout the way the startup probe's execFileSync does.
+export function readPathFromLoginShellAsync(
+  shell: string,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    NodeChildProcess.execFile(
+      shell,
+      ["-ilc", buildEnvironmentCaptureCommand(["PATH"])],
+      { encoding: "utf8", timeout: timeoutMs },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(extractEnvironmentValue(stdout, "PATH"));
+      },
+    );
+  });
+}
+
 export function readPathFromLaunchctl(
   execFile: ExecFileSyncLike = NodeChildProcess.execFileSync,
 ): string | undefined {
