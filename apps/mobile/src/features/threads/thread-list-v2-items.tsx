@@ -540,6 +540,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onNewThreadOnBranch,
     onSettleThread,
     onSnoozeThread,
+    onSnoozeFor,
     onUnsnoozeThread,
     onUnsettleThread,
     onArchiveThread,
@@ -804,8 +805,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
       if (nativeEvent.event === "delete") handleDelete();
       if (nativeEvent.event === "snooze-for") {
-        if (props.onSnoozeFor) {
-          props.onSnoozeFor(thread);
+        if (onSnoozeFor) {
+          onSnoozeFor(thread);
         } else {
           navigation.navigate("SnoozeFor", {
             environmentId: String(thread.environmentId),
@@ -845,10 +846,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnsettle,
       handleUnsnooze,
       navigation,
-      props.onSnoozeFor,
+      onSnoozeFor,
       snoozePresets,
-      thread.environmentId,
-      thread.id,
     ],
   );
   const primaryAction = useMemo(() => {
