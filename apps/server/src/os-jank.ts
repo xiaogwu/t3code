@@ -3,9 +3,11 @@ import {
   listLoginShellCandidates,
   mergePathEntries,
   readPathFromLoginShell,
+  readPathFromLoginShellAsync,
   readPathFromLaunchctl,
   resolveWindowsEnvironment,
 } from "@t3tools/shared/shell";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -17,7 +19,11 @@ function logPathHydrationWarning(message: string, error?: unknown): void {
   );
 }
 
-function hydratePosixPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): void {
+const PATH_RETRY_INTERVAL = Duration.seconds(30);
+const PATH_RETRY_ATTEMPTS = 10;
+const PATH_RETRY_TIMEOUT_MS = 20_000;
+
+function hydratePosixPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): boolean {
   let shellPath: string | undefined;
   for (const shell of listLoginShellCandidates(platform, env.SHELL)) {
     try {
@@ -34,7 +40,42 @@ function hydratePosixPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): vo
   if (mergedPath) {
     env.PATH = mergedPath;
   }
+  return Boolean(shellPath);
 }
+
+// Right after boot a cold login shell can outlast the startup probe's timeout,
+// leaving only the launchd PATH. Without a retry every provider CLI stays "Not
+// found" until the app restarts; once PATH is repaired, the next provider health
+// refresh finds them.
+export const retryPosixPathHydration = Effect.fn("retryPosixPathHydration")(function* (
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  readPath: (
+    shell: string,
+    timeoutMs: number,
+  ) => Promise<string | undefined> = readPathFromLoginShellAsync,
+) {
+  for (let attempt = 1; attempt <= PATH_RETRY_ATTEMPTS; attempt++) {
+    yield* Effect.sleep(PATH_RETRY_INTERVAL);
+    for (const shell of listLoginShellCandidates(platform, env.SHELL)) {
+      const shellPath = yield* Effect.promise(() =>
+        readPath(shell, PATH_RETRY_TIMEOUT_MS).catch((error: unknown) => {
+          logPathHydrationWarning(`Retry failed to read PATH from login shell ${shell}.`, error);
+          return undefined;
+        }),
+      );
+      if (shellPath) {
+        const mergedPath = mergePathEntries(shellPath, env.PATH, platform);
+        if (mergedPath) {
+          env.PATH = mergedPath;
+        }
+        return true;
+      }
+    }
+  }
+  logPathHydrationWarning("Gave up reading PATH from the login shell.");
+  return false;
+});
 
 export function hydratePosixHome(
   env: NodeJS.ProcessEnv,
@@ -82,13 +123,17 @@ export const fixPath = Effect.fn("fixPath")(function* (): Effect.fn.Return<
       }),
     ),
   );
-  yield* Effect.sync(() => hydratePosixPath(env, platform)).pipe(
+  const hydrated = yield* Effect.sync(() => hydratePosixPath(env, platform)).pipe(
     Effect.catchDefect((defect) =>
       Effect.sync(() => {
         logPathHydrationWarning("Failed to hydrate PATH from the user environment.", defect);
+        return false;
       }),
     ),
   );
+  if (!hydrated) {
+    yield* retryPosixPathHydration(env, platform).pipe(Effect.forkDetach);
+  }
 });
 
 export const expandHomePath = Effect.fn(function* (input: string) {
