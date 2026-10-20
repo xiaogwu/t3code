@@ -2459,6 +2459,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           "T3 Code connects to devices on your local network for remote environments and commands run by terminals and coding agents.",
         NSScreenCaptureUsageDescription:
           "T3 Code captures the active window when you use the window capture shortcut.",
+        NSCameraUsageDescription:
+          "T3 Code lets commands run by terminals and coding agents use the camera.",
+        NSMicrophoneUsageDescription:
+          "T3 Code lets commands run by terminals and coding agents use the microphone.",
         CFBundleDocumentTypes: [
           {
             CFBundleTypeName: "Web page",
