@@ -1,4 +1,9 @@
 import type { AssistantThreadBookmark, MessageId } from "@t3tools/contracts";
+import type { Nodes } from "mdast";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 
 /**
@@ -23,9 +28,14 @@ export type TimelineMinimapItem =
       readonly userText: string | null;
     };
 
+const NO_BOOKMARKS: ReadonlyMap<MessageId, ReadonlyArray<AssistantThreadBookmark>> = new Map();
+
 export function deriveTimelineMinimapItems(
   rows: ReadonlyArray<MessagesTimelineRow>,
-  bookmarksByMessageId: ReadonlyMap<MessageId, ReadonlyArray<AssistantThreadBookmark>>,
+  bookmarksByMessageId: ReadonlyMap<
+    MessageId,
+    ReadonlyArray<AssistantThreadBookmark>
+  > = NO_BOOKMARKS,
 ): TimelineMinimapItem[] {
   const items: TimelineMinimapItem[] = [];
   // Tracks the prompt whose turn we are inside, so a bookmark on an assistant
@@ -92,6 +102,39 @@ function resolveFinalAssistantTextForTurn(
   return finalAssistantText;
 }
 
+const markdownPreviewParser = unified().use(remarkParse).use(remarkGfm).freeze();
+
+const INLINE_PARENT_TYPES = new Set<Nodes["type"]>([
+  "paragraph",
+  "heading",
+  "tableCell",
+  "emphasis",
+  "strong",
+  "delete",
+  "link",
+  "linkReference",
+]);
+
+function markdownNodeText(node: Nodes): string {
+  if (node.type === "html") {
+    return node.value
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+      .replace(/<\/?([a-z][\w-]*)(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi, (_, tag: string) =>
+        /^(?:address|article|aside|blockquote|br|dd|details|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|summary|table|tbody|td|th|thead|tr|ul)$/i.test(
+          tag,
+        )
+          ? " "
+          : "",
+      );
+  }
+  if (node.type === "break") return " ";
+  if ("value" in node) return node.value;
+  if (node.type === "image" || node.type === "imageReference") return node.alt ?? "";
+  if (!("children" in node)) return "";
+  const separator = INLINE_PARENT_TYPES.has(node.type) ? "" : " ";
+  return node.children.map(markdownNodeText).join(separator);
+}
+
 function compactMinimapPreview(text: string | null | undefined) {
   const compact = text?.replace(/\s+/g, " ").trim() ?? "";
   return compact.length > 0 ? compact : null;
@@ -108,6 +151,11 @@ export function resolveTimelineMinimapPreview(
     : {
         ...item,
         userText: compactMinimapPreview(item.userText),
-        assistantText: compactMinimapPreview(item.assistantText),
+        // The tooltip shows three lines; bound parsing work while long responses stream.
+        assistantText: compactMinimapPreview(
+          item.assistantText === null
+            ? null
+            : markdownNodeText(markdownPreviewParser.parse(item.assistantText.slice(0, 1_500))),
+        ),
       };
 }

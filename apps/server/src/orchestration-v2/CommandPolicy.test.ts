@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
+  RunAttemptId,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -20,6 +21,8 @@ import * as CommandPolicy from "./CommandPolicy.ts";
 const commandId = CommandId.make("command-policy-test");
 const threadId = ThreadId.make("command-policy-thread");
 const activeRunId = RunId.make("command-policy-active-run");
+const activeAttemptId = RunAttemptId.make("command-policy-active-attempt");
+const userMessageId = MessageId.make("command-policy-user-message");
 
 const baseCapabilities: OrchestrationV2ProviderCapabilities = CodexProviderCapabilitiesV2;
 
@@ -35,17 +38,29 @@ function dispatchProjection(
   const providerThreadId = ProviderThreadId.make("command-policy-provider-thread");
   const providerSessionId = ProviderSessionId.make("command-policy-provider-session");
   return {
-    messages: [],
     runs:
       sessionCapabilities === undefined
         ? []
-        : [{ id: activeRunId, status: "running", providerThreadId }],
+        : [
+            {
+              id: activeRunId,
+              status: "running",
+              providerThreadId,
+              activeAttemptId,
+              userMessageId,
+            },
+          ],
+    messages: [{ id: userMessageId, text: "first", attachments: [] }],
     providerThreads:
       sessionCapabilities === undefined ? [] : [{ id: providerThreadId, providerSessionId }],
     providerSessions:
       sessionCapabilities === undefined
         ? []
         : [{ id: providerSessionId, capabilities: sessionCapabilities }],
+    providerTurns:
+      sessionCapabilities === undefined
+        ? []
+        : [{ runAttemptId: activeAttemptId, status: "running" }],
   } as unknown as OrchestrationV2ThreadProjection;
 }
 
@@ -119,6 +134,37 @@ it.each(["preparing", "starting"] as const)(
   },
 );
 
+it.each([
+  ["has not started", []],
+  ["is pending", [{ runAttemptId: activeAttemptId, status: "pending" }]],
+  ["has completed", [{ runAttemptId: activeAttemptId, status: "completed" }]],
+  [
+    "belongs to a previous attempt",
+    [{ runAttemptId: RunAttemptId.make("previous-attempt"), status: "running" }],
+  ],
+])("queues only automatic delivery when the active run's provider turn %s", (_, providerTurns) => {
+  const projection = {
+    ...dispatchProjection(baseCapabilities),
+    providerTurns,
+  } as unknown as OrchestrationV2ThreadProjection;
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(projection, { type: "start_immediately" }, "auto"),
+    { type: "queue_after_active" },
+  );
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(projection, { type: "start_immediately" }, "steer"),
+    { type: "steer_active", targetRunId: activeRunId },
+  );
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(
+      projection,
+      { type: "start_immediately" },
+      "restart",
+    ),
+    { type: "restart_active", targetRunId: activeRunId },
+  );
+});
+
 it("targets the latest active run for explicit steer and restart intent", () => {
   const projection = dispatchProjection(baseCapabilities);
   assert.deepEqual(
@@ -186,6 +232,29 @@ it("still steers an active run that is not a compaction", () => {
       "steer",
     ),
     { type: "steer_active", targetRunId: activeRunId },
+  );
+});
+
+// Upstream #20184 extended the queue to /logout. Fork semantics still apply: an
+// explicit restart queues too instead of interrupting the maintenance run.
+it.each(["/compact", " /LOGOUT "])("queues every send while %s runs", (text) => {
+  const maintenance = projectionWithActiveRunMessage(text);
+  for (const deliveryIntent of ["auto", "steer", "restart"] as const) {
+    assert.deepEqual(
+      CommandPolicy.resolveMessageDispatchIntent(
+        maintenance,
+        { type: "start_immediately" },
+        deliveryIntent,
+      ),
+      { type: "queue_after_active" },
+    );
+  }
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(maintenance, {
+      type: "steer_active",
+      targetRunId: activeRunId,
+    }),
+    { type: "queue_after_active" },
   );
 });
 

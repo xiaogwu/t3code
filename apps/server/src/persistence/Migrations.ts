@@ -81,6 +81,12 @@ import Migration0067 from "./Migrations/067_ThreadSnapshotWindowIndexes.ts";
 import Migration0068 from "./Migrations/068_PullRequestReviewGuides.ts";
 // Upstream ships this as 062.
 import Migration0069 from "./Migrations/069_ThreadFailureLookupIndex.ts";
+// Upstream ships these as 063-066; every upstream migration after 56 lands 7
+// ids later here.
+import Migration0070 from "./Migrations/070_DropUnusedV1Projections.ts";
+import Migration0071 from "./Migrations/071_CanonicalizeThreadPullRequestLinks.ts";
+import Migration0072 from "./Migrations/072_CodexUsageNativeTurnIndex.ts";
+import Migration0073 from "./Migrations/073_RepairClientSettlementTimestamps.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -158,6 +164,11 @@ export const migrationEntries = [
   [67, "ThreadSnapshotWindowIndexes", Migration0067],
   [68, "PullRequestReviewGuides", Migration0068],
   [69, "ThreadFailureLookupIndex", Migration0069],
+  // Upstream ships these as 63-66.
+  [70, "DropUnusedV1Projections", Migration0070],
+  [71, "CanonicalizeThreadPullRequestLinks", Migration0071],
+  [72, "CodexUsageNativeTurnIndex", Migration0072],
+  [73, "RepairClientSettlementTimestamps", Migration0073],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

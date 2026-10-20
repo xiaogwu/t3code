@@ -1,4 +1,5 @@
 import {
+  type ChatAttachment,
   CommandId,
   ModelSelection,
   type OrchestrationV2Command,
@@ -116,24 +117,37 @@ type MessageDispatchMode = Extract<
   { readonly type: "message.dispatch" }
 >["dispatchMode"];
 
+export function isNativeMaintenanceCommand(message: {
+  readonly text: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
+}): boolean {
+  return (
+    message.attachments.length === 0 &&
+    ["/compact", "/logout"].includes(message.text.trim().toLowerCase())
+  );
+}
+
 export function resolveMessageDispatchIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
 ): MessageDispatchMode {
   const resolved = resolveRequestedDispatchIntent(projection, requestedMode, deliveryIntent);
-  // A /compact run cannot be steered or restarted, so a send during compaction
-  // waits behind it instead of being rejected.
+  // Fork: a /compact (or, since upstream #20184, /logout) run cannot be steered
+  // or restarted, so a send while one runs waits behind it instead of being
+  // rejected or interrupting it. Upstream queues only steers; the fork also
+  // queues explicit restarts.
   if (
     (resolved.type === "steer_active" || resolved.type === "restart_active") &&
-    isActiveCompactionRun(projection, resolved.targetRunId)
+    isActiveMaintenanceRun(projection, resolved.targetRunId)
   ) {
     return { type: "queue_after_active" };
   }
   return resolved;
 }
 
-function isActiveCompactionRun(
+function isActiveMaintenanceRun(
   projection: OrchestrationV2ThreadProjection,
   runId: OrchestrationV2Run["id"],
 ): boolean {
@@ -148,11 +162,7 @@ function isActiveCompactionRun(
     return false;
   }
   const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
-  return (
-    message !== undefined &&
-    message.attachments.length === 0 &&
-    message.text.trim().toLowerCase() === "/compact"
-  );
+  return message !== undefined && isNativeMaintenanceCommand(message);
 }
 
 function resolveRequestedDispatchIntent(
@@ -176,7 +186,15 @@ function resolveRequestedDispatchIntent(
   if (deliveryIntent === "restart") {
     return { type: "restart_active", targetRunId: activeRun.id };
   }
-  if (activeRun.status === "preparing" || activeRun.status === "starting") {
+  // A run can be active before its provider turn starts or after it finishes.
+  // Queue automatic input in those gaps so steering cannot reject the message.
+  if (
+    activeRun.status === "preparing" ||
+    activeRun.status === "starting" ||
+    !projection.providerTurns.some(
+      (turn) => turn.runAttemptId === activeRun.activeAttemptId && turn.status === "running",
+    )
+  ) {
     return { type: "queue_after_active" };
   }
 

@@ -32,6 +32,7 @@ interface ComposerPrimaryActionsProps {
   isRunning: boolean;
   canInterrupt: boolean;
   followUpBehavior?: "queue" | "steer";
+  canSteer?: boolean;
   alternateShortcutLabel?: string | null;
   showPlanFollowUpPrompt: boolean;
   promptHasText: boolean;
@@ -85,6 +86,8 @@ export function composerSubmitTooltip(input: {
   readonly queuesBehindCompaction: boolean;
   readonly isRunning: boolean;
   readonly isEditingQueuedMessage: boolean;
+  /** Providers that cannot steer get the plain label; defaults to true. */
+  readonly canSteer?: boolean;
   readonly followUpBehavior: "queue" | "steer";
   readonly alternateAction: string;
   readonly alternateShortcutLabel: string | null;
@@ -96,7 +99,7 @@ export function composerSubmitTooltip(input: {
   }
   // The server queues sends behind a /compact run, so the usual queue/steer hint would lie.
   if (input.queuesBehindCompaction) return "Sends after compacting";
-  if (input.isRunning && !input.isEditingQueuedMessage) {
+  if (input.isRunning && !input.isEditingQueuedMessage && input.canSteer !== false) {
     return `Click to ${input.followUpBehavior}, Ctrl/⌘-click${input.alternateShortcutLabel ? ` or ${input.alternateShortcutLabel}` : ""} to ${input.alternateAction}`;
   }
   return input.submitLabel;
@@ -113,6 +116,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isRunning,
   canInterrupt,
   followUpBehavior = "steer",
+  canSteer = true,
   alternateShortcutLabel = null,
   showPlanFollowUpPrompt,
   promptHasText,
@@ -148,6 +152,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       resolveComposerDispatchMode({
         running: isRunning,
         activeTurnDefault: followUpBehavior,
+        canSteer,
         alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
       }) === "queue");
   const alternateAction = alternateComposerDispatchAction(followUpBehavior);
@@ -267,7 +272,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                   "h-9 rounded-l-none border-l border-message-action-foreground/20 px-2 sm:h-8",
                 )}
                 aria-label="Implementation actions"
-                {...pointerFocusProps}
+                onMouseDown={
+                  preserveComposerFocusOnPointerDown ? (event) => event.preventDefault() : undefined
+                }
                 disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
               />
             }
@@ -331,6 +338,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     queuesBehindCompaction,
     isRunning,
     isEditingQueuedMessage,
+    canSteer,
     followUpBehavior,
     alternateAction,
     alternateShortcutLabel,
@@ -418,9 +426,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <span>{compactTokens}</span>
         </TooltipTrigger>
         <TooltipPopup>
-          {keepFullHistory
-            ? `Next send keeps all ${compactTokens} tokens. Click to compact first`
-            : `Next send compacts ${compactTokens} tokens first. Click to keep full history`}
+          <div>
+            {keepFullHistory
+              ? `Next send keeps all ${compactTokens} tokens.`
+              : `Next send compacts ${compactTokens} tokens first.`}
+          </div>
+          <div>{keepFullHistory ? "Click to compact first" : "Click to keep full history"}</div>
         </TooltipPopup>
       </Tooltip>
       {submit}
