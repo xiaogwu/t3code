@@ -81,10 +81,15 @@ const buildTimeRelayClientTracing = {
   ),
 } as const;
 
+// Fork policy: relay tracing (Axiom) is opt-in under the same switch as PostHog analytics, so
+// this matches Config.Boolean's truthy strings exactly.
+const TELEMETRY_TRUTHY = new Set(["true", "yes", "on", "1", "y"]);
+
 export function resolveRelayClientTracingConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
   fallback = buildTimeRelayClientTracing,
 ) {
+  if (!TELEMETRY_TRUTHY.has(env.T3CODE_TELEMETRY_ENABLED ?? "")) return null;
   const tracesUrl = env.T3CODE_RELAY_CLIENT_OTLP_TRACES_URL?.trim() || fallback.tracesUrl;
   const tracesDataset =
     env.T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET?.trim() || fallback.tracesDataset;
