@@ -67,11 +67,25 @@ export interface TimelineSendScrollBehavior {
   readonly releaseOnToolActivity: boolean;
 }
 
+/**
+ * How a send moves the timeline. A reply that cites this thread keeps the cited
+ * source in view: no anchor and no live follow until Scroll to end is used.
+ */
 export function resolveTimelineSendScrollBehavior({
   threadHasStarted,
+  citesThisThread,
 }: {
   readonly threadHasStarted: boolean;
+  readonly citesThisThread: boolean;
 }): TimelineSendScrollBehavior {
+  if (citesThisThread) {
+    return {
+      mode: "free-scrolling",
+      liveFollowEnabled: false,
+      anchorNewTurn: false,
+      releaseOnToolActivity: false,
+    };
+  }
   return {
     mode: "anchoring-new-turn",
     liveFollowEnabled: true,
