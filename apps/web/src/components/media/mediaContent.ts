@@ -6,18 +6,40 @@ export function resolveProtocolRelativeMediaUrl(src: string): string {
   return `${protocol}${src}`;
 }
 
-async function readMediaBlob(src: string): Promise<Blob> {
-  let response: Response;
+function decodeDataUrl(src: string): Blob {
+  const comma = src.indexOf(",");
+  if (comma < 0) throw new Error("The image data is malformed. Try saving it instead.");
+  const [mime = "", ...params] = src.slice("data:".length, comma).split(";");
+  const payload = src.slice(comma + 1);
   try {
-    response = await fetch(src);
+    const bytes =
+      params.at(-1)?.toLowerCase() === "base64"
+        ? Uint8Array.from(atob(payload), (char) => char.charCodeAt(0))
+        : new TextEncoder().encode(decodeURIComponent(payload));
+    return new Blob([bytes], { type: mime || "text/plain" });
   } catch (cause) {
-    throw new Error(
-      "The file could not be fetched. The host may block browser access (CORS), or the connection may be unavailable.",
-      { cause },
-    );
+    throw new Error("The image data is malformed. Try saving it instead.", { cause });
   }
-  if (!response.ok) throw new Error(`The file could not be fetched (HTTP ${response.status}).`);
-  const blob = await response.blob();
+}
+
+async function readMediaBlob(src: string): Promise<Blob> {
+  let blob: Blob;
+  if (src.slice(0, 5).toLowerCase() === "data:") {
+    // The desktop connect-src policy blocks fetching data: URLs, so decode them locally.
+    blob = decodeDataUrl(src);
+  } else {
+    let response: Response;
+    try {
+      response = await fetch(src);
+    } catch (cause) {
+      throw new Error(
+        "The file could not be fetched. The host may block browser access (CORS), or the connection may be unavailable.",
+        { cause },
+      );
+    }
+    if (!response.ok) throw new Error(`The file could not be fetched (HTTP ${response.status}).`);
+    blob = await response.blob();
+  }
   if (blob.type.split(";", 1)[0] === "text/html") {
     throw new Error("This link returned a web page instead of media. Open the original URL.");
   }
