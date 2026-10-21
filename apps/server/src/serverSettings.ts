@@ -441,6 +441,7 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "reviewGuideModelSelection",
   "textGenerationModelSelection",
   "textGenerationFallbackModelSelections",
+  "titlePolicy",
   "pullRequestMergeMethod",
 ]);
 

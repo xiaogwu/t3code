@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
+  defaultTitlePolicy,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -687,6 +688,30 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         yield* serverSettings.updateSettings({ usagePriceOverrides: { "example-model": null } });
         const restored = yield* readPersisted;
         assert.deepStrictEqual(restored.usagePriceOverrides, {});
+      }),
+    ).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect("persists a customized title policy whole so it reloads", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const titlePolicy = {
+          ...defaultTitlePolicy,
+          defaults: { ...defaultTitlePolicy.defaults, maxCharacters: 60 },
+        };
+
+        yield* serverSettings.updateSettings({ titlePolicy });
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+
+        // A field-by-field strip would drop `version` (equal to the default), and
+        // the strict TitlePolicy schema then refuses to encode the file.
+        assert.deepStrictEqual(
+          (JSON.parse(raw) as { titlePolicy: unknown }).titlePolicy,
+          titlePolicy,
+        );
       }),
     ).pipe(Effect.provide(layerServerSettings())),
   );
