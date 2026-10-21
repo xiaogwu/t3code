@@ -98,6 +98,7 @@ describe("timeline scroll anchoring", () => {
     expect(
       resolveTimelineSendScrollBehavior({
         threadHasStarted: false,
+        citesThisThread: false,
       }),
     ).toEqual({
       mode: "anchoring-new-turn",
@@ -111,11 +112,26 @@ describe("timeline scroll anchoring", () => {
     expect(
       resolveTimelineSendScrollBehavior({
         threadHasStarted: true,
+        citesThisThread: false,
       }),
     ).toEqual({
       mode: "anchoring-new-turn",
       liveFollowEnabled: true,
       anchorNewTurn: true,
+      releaseOnToolActivity: false,
+    });
+  });
+
+  it("keeps a reply send in place without anchoring or live follow", () => {
+    expect(
+      resolveTimelineSendScrollBehavior({
+        threadHasStarted: true,
+        citesThisThread: true,
+      }),
+    ).toEqual({
+      mode: "free-scrolling",
+      liveFollowEnabled: false,
+      anchorNewTurn: false,
       releaseOnToolActivity: false,
     });
   });

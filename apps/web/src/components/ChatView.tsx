@@ -1,4 +1,5 @@
 import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
+import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
@@ -7321,24 +7322,44 @@ export default function ChatView(props: ChatViewProps) {
           },
     );
     if (!shouldQueueBehindActiveRun) {
-      isAtEndRef.current = true;
-      timelineScrollModeRef.current = "anchoring-new-turn";
-      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      setTimelineLiveFollowEnabled(true);
-      pendingTimelineAnchorRef.current = messageIdForSend;
-      activeTimelineAnchorIndexRef.current = null;
-      timelineAnchorEndSpaceCollapsedRef.current = false;
-      timelineAnchorReleasesOnToolActivityRef.current = resolveTimelineSendScrollBehavior({
+      const sendScrollBehavior = resolveTimelineSendScrollBehavior({
         threadHasStarted:
           activeThread.latestRun !== null ||
           timelineMessages.some((message) => message.role === "user"),
-      }).releaseOnToolActivity;
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-      setTimelineAnchor({
-        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-        messageId: messageIdForSend,
+        citesThisThread: collectAssistantCitations(messageTextForSend).some(
+          ({ citation }) =>
+            citation.environmentId === activeThread.environmentId &&
+            citation.threadId === threadIdForSend,
+        ),
       });
+      if (sendScrollBehavior.anchorNewTurn) {
+        isAtEndRef.current = true;
+        timelineScrollModeRef.current = sendScrollBehavior.mode;
+        liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+        setTimelineLiveFollowEnabled(sendScrollBehavior.liveFollowEnabled);
+        pendingTimelineAnchorRef.current = messageIdForSend;
+        activeTimelineAnchorIndexRef.current = null;
+        timelineAnchorEndSpaceCollapsedRef.current = false;
+        timelineAnchorReleasesOnToolActivityRef.current = sendScrollBehavior.releaseOnToolActivity;
+        showScrollDebouncer.current.cancel();
+        setShowScrollToBottom(false);
+        setTimelineAnchor({
+          threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+          messageId: messageIdForSend,
+        });
+      } else {
+        // Reply sends keep the cited source in place. Opt out of both LegendList's end
+        // maintenance and T3's streaming adjustments until Scroll to end is used.
+        anchorUserScrollGenerationRef.current += 1;
+        timelineScrollModeRef.current = sendScrollBehavior.mode;
+        liveFollowUserScrollGenerationRef.current = null;
+        setTimelineLiveFollowEnabled(sendScrollBehavior.liveFollowEnabled);
+        pendingTimelineAnchorRef.current = null;
+        positionedTimelineAnchorRef.current = null;
+        settledTimelineAnchorRef.current = null;
+        activeTimelineAnchorIndexRef.current = null;
+        timelineAnchorEndSpaceCollapsedRef.current = false;
+      }
     }
     setOptimisticUserMessages((existing) => [
       ...existing,
