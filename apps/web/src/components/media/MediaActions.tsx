@@ -56,6 +56,21 @@ function canReadHostMedia(environmentId: EnvironmentId | null): boolean {
   return result._tag !== "Failure" && allowsHostMedia(Option.getOrNull(AsyncResult.value(result)));
 }
 
+// The desktop context menu resolves before the window regains focus, and Chromium
+// rejects clipboard writes from an unfocused document.
+function waitForDocumentFocus(timeoutMs = 1000): Promise<void> {
+  if (typeof document === "undefined" || document.hasFocus()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", done);
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    window.addEventListener("focus", done);
+  });
+}
+
 export function useMediaActions(source: MediaActionSource) {
   const hostEnvironmentId =
     source.asset &&
@@ -103,10 +118,9 @@ export function useMediaActions(source: MediaActionSource) {
         "Image copying is unavailable. Use a secure browser connection or save the image.",
       );
     }
-    // Start the clipboard write in the user gesture; fetching/decoding may finish later.
-    await navigator.clipboard.write([
-      new ClipboardItem({ "image/png": actionUrl().then(readMediaPng) }),
-    ]);
+    const png = actionUrl().then(readMediaPng);
+    await waitForDocumentFocus();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
   };
   return { save, copyImage, canReadMedia, assertCanReadMedia };
 }

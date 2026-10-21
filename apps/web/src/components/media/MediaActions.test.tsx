@@ -184,3 +184,18 @@ it.each(["save", "copy-image", "open-file"])(
     expect(state.openFile).not.toHaveBeenCalled();
   },
 );
+
+it("waits for the window to regain focus before writing the image", async () => {
+  state.sessions.set(environmentId, granted);
+  const focus = new EventTarget();
+  vi.stubGlobal("document", { hasFocus: () => false });
+  vi.stubGlobal("window", focus);
+
+  const copied = useMediaActions(hostSource()).copyImage();
+  await vi.waitFor(() => expect(state.png).toHaveBeenCalled());
+  expect(state.clipboard).not.toHaveBeenCalled();
+
+  focus.dispatchEvent(new Event("focus"));
+  await copied;
+  expect(state.clipboard).toHaveBeenCalledOnce();
+});
