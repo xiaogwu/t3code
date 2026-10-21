@@ -1,0 +1,98 @@
+# Fork-only: builds the (DEV) macOS app from `integration-v2` on GitHub-hosted
+# runners. Upstream's workflows target Blacksmith runners, which this fork has
+# no access to, so they queue forever here. This one uses `macos-15` (arm64),
+# free for public repositories.
+#
+# The zip comes out unsigned. Signing stays on the Mac so the keychain's
+# "Always Allow" survives rebuilds; `upgrade-integration.sh --v2 --from-ci`
+# downloads it, and `v2-test-build.sh` signs and stages it as the v2 test app.
+# A schedule or workflow_dispatch trigger only works from the default branch,
+# and `main` mirrors upstream, so pushes are the trigger. `integration` stays
+# listed so the build keeps running once v2 takes over that branch name.
+name: Fork macOS DEV build
+
+on:
+  push:
+    branches: [integration, integration-v2]
+
+concurrency:
+  group: fork-macos-dev-build-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # The app version is the newest upstream nightly already merged into
+      # this tree, matching upgrade-integration.sh. The fork carries no
+      # upstream tags, so read upstream's list and test ancestry locally.
+      - name: Resolve nightly version
+        id: version
+        run: |
+          git ls-remote --tags https://github.com/pingdotgg/t3code.git 'v*-nightly.*' \
+            | sed -E 's#refs/tags/##; s#\^\{\}$##' \
+            | awk '{print $2, $1}' \
+            | sed -E 's/^(v[0-9]+\.[0-9]+\.[0-9]+-nightly\.([0-9]{8})\.([0-9]+)) /\2 \3 \1 /' \
+            | sort -k1,1nr -k2,2nr > "$RUNNER_TEMP/nightly-tags"
+          version=""
+          while read -r _ _ tag sha; do
+            if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+              version="${tag#v}"
+              break
+            fi
+          done < "$RUNNER_TEMP/nightly-tags"
+          if [ -z "$version" ]; then
+            echo "No upstream nightly is an ancestor of HEAD." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version from $GITHUB_SHA"
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      # Vite does not read .env.example. Without these public values the
+      # packaged app hides T3 Connect sign-in, and the staging gate rejects it.
+      - name: Load T3 Connect public config
+        run: |
+          for key in T3CODE_CLERK_PUBLISHABLE_KEY T3CODE_CLERK_JWT_TEMPLATE T3CODE_RELAY_URL; do
+            value="$(sed -n "s/^${key}=//p" .env.example | tail -n 1)"
+            [ -n "$value" ] || { echo "$key is missing from .env.example" >&2; exit 1; }
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+
+      - run: vp install
+
+      - run: vp run typecheck
+
+      - run: vp run build:desktop
+
+      # --dev is load-bearing: it writes T3CODE_DISABLE_AUTO_UPDATE into the
+      # bundle, without which the official nightly updater replaces the app.
+      - name: Build DEV app
+        run: |
+          node scripts/build-desktop-artifact.ts --platform mac --target zip --arch arm64 --dev \
+            --build-version "${{ steps.version.outputs.version }}" --output-dir "$RUNNER_TEMP/artifacts"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: t3code-dev-${{ steps.version.outputs.version }}-${{ github.sha }}
+          path: ${{ runner.temp }}/artifacts/*.zip
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
