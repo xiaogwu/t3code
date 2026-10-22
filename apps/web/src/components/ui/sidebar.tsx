@@ -162,8 +162,8 @@ function SidebarProvider({
   // reverse of exactly that action, and only that action: restore `open`
   // only if this effect was the one that closed it, so a sidebar the user
   // had already pinned shut before enabling the mode stays shut afterward.
-  // Mobile has no peek affordance (see `ui/sidebar.tsx`'s mobile branch, a
-  // `Sheet`), so the controller stays inert there.
+  // A narrow window peeks with the same floating panel as a wide one; only the
+  // open mobile drawer suppresses it, so the controller goes inert then.
   const previousAutoHideRef = React.useRef(autoHide);
   const forcedClosedByAutoHideRef = React.useRef(false);
   React.useEffect(() => {
@@ -176,7 +176,7 @@ function SidebarProvider({
     }
     previousAutoHideRef.current = autoHide;
   }, [autoHide, open, setOpen]);
-  const peekEnabled = autoHide && !isMobile && !open;
+  const peekEnabled = autoHide && !open && !(isMobile && openMobile);
   const peekController = useSidebarPeekController(peekEnabled);
   const peeked = peekEnabled && peekController.peeked;
 
@@ -265,6 +265,7 @@ function Sidebar({
   resizable?: boolean | SidebarResizableOptions;
 }) {
   const {
+    autoHide,
     isMobile,
     state,
     openMobile,
@@ -278,8 +279,12 @@ function Sidebar({
   const desktopSidebarRef = React.useRef<HTMLDivElement>(null);
   // A peeked auto-hide panel still reports `collapsed`, but it is on screen and
   // must stay interactive, so only a truly hidden offcanvas sidebar goes inert.
+  // That includes the parked panel beside a narrow window's closed drawer.
+  // The narrow-window panel mounts when auto-hide turns on or the drawer closes,
+  // so its mount has to flip this too for the effect below to re-run.
+  const desktopSidebarMounted = !isMobile || (autoHide && !openMobile);
   const offcanvasCollapsed =
-    !isMobile && collapsible === "offcanvas" && state === "collapsed" && !peeked;
+    desktopSidebarMounted && collapsible === "offcanvas" && state === "collapsed" && !peeked;
 
   React.useLayoutEffect(() => {
     const sidebar = desktopSidebarRef.current;
@@ -315,6 +320,86 @@ function Sidebar({
       </SidebarInstanceContext>
     );
   }
+
+  const desktopPanel = (
+    <div
+      ref={desktopSidebarRef}
+      className={cn(
+        "group peer hidden text-sidebar-foreground md:block",
+        // Narrow windows render the panel only for auto-hide; it must stay
+        // displayed while parked so `left` can transition when it peeks.
+        isMobile && "block",
+      )}
+      data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-peek={peeked ? "true" : undefined}
+      data-side={side}
+      data-slot="sidebar"
+      data-state={state}
+      data-variant={variant}
+    >
+      <div
+        className={cn(
+          "relative w-(--sidebar-width) bg-transparent",
+          "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+          "group-data-[collapsible=offcanvas]:w-0",
+          "group-data-[side=right]:rotate-180",
+          variant === "floating" || variant === "inset"
+            ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
+            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
+        )}
+        data-slot="sidebar-gap"
+      />
+      <div
+        className={cn(
+          "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
+          isMobile && "flex",
+          "[[data-panel-animations=true]_&]:transition-[left,right,width,translate] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
+          side === "left"
+            ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:translate-x-(--sidebar-width)"
+            : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:-translate-x-(--sidebar-width)",
+          // Peeked: leave the gap collapsed (no reflow) and float the panel
+          // over the content, flush to the window edges, instead of pushing
+          // the content back to the panel's pinned position. Above the
+          // window chrome — the titlebar control clusters sit at `z-50` and
+          // would otherwise paint over a panel that is on top of everything
+          // else — but below menus and popovers at `z-[130]`, so the
+          // sidebar's own snooze and context menus still open over it.
+          "group-data-[peek=true]:z-[60]",
+          // Adjust the padding for floating and inset variants.
+          variant === "floating" || variant === "inset"
+            ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
+            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
+          className,
+        )}
+        data-slot="sidebar-container"
+        onPointerEnter={(event) => {
+          onPointerEnter?.(event);
+          peekPanelHandlers.onPointerEnter(event);
+        }}
+        onPointerLeave={(event) => {
+          onPointerLeave?.(event);
+          peekPanelHandlers.onPointerLeave(event);
+        }}
+        ref={containerRef}
+        {...props}
+      >
+        <div
+          className={cn(
+            "flex h-full w-full flex-col bg-sidebar surface-grain",
+            "group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5",
+            // A peeked panel is flush to the window edges, so it takes the
+            // pinned panel's square corners and its side border; only the
+            // drop shadow marks it as floating over the content.
+            "group-data-[peek=true]:shadow-lg",
+          )}
+          data-sidebar="sidebar"
+          data-slot="sidebar-inner"
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
 
   if (isMobile) {
     return (
@@ -353,84 +438,16 @@ function Sidebar({
             </div>
           </SheetPopup>
         </Sheet>
+        {/* Auto-hide peeks with the floating panel. It stays mounted off-canvas
+            (inert) so a peek slides in and out like on a wide window; the open
+            drawer replaces it so the children are never mounted twice. */}
+        {autoHide && !openMobile ? desktopPanel : null}
       </SidebarInstanceContext>
     );
   }
 
   return (
-    <SidebarInstanceContext value={instanceContextValue}>
-      <div
-        ref={desktopSidebarRef}
-        className="group peer hidden text-sidebar-foreground md:block"
-        data-collapsible={state === "collapsed" ? collapsible : ""}
-        data-peek={peeked ? "true" : undefined}
-        data-side={side}
-        data-slot="sidebar"
-        data-state={state}
-        data-variant={variant}
-      >
-        <div
-          className={cn(
-            "relative w-(--sidebar-width) bg-transparent",
-            "[[data-panel-animations=true]_&]:transition-[width] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
-            "group-data-[collapsible=offcanvas]:w-0",
-            "group-data-[side=right]:rotate-180",
-            variant === "floating" || variant === "inset"
-              ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-              : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
-          )}
-          data-slot="sidebar-gap"
-        />
-        <div
-          className={cn(
-            "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) md:flex",
-            "[[data-panel-animations=true]_&]:transition-[left,right,width,translate] [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
-            side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:translate-x-(--sidebar-width)"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:-translate-x-(--sidebar-width)",
-            // Peeked: leave the gap collapsed (no reflow) and float the panel
-            // over the content, flush to the window edges, instead of pushing
-            // the content back to the panel's pinned position. Above the
-            // window chrome — the titlebar control clusters sit at `z-50` and
-            // would otherwise paint over a panel that is on top of everything
-            // else — but below menus and popovers at `z-[130]`, so the
-            // sidebar's own snooze and context menus still open over it.
-            "group-data-[peek=true]:z-[60]",
-            // Adjust the padding for floating and inset variants.
-            variant === "floating" || variant === "inset"
-              ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
-              : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
-            className,
-          )}
-          data-slot="sidebar-container"
-          onPointerEnter={(event) => {
-            onPointerEnter?.(event);
-            peekPanelHandlers.onPointerEnter(event);
-          }}
-          onPointerLeave={(event) => {
-            onPointerLeave?.(event);
-            peekPanelHandlers.onPointerLeave(event);
-          }}
-          ref={containerRef}
-          {...props}
-        >
-          <div
-            className={cn(
-              "flex h-full w-full flex-col bg-sidebar surface-grain",
-              "group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm/5",
-              // A peeked panel is flush to the window edges, so it takes the
-              // pinned panel's square corners and its side border; only the
-              // drop shadow marks it as floating over the content.
-              "group-data-[peek=true]:shadow-lg",
-            )}
-            data-sidebar="sidebar"
-            data-slot="sidebar-inner"
-          >
-            {children}
-          </div>
-        </div>
-      </div>
-    </SidebarInstanceContext>
+    <SidebarInstanceContext value={instanceContextValue}>{desktopPanel}</SidebarInstanceContext>
   );
 }
 
