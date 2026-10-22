@@ -1,4 +1,5 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
+import { observeResize } from "~/lib/observeResize";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon } from "lucide-react";
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
@@ -52,9 +53,7 @@ function OverflowTooltipText(props: {
     if (!element || !props.tooltip) return;
     const update = () => setIsOverflowing(isCommandPaletteTextOverflowing(element));
     update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
+    return observeResize(element, update);
   }, [props.tooltip]);
 
   const overflowTooltip = commandPaletteOverflowTooltip(props.tooltip, isOverflowing);
