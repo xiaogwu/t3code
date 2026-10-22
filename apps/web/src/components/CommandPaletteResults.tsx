@@ -3,6 +3,7 @@ import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon } from "lucide-react";
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
+import { textDirection } from "~/textDirection";
 import { shortcutLabelForCommand } from "../keybindings";
 import {
   type CommandPaletteActionItem,
@@ -41,6 +42,7 @@ function OverflowTooltipText(props: {
   children: ReactNode;
   className: string;
   tooltip?: string | undefined;
+  dir?: "ltr" | "rtl" | "auto" | undefined;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -59,7 +61,7 @@ function OverflowTooltipText(props: {
   // No native title attribute: the styled Tooltip below is the only tooltip
   // (lint rule t3code/no-native-title-tooltip).
   const content = (
-    <span ref={ref} className={props.className}>
+    <span ref={ref} className={props.className} dir={props.dir}>
       {props.children}
     </span>
   );
@@ -220,6 +222,26 @@ export function CommandPaletteTitleIcon(props: { children: ReactNode }) {
   return <span className="flex h-5 shrink-0 items-center self-start pt-0.5">{props.children}</span>;
 }
 
+function CommandPaletteTitle({
+  title,
+  tooltip,
+}: {
+  title: ReactNode;
+  tooltip?: string | undefined;
+}) {
+  // Fork: keep the overflow tooltip on truncated titles; upstream sets the
+  // title's text direction.
+  return (
+    <OverflowTooltipText
+      className="truncate"
+      tooltip={tooltip}
+      dir={typeof title === "string" ? textDirection(title) : undefined}
+    >
+      {title}
+    </OverflowTooltipText>
+  );
+}
+
 function DisabledCommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
 }) {
@@ -230,9 +252,7 @@ function DisabledCommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
-              {props.item.title}
-            </OverflowTooltipText>
+            <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
           </span>
           {props.item.threadContentMatch ? (
             <ThreadContentMatch
@@ -252,9 +272,7 @@ function DisabledCommandPaletteResultRow(props: {
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
-            {props.item.title}
-          </OverflowTooltipText>
+          <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
         </span>
       )}
       {props.item.titleTrailingContent}
@@ -290,9 +308,7 @@ function CommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
-              {props.item.title}
-            </OverflowTooltipText>
+            <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
           </span>
           {props.item.threadContentMatch ? (
             <ThreadContentMatch
@@ -312,9 +328,7 @@ function CommandPaletteResultRow(props: {
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <OverflowTooltipText className="truncate" tooltip={props.item.titleTooltip}>
-            {props.item.title}
-          </OverflowTooltipText>
+          <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
         </span>
       )}
       {props.item.titleTrailingContent}
