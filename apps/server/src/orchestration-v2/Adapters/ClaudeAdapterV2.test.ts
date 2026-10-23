@@ -1845,7 +1845,31 @@ describe("ClaudeAdapterV2 MCP credential channel", () => {
 });
 
 describe("ClaudeAdapterV2 native session identity", () => {
-  const openTurnWithOrdinal = (providerTurnOrdinal: number, nativeThreadHasTurns?: boolean) =>
+  // Holds the transcripts the adapter looks for before deciding to resume.
+  const makeConfigDir = (transcript?: string) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const configDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-v2-config-",
+      });
+      const projectDir = path.join(configDir, "projects", "-workspace");
+      yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+      if (transcript !== undefined) {
+        yield* fileSystem.writeFileString(
+          path.join(projectDir, "native-session-identity.jsonl"),
+          transcript,
+        );
+      }
+      return configDir;
+    });
+  const SAVED_TRANSCRIPT = `{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"native-session-identity"}\n`;
+
+  const openTurnWithOrdinal = (
+    providerTurnOrdinal: number,
+    nativeThreadHasTurns?: boolean,
+    configDir?: string,
+  ) =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -1857,7 +1881,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
         const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
           instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
           settings: DEFAULT_CLAUDE_SETTINGS,
-          environment: {},
+          environment: configDir === undefined ? {} : { CLAUDE_CONFIG_DIR: configDir },
           attachmentsDir,
           fileSystem,
           path: yield* Path.Path,
@@ -1923,11 +1947,70 @@ describe("ClaudeAdapterV2 native session identity", () => {
     "resumes the native session on a fresh session instance when prior provider turns exist",
     () =>
       Effect.gen(function* () {
-        const openedQueries = yield* openTurnWithOrdinal(2);
+        const openedQueries = yield* openTurnWithOrdinal(
+          2,
+          undefined,
+          yield* makeConfigDir(SAVED_TRANSCRIPT),
+        );
         assert.equal(openedQueries.length, 1);
         assert.equal(openedQueries[0]?.options.resume, "native-session-identity");
         assert.equal(openedQueries[0]?.options.sessionId, undefined);
-      }),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+  );
+
+  it.effect.each([
+    { kind: "providerTurnOrdinal", ordinal: 2, hasTurns: undefined },
+    { kind: "nativeThreadHasTurns", ordinal: 1, hasTurns: true },
+  ])(
+    "creates the native session when its earlier turn never left a transcript ($kind)",
+    ({ ordinal, hasTurns }) =>
+      Effect.gen(function* () {
+        const openedQueries = yield* openTurnWithOrdinal(ordinal, hasTurns, yield* makeConfigDir());
+        assert.equal(openedQueries.length, 1);
+        assert.equal(openedQueries[0]?.options.sessionId, "native-session-identity");
+        assert.equal(openedQueries[0]?.options.resume, undefined);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+  );
+
+  it.effect("resumes a transcript that has conversation lines", () =>
+    Effect.gen(function* () {
+      const openedQueries = yield* openTurnWithOrdinal(
+        2,
+        undefined,
+        yield* makeConfigDir(SAVED_TRANSCRIPT),
+      );
+      assert.equal(openedQueries[0]?.options.resume, "native-session-identity");
+      assert.equal(openedQueries[0]?.options.sessionId, undefined);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("resumes when the projects directory cannot be read", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const configDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-v2-config-no-projects-",
+      });
+      const openedQueries = yield* openTurnWithOrdinal(2, undefined, path.join(configDir, "gone"));
+      assert.equal(openedQueries[0]?.options.resume, "native-session-identity");
+      assert.equal(openedQueries[0]?.options.sessionId, undefined);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   it.effect("creates a fresh native session despite earlier provider-thread turns", () =>
@@ -4045,6 +4128,49 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  it.effect("creates the native session again when its first turn ended before the CLI ran", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const configDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-v2-config-",
+      });
+      yield* fileSystem.makeDirectory(NodePath.join(configDir, "projects", "-workspace"), {
+        recursive: true,
+      });
+      const harness = yield* makeWakeHarnessWithOptions({
+        environment: { CLAUDE_CONFIG_DIR: configDir },
+        freshQueueOnReopen: true,
+      });
+      const start = (attempt: string) =>
+        harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: DateTime.makeUnsafe(0),
+            attemptId: RunAttemptId.make(attempt),
+            text: "Hello.",
+            attachments: [],
+            nativeThreadHasTurns: false,
+          }),
+        );
+      yield* start("first-attempt");
+      assert.equal(harness.getOpenedOptions()?.sessionId, WAKE_NATIVE_SESSION);
+      // A claude binary that cannot spawn ends the stream with no frames and
+      // writes no transcript.
+      yield* Queue.shutdown(harness.sdkMessages);
+      assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "failed");
+
+      yield* start("second-attempt");
+      assert.equal(harness.processQueues.length, 2);
+      assert.equal(harness.getOpenedOptions()?.sessionId, WAKE_NATIVE_SESSION);
+      assert.isUndefined(harness.getOpenedOptions()?.resume);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect(
     "rolls back to the main-thread assistant message when a subagent frame comes last",
     () =>
@@ -5225,7 +5351,21 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     "renegotiates auto only when switching API models after fallback to default: %s",
     (nextModel) =>
       Effect.gen(function* () {
-        const harness = yield* makeWakeHarnessWithOptions({ freshQueueOnReopen: true });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const configDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-v2-config-",
+        });
+        const projectDir = NodePath.join(configDir, "projects", "-workspace");
+        yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+        // The reopen resumes only a native session that left a transcript.
+        yield* fileSystem.writeFileString(
+          NodePath.join(projectDir, `${WAKE_NATIVE_SESSION}.jsonl`),
+          `{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"${WAKE_NATIVE_SESSION}"}\n`,
+        );
+        const harness = yield* makeWakeHarnessWithOptions({
+          freshQueueOnReopen: true,
+          environment: { CLAUDE_CONFIG_DIR: configDir },
+        });
         const modelSelection = {
           instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
           model: "claude-haiku-4-5-20251001",
