@@ -24,6 +24,7 @@ import {
   npmShimExecutable,
   preferGitForWindowsBinary,
   readEnvironmentFromLoginShell,
+  readEnvironmentFromLoginShellAsync,
   readEnvironmentFromWindowsShell,
   resolveCommandPath,
   resolveSpawnCommand,
@@ -131,6 +132,90 @@ describe("readEnvironmentFromLoginShell", () => {
     });
     expect(execFile).toHaveBeenCalledTimes(1);
   });
+
+  const fakeProbe = (result: { stdout: string; code: number | null }) => {
+    const calls: Array<{ file: string; args: ReadonlyArray<string>; options: unknown }> = [];
+    const spawn: Parameters<typeof readEnvironmentFromLoginShellAsync>[2] = (
+      file,
+      args,
+      options,
+    ) => {
+      calls.push({ file, args, options });
+      const listeners: Record<string, (...values: never[]) => void> = {};
+      const stdout = {
+        setEncoding: () => undefined,
+        on: (_event: "data", listener: (chunk: string) => void) => {
+          listeners.data = listener as never;
+        },
+      };
+      queueMicrotask(() => {
+        (listeners.data as unknown as (chunk: string) => void)(result.stdout);
+        (listeners.close as unknown as (code: number | null) => void)(result.code);
+      });
+      return {
+        pid: undefined,
+        stdout,
+        on: ((event: string, listener: (...values: never[]) => void) => {
+          listeners[event] = listener;
+        }) as never,
+        kill: () => undefined,
+      };
+    };
+    return { spawn, calls };
+  };
+
+  effectIt.effect("the non-blocking reader parses output like the blocking one", () =>
+    Effect.gen(function* () {
+      const output = [
+        "startup noise",
+        "__T3CODE_ENV_PATH_START__",
+        "/a:/b",
+        "__T3CODE_ENV_PATH_END__",
+        "__T3CODE_ENV_CUSTOM_START__",
+        "  first\nsecond  ",
+        "__T3CODE_ENV_CUSTOM_END__",
+        "__T3CODE_ENV_EMPTY_START__",
+        "__T3CODE_ENV_EMPTY_END__",
+      ].join("\n");
+      const names = ["PATH", "CUSTOM", "EMPTY", "MISSING"];
+      const blocking = readEnvironmentFromLoginShell("/bin/zsh", names, () => output);
+      const probe = fakeProbe({ stdout: output, code: 0 });
+      const nonBlocking = yield* readEnvironmentFromLoginShellAsync("/bin/zsh", names, probe.spawn);
+
+      expect(nonBlocking).toEqual(blocking);
+      expect(probe.calls).toHaveLength(1);
+      expect(probe.calls[0]?.args[0]).toBe("-ilc");
+      expect(probe.calls[0]?.options).toEqual({
+        detached: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    }),
+  );
+
+  effectIt.effect("the non-blocking reader fails on a non-zero exit", () =>
+    Effect.gen(function* () {
+      const probe = fakeProbe({ stdout: "", code: 1 });
+      const exit = yield* Effect.exit(
+        readEnvironmentFromLoginShellAsync("/bin/zsh", ["PATH"], probe.spawn),
+      );
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
+
+  effectIt.effect("the non-blocking reader gives the shell no stdin to wait on", () =>
+    Effect.gen(function* () {
+      if ((yield* HostProcess.Platform) === "win32") return;
+      // `read` fails at once only if stdin is /dev/null; an open pipe would hang it.
+      const script =
+        'read x < /dev/stdin; [ $? -ne 0 ] && printf "__T3CODE_ENV_PATH_START__\\n/eof/bin\\n__T3CODE_ENV_PATH_END__\\n"';
+      const environment = yield* readEnvironmentFromLoginShellAsync(
+        "/bin/sh",
+        ["PATH"],
+        (file, _args, options) => NodeChildProcess.spawn(file, ["-c", script], options),
+      );
+      expect(environment).toEqual({ PATH: "/eof/bin" });
+    }),
+  );
 
   it("omits environment variables that are missing or empty", () => {
     const execFile = vi.fn<

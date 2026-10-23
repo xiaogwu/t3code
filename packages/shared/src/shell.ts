@@ -5,6 +5,9 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as Cache from "effect/Cache";
 import * as Clock from "effect/Clock";
+import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -291,6 +294,22 @@ export type ShellEnvironmentReader = (
   execFile?: ExecFileSyncLike,
 ) => Partial<Record<string, string>>;
 
+const LOGIN_SHELL_TIMEOUT_MS = 5000;
+
+function parseCapturedEnvironment(
+  output: string,
+  names: ReadonlyArray<string>,
+): Partial<Record<string, string>> {
+  const environment: Partial<Record<string, string>> = {};
+  for (const name of names) {
+    const value = extractEnvironmentValue(output, name);
+    if (value !== undefined) {
+      environment[name] = value;
+    }
+  }
+  return environment;
+}
+
 export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
   shell,
   names,
@@ -304,21 +323,123 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
   // inherited controlling TTY from stopping the probe while the parent waits.
   const output = execFile(shell, ["-ilc", buildEnvironmentCaptureCommand(shell, names)], {
     encoding: "utf8",
-    timeout: 5000,
+    timeout: LOGIN_SHELL_TIMEOUT_MS,
     detached: true,
     stdio: ["ignore", "pipe", "ignore"],
   });
 
-  const environment: Partial<Record<string, string>> = {};
-  for (const name of names) {
-    const value = extractEnvironmentValue(output, name);
-    if (value !== undefined) {
-      environment[name] = value;
-    }
-  }
-
-  return environment;
+  return parseCapturedEnvironment(output, names);
 };
+
+type SpawnedShellProbe = {
+  readonly pid?: number | undefined;
+  readonly stdout: {
+    setEncoding: (encoding: "utf8") => unknown;
+    on: (event: "data", listener: (chunk: string) => void) => unknown;
+  } | null;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "close", listener: (code: number | null, signal: string | null) => void): unknown;
+  kill: (signal?: NodeJS.Signals) => unknown;
+};
+
+type SpawnShellProbe = (
+  file: string,
+  args: ReadonlyArray<string>,
+  options: { detached: true; stdio: ["ignore", "pipe", "ignore"] },
+) => SpawnedShellProbe;
+
+const LOGIN_SHELL_KILL_GRACE = Duration.seconds(1);
+const LOGIN_SHELL_TIMEOUT = Duration.millis(LOGIN_SHELL_TIMEOUT_MS);
+
+export class LoginShellProbeError extends Data.TaggedError("LoginShellProbeError")<{
+  readonly cause: unknown;
+}> {}
+
+export type ShellEnvironmentAsyncReader = (
+  shell: string,
+  names: ReadonlyArray<string>,
+) => Effect.Effect<Partial<Record<string, string>>, LoginShellProbeError>;
+
+/**
+ * Same probe as `readEnvironmentFromLoginShell`, without blocking the event loop.
+ * It uses `spawn` because `execFile` drops `stdio`, which would leave stdin an open
+ * pipe that a profile reading it blocks on.
+ */
+export const readEnvironmentFromLoginShellAsync = (
+  shell: string,
+  names: ReadonlyArray<string>,
+  spawn: SpawnShellProbe = NodeChildProcess.spawn as unknown as SpawnShellProbe,
+): Effect.Effect<Partial<Record<string, string>>, LoginShellProbeError> =>
+  names.length === 0
+    ? Effect.succeed({})
+    : Effect.suspend(() => {
+        const exited = Deferred.makeUnsafe<void>();
+        return Effect.callback<Partial<Record<string, string>>, LoginShellProbeError>((resume) => {
+          let child: SpawnedShellProbe;
+          try {
+            child = spawn(shell, ["-ilc", buildEnvironmentCaptureCommand(shell, names)], {
+              detached: true,
+              stdio: ["ignore", "pipe", "ignore"],
+            });
+          } catch (cause) {
+            resume(Effect.fail(new LoginShellProbeError({ cause })));
+            return;
+          }
+
+          // Detached, so the shell leads its own process group; signalling the group
+          // also takes down whatever the profile started.
+          const signalGroup = (signal: NodeJS.Signals) => {
+            try {
+              if (child.pid !== undefined) {
+                process.kill(-child.pid, signal);
+                return;
+              }
+            } catch {
+              // Group already gone or not signalable; fall back to the child itself.
+            }
+            try {
+              child.kill(signal);
+            } catch {
+              // Already exited.
+            }
+          };
+
+          let stdout = "";
+          child.stdout?.setEncoding("utf8");
+          child.stdout?.on("data", (chunk) => {
+            stdout += chunk;
+          });
+          child.on("error", (cause) => {
+            Deferred.doneUnsafe(exited, Effect.void);
+            resume(Effect.fail(new LoginShellProbeError({ cause })));
+          });
+          child.on("close", (code, signal) => {
+            Deferred.doneUnsafe(exited, Effect.void);
+            resume(
+              code === 0
+                ? Effect.succeed(parseCapturedEnvironment(stdout, names))
+                : Effect.fail(
+                    new LoginShellProbeError({ cause: `login shell exited ${code ?? signal}` }),
+                  ),
+            );
+          });
+
+          // Timeout and interruption both land here: SIGTERM, then SIGKILL if the
+          // shell has not exited within the grace period.
+          return Effect.gen(function* () {
+            if (Deferred.isDoneUnsafe(exited)) return;
+            signalGroup("SIGTERM");
+            yield* Deferred.await(exited).pipe(Effect.timeoutOption(LOGIN_SHELL_KILL_GRACE));
+            if (!Deferred.isDoneUnsafe(exited)) signalGroup("SIGKILL");
+          });
+        });
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: LOGIN_SHELL_TIMEOUT,
+          orElse: () =>
+            Effect.fail(new LoginShellProbeError({ cause: "login shell probe timed out" })),
+        }),
+      );
 
 export type WindowsShellEnvironmentReader = (
   names: ReadonlyArray<string>,

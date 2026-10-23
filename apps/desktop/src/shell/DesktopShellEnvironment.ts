@@ -396,7 +396,7 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
   function* (
     config: ShellEnvironmentConfig,
   ): Effect.fn.Return<
-    void,
+    boolean,
     never,
     ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
   > {
@@ -503,6 +503,10 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
         }
       }
     }
+
+    // False tells the server the login shell never answered (a slow ~/.zshrc
+    // timing out), so it recovers PATH itself instead of trusting launchd's.
+    return Boolean(trimNonEmpty(shellEnvironment.PATH).pipe(Option.getOrUndefined));
   },
 );
 
@@ -517,7 +521,7 @@ const installShellEnvironment = (
     return installWindowsEnvironment(config);
   }
   if (config.platform === "darwin" || config.platform === "linux") {
-    return installPosixEnvironment(config).pipe(Effect.as(true));
+    return installPosixEnvironment(config);
   }
   return Effect.succeed(false);
 };
