@@ -4109,6 +4109,49 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           );
         });
         const openedNativeThreads = yield* Ref.make(new Set<string>());
+        // Claude persists a session's transcript as <projects>/<project>/<id>.jsonl.
+        // "empty" is a transcript with only metadata lines, left by a CLI stopped
+        // before it saved the first prompt. Claude can neither resume nor create
+        // that id. "missing" is a session whose CLI never ran. Fails when the
+        // projects directory cannot be read.
+        const readClaudeTranscriptState = Effect.fn("ClaudeAdapterV2.readClaudeTranscriptState")(
+          function* (nativeThreadId: string) {
+            const configuredDir = adapterOptions.environment.CLAUDE_CONFIG_DIR?.trim() ?? "";
+            const projectsDir = path.join(
+              configuredDir.length > 0
+                ? path.resolve(session.cwd, configuredDir)
+                : path.join(yield* HostProcess.HomeDirectory, ".claude"),
+              "projects",
+            );
+            // Empty only when every copy of the id is empty; any message means
+            // the CLI may still resume it.
+            let found = false;
+            for (const project of yield* fileSystem.readDirectory(projectsDir)) {
+              const transcriptPath = path.join(projectsDir, project, `${nativeThreadId}.jsonl`);
+              // Stray files beside the project dirs fail with ENOTDIR.
+              if (
+                !(yield* fileSystem.exists(transcriptPath).pipe(Effect.orElseSucceed(() => false)))
+              ) {
+                continue;
+              }
+              const conversationLine = yield* fileSystem
+                .stream(transcriptPath)
+                .pipe(
+                  Stream.decodeText,
+                  Stream.splitLines,
+                  Stream.filter(isClaudeConversationLine),
+                  Stream.runHead,
+                );
+              if (Option.isSome(conversationLine)) {
+                return "has-conversation" as const;
+              }
+              found = true;
+            }
+            return found ? ("empty" as const) : ("missing" as const);
+          },
+        );
+        const hasEmptyClaudeTranscript = (nativeThreadId: string) =>
+          readClaudeTranscriptState(nativeThreadId).pipe(Effect.map((state) => state === "empty"));
         const latestPlanByKind = yield* Ref.make(new Map<string, OrchestrationV2PlanArtifact>());
         // Claude 5 task tools edit one list per native session, across turns.
         const taskListsByNativeThread = yield* Ref.make(
@@ -9295,8 +9338,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           // requires resume; sessionId would fail with "already in use".
           const hasPersistedProviderTurn =
             turnInput.nativeThreadHasTurns ?? turnInput.providerTurnOrdinal > 1;
+          // A first turn that failed before the CLI ran leaves no transcript, and
+          // resuming it fails every later turn. An unreadable projects directory
+          // leaves the resume to the CLI. resumeSessionAt cannot combine with create.
           const shouldResume =
-            resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
+            resumeSessionAt !== undefined ||
+            ((openedWithResume || hasPersistedProviderTurn) &&
+              (yield* readClaudeTranscriptState(nativeThreadId).pipe(
+                Effect.orElseSucceed(() => "unreadable" as const),
+              )) !== "missing");
           const queryOptions = makeClaudeQueryOptions({
             modelSelection: turnInput.modelSelection,
             nativeThreadId,
@@ -10016,47 +10066,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           yield* Deferred.succeed(existing.closed, undefined);
         });
         yield* Effect.addFinalizer(() => closeSession());
-
-        // A CLI stopped before it saved the first prompt can leave a transcript
-        // with only metadata lines. Claude can neither resume that id nor
-        // create it again, so resumeThread fails and the caller binds a fresh
-        // native session with a context handoff.
-        const hasEmptyClaudeTranscript = Effect.fn("ClaudeAdapterV2.hasEmptyClaudeTranscript")(
-          function* (nativeThreadId: string) {
-            const configuredDir = adapterOptions.environment.CLAUDE_CONFIG_DIR?.trim() ?? "";
-            const projectsDir = path.join(
-              configuredDir.length > 0
-                ? path.resolve(session.cwd, configuredDir)
-                : path.join(yield* HostProcess.HomeDirectory, ".claude"),
-              "projects",
-            );
-            // Empty only when every copy of the id is empty; any message means
-            // the CLI may still resume it.
-            let found = false;
-            for (const project of yield* fileSystem.readDirectory(projectsDir)) {
-              const transcriptPath = path.join(projectsDir, project, `${nativeThreadId}.jsonl`);
-              // Stray files beside the project dirs fail with ENOTDIR.
-              if (
-                !(yield* fileSystem.exists(transcriptPath).pipe(Effect.orElseSucceed(() => false)))
-              ) {
-                continue;
-              }
-              const conversationLine = yield* fileSystem
-                .stream(transcriptPath)
-                .pipe(
-                  Stream.decodeText,
-                  Stream.splitLines,
-                  Stream.filter(isClaudeConversationLine),
-                  Stream.runHead,
-                );
-              if (Option.isSome(conversationLine)) {
-                return false;
-              }
-              found = true;
-            }
-            return found;
-          },
-        );
 
         const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
           instanceId: adapterOptions.instanceId,
