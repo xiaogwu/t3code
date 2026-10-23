@@ -6,7 +6,6 @@
  * @module textGeneration/TitlePolicy
  */
 import type { TitlePolicy, TitlePolicyRule } from "@t3tools/contracts";
-import type { TextGenerationPolicy } from "@t3tools/provider-core/server/textGenerationPolicy";
 
 // Bounded, linear patterns only: no nested quantifiers over the same class,
 // so untrusted policy text (urlMatches) can't trigger backtracking blowup.
@@ -120,7 +119,7 @@ export type TitlePlan =
   | {
       readonly type: "generate";
       readonly prefix: string | null;
-      readonly instructions: TextGenerationPolicy | undefined;
+      readonly instructions: string | undefined;
       readonly maxCharacters: number | null;
     };
 
@@ -151,16 +150,23 @@ export function planTitle(policy: TitlePolicy, context: string, createdAt: numbe
   return {
     type: "generate",
     prefix,
-    instructions:
-      lines.length === 0
-        ? undefined
-        : {
-            kind: "custom",
-            threadTitleInstructions: lines.map((line) => `- ${line}`).join("\n"),
-            inferRepositoryConventions: false,
-          },
+    instructions: lines.length === 0 ? undefined : lines.map((line) => `- ${line}`).join("\n"),
     maxCharacters: policy.defaults.maxCharacters,
   };
+}
+
+/**
+ * The instructions a generated title is asked to follow: the user's own title
+ * instructions setting, then the plan's rule guidance. `undefined` when neither has any.
+ */
+export function titleInstructions(
+  userInstructions: string | undefined,
+  planInstructions: string | undefined,
+): string | undefined {
+  const parts = [userInstructions?.trim(), planInstructions?.trim()].filter(
+    (part): part is string => part !== undefined && part.length > 0,
+  );
+  return parts.length === 0 ? undefined : parts.join("\n\n");
 }
 
 /** The model's title behind the plan's prefix. A model that repeated the prefix anyway loses it. */

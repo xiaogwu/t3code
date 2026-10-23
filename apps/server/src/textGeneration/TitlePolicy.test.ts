@@ -103,8 +103,8 @@ describe("composing titles", () => {
   it("passes rule guidance and suggestions to the model and strips a repeated prefix", () => {
     const plan = planTitle(defaultTitlePolicy, "USER:\nhttps://github.com/a/b/pull/7", 0);
     if (plan.type !== "generate") throw new Error("expected a generated title");
-    expect(plan.instructions?.threadTitleInstructions).toContain("Avoid completion claims.");
-    expect(plan.instructions?.threadTitleInstructions).toContain("Use PR metadata");
+    expect(plan.instructions).toContain("Avoid completion claims.");
+    expect(plan.instructions).toContain("Use PR metadata");
     expect(finishTitle(plan, "PR#7: Fix login")).toBe("PR#7: Fix login");
     expect(finishTitle(plan, "Fix login")).toBe("PR#7: Fix login");
   });

@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "./TextGeneration.ts";
-import { finishTitle, planTitle } from "./TitlePolicy.ts";
+import { finishTitle, planTitle, titleInstructions } from "./TitlePolicy.ts";
 
 export const previewTitlePolicy = Effect.fn("previewTitlePolicy")(function* (policy: TitlePolicy) {
   const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings;
@@ -37,7 +37,10 @@ export const previewTitlePolicy = Effect.fn("previewTitlePolicy")(function* (pol
                   ...(example.previousTitle === undefined
                     ? {}
                     : { previousTitle: example.previousTitle }),
-                  ...(plan.instructions === undefined ? {} : { policy: plan.instructions }),
+                  instructions: titleInstructions(
+                    settings.threadTitleInstructions,
+                    plan.instructions,
+                  ),
                   modelSelection: settings.textGenerationModelSelection,
                   fallbackModelSelections: settings.textGenerationFallbackModelSelections,
                 })).title.trim(),

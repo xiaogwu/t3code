@@ -67,8 +67,8 @@ export interface ThreadTitleGenerationInput {
   message: string;
   previousTitle?: string | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
-  /** `threadTitleInstructions` are appended to the prompt; the title policy's rule guidance. */
-  policy?: TextGenerationPolicy | undefined;
+  /** Appended to the prompt: the user's title instructions and the title policy's rule guidance. */
+  instructions?: string | undefined;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
   /** Additional models to try, in order, if the primary selection fails. */

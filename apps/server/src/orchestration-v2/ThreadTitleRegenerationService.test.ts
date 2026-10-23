@@ -344,8 +344,8 @@ describe("title policy", () => {
           kind: { type: "initial", messageId: MessageId.make("pr:message:message") },
         });
 
-        const instructions = harness.generateThreadTitle.mock.calls[0]?.[0]?.policy;
-        assert.include(instructions?.threadTitleInstructions, '"PR#4821:"');
+        const instructions = harness.generateThreadTitle.mock.calls[0]?.[0]?.instructions;
+        assert.include(instructions, '"PR#4821:"');
         assert.deepEqual(yield* titleState(threadId), {
           title: "PR#4821: Prevent sidebar scroll resets",
           provenance: "automatic",

@@ -16,7 +16,7 @@ import * as Schedule from "effect/Schedule";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import { finishTitle, planTitle } from "../textGeneration/TitlePolicy.ts";
+import { finishTitle, planTitle, titleInstructions } from "../textGeneration/TitlePolicy.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -153,7 +153,7 @@ const make = Effect.gen(function* () {
           message: context.message,
           attachments: context.attachments,
           ...(kind.type === "initial" ? {} : { previousTitle: thread.title }),
-          ...(plan.instructions === undefined ? {} : { policy: plan.instructions }),
+          instructions: titleInstructions(settings.threadTitleInstructions, plan.instructions),
           modelSelection: settings.textGenerationModelSelection,
           fallbackModelSelections: settings.textGenerationFallbackModelSelections,
         });
