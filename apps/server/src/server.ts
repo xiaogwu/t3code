@@ -32,7 +32,7 @@ import {
   guardHttpResponseWriteErrors,
   rejectRequestsUntilServing,
 } from "./httpResponseErrorGuard.ts";
-import { fixPath } from "./os-jank.ts";
+import { fixPath, retryLoginShellPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -745,7 +745,21 @@ const layerMakeServer = Layer.unwrap(
     const routesReady = yield* Deferred.make<void>();
     const layerLauncher = ServiceLauncherClient.layer;
 
-    yield* fixPath({ shellEnvironmentPrepared: config.shellEnvironmentPrepared });
+    const loginShellPathPending = yield* fixPath({
+      shellEnvironmentPrepared: config.shellEnvironmentPrepared,
+      stateDir: config.stateDir,
+    });
+    const layerLoginShellPathRetry = loginShellPathPending
+      ? Layer.effectDiscard(
+          Effect.gen(function* () {
+            const providers = yield* ProviderRegistry.ProviderRegistry;
+            yield* retryLoginShellPath({
+              stateDir: config.stateDir,
+              refreshProviders: providers.refresh(),
+            }).pipe(Effect.forkScoped);
+          }),
+        )
+      : Layer.empty;
 
     const layerHttpListening = Layer.effectDiscard(
       Effect.gen(function* () {
@@ -1046,6 +1060,7 @@ const layerMakeServer = Layer.unwrap(
       layerRuntimeState.pipe(Layer.provide(layerLauncher)),
       layerTailscaleServe,
       layerCloudDesiredLinkReconcile,
+      layerLoginShellPathRetry,
       HeapSnapshot.layer,
     );
 

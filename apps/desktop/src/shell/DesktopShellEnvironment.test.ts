@@ -141,6 +141,30 @@ describe("DesktopShellEnvironment", () => {
     }),
   );
 
+  it.effect("reports a prepared environment only when the login shell returned a PATH", () =>
+    Effect.gen(function* () {
+      const answered = yield* runShellEnvironment({
+        env: { SHELL: "/bin/zsh", PATH: "/usr/bin" },
+        platform: "darwin",
+        handler: () => envOutput({ PATH: "/opt/homebrew/bin:/usr/bin" }),
+      });
+      assert.equal(answered, true);
+
+      // The probe's timeout takes the same path as any failed probe: no output.
+      const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+      const failed = yield* runShellEnvironment({
+        env,
+        platform: "darwin",
+        handler: (command) =>
+          command._tag === "StandardCommand" && command.command === "/bin/launchctl"
+            ? "/usr/local/bin:/usr/bin"
+            : { output: "", exitCode: 1 },
+      });
+      assert.equal(failed, false);
+      assert.equal(env.PATH, "/usr/local/bin:/usr/bin");
+    }),
+  );
+
   it.effect("hydrates PATH and missing SSH_AUTH_SOCK from the login shell on macOS", () =>
     Effect.gen(function* () {
       const env: NodeJS.ProcessEnv = {
