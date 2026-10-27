@@ -13,7 +13,10 @@ import {
   AutocompleteListHeading,
   AutocompleteListVirtualized,
 } from "~/components/ui/autocomplete";
-import { DIALOG_BACKDROP_CLASS, DIALOG_POPUP_CLASS } from "~/components/ui/dialog-styles";
+import {
+  DIALOG_SOLID_BACKDROP_CLASS,
+  DIALOG_SOLID_POPUP_CLASS,
+} from "~/components/ui/dialog-styles";
 import { Button } from "~/components/ui/button";
 
 const CommandDialog = CommandDialogPrimitive.Root;
@@ -27,7 +30,7 @@ function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
 function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.Backdrop.Props) {
   return (
     <CommandDialogPrimitive.Backdrop
-      className={cn(DIALOG_BACKDROP_CLASS, className)}
+      className={cn(DIALOG_SOLID_BACKDROP_CLASS, className)}
       data-slot="command-dialog-backdrop"
       {...props}
     />
@@ -61,7 +64,7 @@ function CommandDialogPopup({
       <CommandDialogViewport>
         <CommandDialogPrimitive.Popup
           className={cn(
-            DIALOG_POPUP_CLASS,
+            DIALOG_SOLID_POPUP_CLASS,
             "pointer-events-auto max-h-105 max-w-xl text-foreground",
             className,
           )}

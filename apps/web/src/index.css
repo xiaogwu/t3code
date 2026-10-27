@@ -425,6 +425,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Backdrop blur over a long scrolling list makes Chromium drop the overlay for a frame while scrolling. */
+@utility dialog-solid {
+  background: var(--popover);
+  border-color: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
+  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 65%);
+
+  @variant dark {
+    border-color: color-mix(in srgb, var(--color-white) 8%, transparent);
+    box-shadow:
+      inset 0 1px rgb(255 255 255 / 4%),
+      0 24px 72px -20px rgb(0 0 0 / 90%);
+  }
+}
+
+@utility dialog-backdrop-dim {
+  background: color-mix(in srgb, var(--background) 60%, transparent);
+
+  @variant dark {
+    background: color-mix(in srgb, var(--background) 64%, transparent);
+  }
+}
+
 @utility dropdown-glass {
   background: color-mix(
     in srgb,
