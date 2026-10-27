@@ -135,8 +135,7 @@ export class OpenCodeRuntimeError extends Data.TaggedError(OPENCODE_RUNTIME_ERRO
 
 export type OpenCodeStartupFailureReason = "databaseLocked";
 
-// OpenCode reports a held opencode.db lock on stderr. Classify it once where the
-// exit is captured so callers branch on the category, not on diagnostic text.
+// Classify stderr database locks at exit so callers need not parse diagnostics.
 function classifyStartupExit(stderr: string): OpenCodeStartupFailureReason | undefined {
   return /SQLITE_BUSY|database is locked/i.test(stderr) ? "databaseLocked" : undefined;
 }
@@ -151,8 +150,7 @@ function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
 
 export function openCodeRuntimeErrorDetail(cause: unknown): string {
   if (isOpenCodeRuntimeError(cause)) return cause.detail;
-  // Effect's TimeoutError can be constructed without a message, so `message`
-  // is not guaranteed to be a string on every Error that reaches here.
+  // Effect TimeoutError can have a non-string message.
   if (cause instanceof Error) {
     const message = cause.message;
     if (typeof message === "string") {
@@ -161,7 +159,7 @@ export function openCodeRuntimeErrorDetail(cause: unknown): string {
     }
   }
   if (cause && typeof cause === "object") {
-    // SDK v2 throws { response, request, error? } shapes — extract what's useful
+    // SDK v2 throws response/request/error envelopes.
     const anyCause = cause as Record<string, unknown>;
     const status = (anyCause.response as { status?: number } | undefined)?.status;
     const body = anyCause.error ?? anyCause.data ?? anyCause.body;
@@ -271,10 +269,7 @@ const decodeOpenCodeSkillsCliOutputExit = Schema.decodeUnknownExit(
 export class OpenCodeRuntime extends Context.Service<
   OpenCodeRuntime,
   {
-    /**
-     * Its lifetime is bound to the caller's `Scope.Scope` — the child is killed automatically
-     * when that scope closes.
-     */
+    /** Closing the caller's scope kills the child. */
     readonly startOpenCodeServerProcess: (input: {
       readonly binaryPath: string;
       readonly directory: string;
@@ -339,9 +334,7 @@ function parseServerUrlFromOutput(output: string): string | null {
 const SLUG_LINE_RE = /^(\S+\/\S+)\s*$/;
 const AGENT_HEADER_RE = /^(.+)\s+\((\S+)\)\s*$/;
 
-// Agents that are always hidden in OpenCode but the CLI "agent list" command
-// does not expose the hidden flag. Keep in sync with OpenCode agent
-// definitions (in the OpenCode repo: packages/opencode/src/agent/agent.ts).
+// agent list omits hidden flags; match packages/opencode/src/agent/agent.ts upstream.
 const KNOWN_HIDDEN_AGENTS = new Set(["compaction", "summary", "title"]);
 
 /** @internal */
@@ -385,12 +378,7 @@ export function parseModelsCliOutput(stdout: string): {
   };
 
   for (const line of lines) {
-    // A model's JSON body is a single `JSON.stringify` line starting with `{`,
-    // while a provider/model slug is a bare `provider/model` header. Only the
-    // latter can be a slug: without this guard a body line with no interior
-    // whitespace and a `/` in one of its values (e.g. an OpenRouter model whose
-    // `id` is `vendor/model`) matches SLUG_LINE_RE, so flushModel runs against
-    // an empty body and the model is silently dropped.
+    // Compact JSON can match the slug regex; misclassification silently drops its model.
     const slugMatch = line.trimStart().startsWith("{") ? null : SLUG_LINE_RE.exec(line);
     if (slugMatch) {
       flushModel();
@@ -481,10 +469,7 @@ export function openCodeQuestionId(
   return header.length > 0 ? `question-${index}-${header}` : `question-${index}`;
 }
 
-/**
- * Text is native only as text/plain, which OpenCode reads itself; other text types (HTML,
- * Markdown, CSV) reach the model API as raw file parts, which Anthropic and OpenAI reject.
- */
+// OpenCode inlines only text/plain; other text MIME parts reach APIs that reject them.
 const OPENCODE_NATIVE_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const OPENCODE_NATIVE_FILE_PART_MAX_BYTES = 20 * 1024 * 1024;
 
@@ -544,8 +529,7 @@ export function buildOpenCodePermissionRules(runtimeMode: RuntimeMode): Permissi
     ];
   }
 
-  // "auto" is left asking on purpose: the docs say providers without an AI
-  // reviewer, OpenCode among them, fall back to Supervised for that mode.
+  // OpenCode has no AI reviewer; Auto falls back to Supervised.
   const editAction = runtimeMode === "auto-accept-edits" ? "allow" : "ask";
 
   return [
@@ -620,107 +604,104 @@ function ensureRuntimeError(
 // handed over verbatim instead of being re-joined and re-quoted by Node. The
 // 1.x runtime runs it inside its server spawn; OpenCode2Server runs it per
 // borrow, since one 2.x server outlives many sessions and their models.
-export const runOpenCodePrelaunchCommand = (
+export const runOpenCodePrelaunchCommand = Effect.fn("runOpenCodePrelaunchCommand")(function* (
   prelaunch: OpenCodePrelaunch,
   environment?: NodeJS.ProcessEnv,
-) =>
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const hostPlatform = yield* HostProcess.Platform;
-    const command = prelaunch.command.trim();
-    if (command.length === 0) {
-      return;
-    }
-    const prelaunchScope = yield* Scope.Scope;
-    const timeoutMs = prelaunch.timeoutMs ?? DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS;
-    const [interpreter, interpreterArgs]: [string, ReadonlyArray<string>] =
-      hostPlatform === "win32"
-        ? ["cmd.exe", ["/d", "/s", "/c", command]]
-        : ["/bin/sh", ["-c", command]];
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const hostPlatform = yield* HostProcess.Platform;
+  const command = prelaunch.command.trim();
+  if (command.length === 0) {
+    return;
+  }
+  const prelaunchScope = yield* Scope.Scope;
+  const timeoutMs = prelaunch.timeoutMs ?? DEFAULT_OPENCODE_PRELAUNCH_TIMEOUT_MS;
+  const [interpreter, interpreterArgs]: [string, ReadonlyArray<string>] =
+    hostPlatform === "win32"
+      ? ["cmd.exe", ["/d", "/s", "/c", command]]
+      : ["/bin/sh", ["-c", command]];
 
-    // The command needs to know which model the session picked, so a setup that
-    // only some models need can skip the work. Left unset when the model is not
-    // known, which the command should read as "do the setup".
-    const prelaunchEnv = prelaunch.model ? { [PRELAUNCH_MODEL_ENV]: prelaunch.model } : undefined;
-    const spawnOptions = environment
-      ? { env: { ...environment, ...prelaunchEnv } }
-      : { ...(prelaunchEnv ? { env: prelaunchEnv } : {}), extendEnv: true };
+  // The command needs to know which model the session picked, so a setup that
+  // only some models need can skip the work. Left unset when the model is not
+  // known, which the command should read as "do the setup".
+  const prelaunchEnv = prelaunch.model ? { [PRELAUNCH_MODEL_ENV]: prelaunch.model } : undefined;
+  const spawnOptions = environment
+    ? { env: { ...environment, ...prelaunchEnv } }
+    : { ...(prelaunchEnv ? { env: prelaunchEnv } : {}), extendEnv: true };
 
-    const child = yield* spawner
-      .spawn(ChildProcess.make(interpreter, interpreterArgs, spawnOptions))
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new OpenCodeRuntimeError({
-              operation: "runOpenCodePrelaunchCommand",
-              detail: `Failed to spawn OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
-              cause,
-            }),
-        ),
-      );
-
-    const outputRef = yield* Ref.make("");
-    const drain = (stream: typeof child.stdout) =>
-      stream.pipe(
-        Stream.decodeText(),
-        Stream.runForEach((chunk) => Ref.update(outputRef, (output) => `${output}${chunk}`)),
-        Effect.ignore,
-        Effect.forkIn(prelaunchScope),
-      );
-    // Drain both pipes so a chatty command cannot deadlock on a full buffer.
-    const drainFibers = [yield* drain(child.stdout), yield* drain(child.stderr)];
-
-    const exit = yield* child.exitCode.pipe(
-      Effect.timeoutOption(timeoutMs),
+  const child = yield* spawner
+    .spawn(ChildProcess.make(interpreter, interpreterArgs, spawnOptions))
+    .pipe(
       Effect.mapError(
         (cause) =>
           new OpenCodeRuntimeError({
             operation: "runOpenCodePrelaunchCommand",
-            detail: `Failed while waiting for the OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+            detail: `Failed to spawn OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
             cause,
           }),
       ),
     );
 
-    // The drains are worth a brief wait — without it the diagnostics below are
-    // usually empty, since EOF lands after the exit code. But they cannot be
-    // waited on outright: a prelaunch that leaves a daemon running hands it
-    // these pipes, and they then stay open indefinitely.
-    yield* Effect.forEach(drainFibers, Fiber.await, { concurrency: "unbounded" }).pipe(
-      Effect.timeoutOption(PRELAUNCH_OUTPUT_DRAIN_GRACE_MS),
+  const outputRef = yield* Ref.make("");
+  const drain = (stream: typeof child.stdout) =>
+    stream.pipe(
+      Stream.decodeText(),
+      Stream.runForEach((chunk) => Ref.update(outputRef, (output) => `${output}${chunk}`)),
       Effect.ignore,
+      Effect.forkIn(prelaunchScope),
     );
-    yield* Effect.forEach(drainFibers, (fiber) => Fiber.interrupt(fiber).pipe(Effect.ignore), {
-      concurrency: "unbounded",
+  // Drain both pipes so a chatty command cannot deadlock on a full buffer.
+  const drainFibers = [yield* drain(child.stdout), yield* drain(child.stderr)];
+
+  const exit = yield* child.exitCode.pipe(
+    Effect.timeoutOption(timeoutMs),
+    Effect.mapError(
+      (cause) =>
+        new OpenCodeRuntimeError({
+          operation: "runOpenCodePrelaunchCommand",
+          detail: `Failed while waiting for the OpenCode prelaunch command: ${openCodeRuntimeErrorDetail(cause)}`,
+          cause,
+        }),
+    ),
+  );
+
+  // The drains are worth a brief wait — without it the diagnostics below are
+  // usually empty, since EOF lands after the exit code. But they cannot be
+  // waited on outright: a prelaunch that leaves a daemon running hands it
+  // these pipes, and they then stay open indefinitely.
+  yield* Effect.forEach(drainFibers, Fiber.await, { concurrency: "unbounded" }).pipe(
+    Effect.timeoutOption(PRELAUNCH_OUTPUT_DRAIN_GRACE_MS),
+    Effect.ignore,
+  );
+  yield* Effect.forEach(drainFibers, (fiber) => Fiber.interrupt(fiber).pipe(Effect.ignore), {
+    concurrency: "unbounded",
+  });
+
+  const output = (yield* Ref.get(outputRef)).trim();
+  const withOutput = (detail: string) => (output ? `${detail}\n\noutput:\n${output}` : detail);
+
+  if (Option.isNone(exit)) {
+    return yield* new OpenCodeRuntimeError({
+      operation: "runOpenCodePrelaunchCommand",
+      detail: withOutput(`OpenCode prelaunch command timed out after ${timeoutMs}ms: ${command}`),
     });
-
-    const output = (yield* Ref.get(outputRef)).trim();
-    const withOutput = (detail: string) => (output ? `${detail}\n\noutput:\n${output}` : detail);
-
-    if (Option.isNone(exit)) {
-      return yield* new OpenCodeRuntimeError({
-        operation: "runOpenCodePrelaunchCommand",
-        detail: withOutput(`OpenCode prelaunch command timed out after ${timeoutMs}ms: ${command}`),
-      });
-    }
-    const exitCode = Number(exit.value);
-    if (exitCode !== 0) {
-      return yield* new OpenCodeRuntimeError({
-        operation: "runOpenCodePrelaunchCommand",
-        detail: withOutput(`OpenCode prelaunch command exited with code ${exitCode}: ${command}`),
-        cause: { exitCode, output },
-      });
-    }
-  }).pipe(Effect.scoped);
+  }
+  const exitCode = Number(exit.value);
+  if (exitCode !== 0) {
+    return yield* new OpenCodeRuntimeError({
+      operation: "runOpenCodePrelaunchCommand",
+      detail: withOutput(`OpenCode prelaunch command exited with code ${exitCode}: ${command}`),
+      cause: { exitCode, output },
+    });
+  }
+}, Effect.scoped);
 const makeOpenCodeRuntime = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const netService = yield* NetService.NetService;
   const hostPlatform = yield* HostProcess.Platform;
   const serverLedger = yield* OpenCodeServerLedger.OpenCodeServerLedger;
   const agentScope = yield* AgentScope;
-  // npm installs OpenCode as `opencode.CMD`, which `cmd.exe` runs. The
-  // `opencode.exe` it starts escapes libuv's kill-on-close job and outlives a
-  // server that is killed, so the shim's executable runs directly instead.
+  // npm's Windows shim lets the child escape libuv kill-on-close; run its executable directly.
   const resolveCommand = (command: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
     resolveSpawnCommand(command, args, { ...(env ? { env } : {}), bypassNpmShim: true });
 
@@ -1034,8 +1015,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
           ),
         );
       });
-      // OpenCode instances share opencode.db. Migration/WAL locks are transient;
-      // configuration and executable errors are not helped by launching again.
+      // Shared opencode.db locks are transient; retry those, not configuration/executable errors.
       return yield* attempt.pipe(
         Effect.retry({
           times: 3,

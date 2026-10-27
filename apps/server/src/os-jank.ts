@@ -72,7 +72,7 @@ const loadSavedShellPath = Effect.fn("os-jank.loadSavedShellPath")(
     const { PATH } = yield* decodeSavedShellPath(raw);
     return PATH.length > 0 ? PATH : undefined;
   },
-  Effect.catchCause(() => Effect.succeed(undefined)),
+  Effect.catchCause(() => Effect.undefined),
 );
 
 // Only PATH is saved: __MISE_DIFF describes one shell session and is stale afterwards.
@@ -201,7 +201,7 @@ export const retryLoginShellPath = Effect.fn("os-jank.retryLoginShellPath")(func
   const probe = Effect.gen(function* () {
     for (const shell of listLoginShellCandidates(platform, env.SHELL)) {
       const shellEnvironment = yield* readShell(shell, ["PATH", "__MISE_DIFF"]).pipe(
-        Effect.catch(() => Effect.succeed({} as Partial<Record<string, string>>)),
+        Effect.orElseSucceed(() => ({}) as Partial<Record<string, string>>),
       );
       if (shellEnvironment.PATH) return shellEnvironment;
     }

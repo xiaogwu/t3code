@@ -23,7 +23,11 @@ import {
   CommandShortcut,
 } from "./ui/command";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
-import { THREAD_SEARCH_MATCH_EXCERPT_CLASS, ThreadSearchMatchContent } from "./ThreadSearchMatch";
+import {
+  SearchMatchHintLine,
+  THREAD_SEARCH_MATCH_EXCERPT_CLASS,
+  ThreadSearchMatchContent,
+} from "./ThreadSearchMatch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export function isCommandPaletteTextOverflowing(
@@ -155,11 +159,8 @@ interface CommandPaletteVirtualizedResultsProps extends Omit<CommandPaletteResul
   listRef: RefObject<LegendListRef | null>;
 }
 
-/**
- * The parent passes the flat item order to the Command root as `items` with
- * `virtualized`, scrolls keyboard highlights into view through `listRef`, and
- * runs Enter itself since the row may be unmounted.
- */
+/** Pass flat items with virtualized to Command, scroll highlights via listRef, and handle Enter for
+ * unmounted rows. */
 export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualizedResultsProps) {
   const { listRef } = props;
   const [scrollFade, setScrollFade] = useState({ top: false, bottom: false });
@@ -222,12 +223,11 @@ export function CommandPaletteTitleIcon(props: { children: ReactNode }) {
 }
 
 function CommandPaletteTitle({
-  title,
-  tooltip,
+  item,
 }: {
-  title: ReactNode;
-  tooltip?: string | undefined;
+  item: Pick<CommandPaletteActionItem | CommandPaletteSubmenuItem, "title" | "titleTooltip">;
 }) {
+  const { title, titleTooltip: tooltip } = item;
   // Fork: keep the overflow tooltip on truncated titles; upstream sets the
   // title's text direction.
   return (
@@ -241,6 +241,27 @@ function CommandPaletteTitle({
   );
 }
 
+/**
+ * Project and environment for a thread row whose second line shows a message
+ * snippet or match hint instead, so similar rows can still be told apart.
+ */
+function ThreadRowContext({
+  item,
+}: {
+  item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
+}) {
+  if (!item.threadSearch || !(item.threadContentMatch || item.matchHint)) return null;
+  // A "Project: …" hint already names the project.
+  const context = [item.threadSearch.projectTitle, item.threadSearch.environmentLabel]
+    .filter((part) => part && part !== item.matchHint?.text)
+    .join(" · ");
+  return context ? (
+    <span className="max-w-[45%] shrink-0 truncate text-muted-foreground/70 text-xs">
+      {context}
+    </span>
+  ) : null;
+}
+
 function DisabledCommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
 }) {
@@ -251,15 +272,17 @@ function DisabledCommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
+            <CommandPaletteTitle item={props.item} />
+            <ThreadRowContext item={props.item} />
           </span>
           {props.item.threadContentMatch ? (
             <ThreadContentMatch
               match={props.item.threadContentMatch}
               tooltip={props.item.contentTooltip}
             />
-          ) : null}
-          {props.item.description ? (
+          ) : props.item.matchHint ? (
+            <SearchMatchHintLine hint={props.item.matchHint} />
+          ) : props.item.description ? (
             <OverflowTooltipText
               className="min-w-0 truncate text-muted-foreground/70 text-xs"
               tooltip={props.item.descriptionTooltip}
@@ -271,7 +294,7 @@ function DisabledCommandPaletteResultRow(props: {
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
+          <CommandPaletteTitle item={props.item} />
         </span>
       )}
       {props.item.titleTrailingContent}
@@ -307,15 +330,17 @@ function CommandPaletteResultRow(props: {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
             {props.item.titleLeadingContent}
-            <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
+            <CommandPaletteTitle item={props.item} />
+            <ThreadRowContext item={props.item} />
           </span>
           {props.item.threadContentMatch ? (
             <ThreadContentMatch
               match={props.item.threadContentMatch}
               tooltip={props.item.contentTooltip}
             />
-          ) : null}
-          {props.item.description ? (
+          ) : props.item.matchHint ? (
+            <SearchMatchHintLine hint={props.item.matchHint} />
+          ) : props.item.description ? (
             <OverflowTooltipText
               className="min-w-0 truncate text-muted-foreground/70 text-xs"
               tooltip={props.item.descriptionTooltip}
@@ -327,7 +352,7 @@ function CommandPaletteResultRow(props: {
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
           {props.item.titleLeadingContent}
-          <CommandPaletteTitle title={props.item.title} tooltip={props.item.titleTooltip} />
+          <CommandPaletteTitle item={props.item} />
         </span>
       )}
       {props.item.titleTrailingContent}

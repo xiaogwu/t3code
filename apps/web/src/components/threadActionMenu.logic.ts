@@ -22,6 +22,7 @@ export type ThreadActionMenuId =
   | "regenerate-title"
   | "mark-unread"
   | "mark-read"
+  | "share-guest"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -88,7 +89,7 @@ export interface ThreadActionMenuState {
       pinned order (the chat header menu) omit both and get no move items. */
   readonly canMovePinUp?: boolean;
   readonly canMovePinDown?: boolean;
-  /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
+  /** Archive rejects attached providers, so disable it while running. */
   readonly isRunning: boolean;
   readonly supports: {
     readonly settlement: boolean;
@@ -101,6 +102,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
+  readonly canShareWithGuest?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -110,6 +113,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "project-settings",
     "mark-read",
     "mark-unread",
+    "share-guest",
     "copy",
     "copy-path",
     "copy-branch",
@@ -189,6 +193,9 @@ export function buildThreadActionMenuItems(
     state.isUnread === true
       ? { id: "mark-read" as const, label: "Mark read", icon: "mail-open" }
       : { id: "mark-unread" as const, label: "Mark unread", icon: "mail-open" },
+    ...(state.canShareWithGuest
+      ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
+      : []),
     ...(state.projectFilter
       ? [
           {

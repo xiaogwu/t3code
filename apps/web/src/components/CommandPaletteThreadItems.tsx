@@ -1,5 +1,18 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
+import {
+  claimThreadOpen,
+  nextShownOrder,
+  threadSearchMatchKey,
+  type EnvironmentThreadSearchMatch,
+  type ShownOrder,
+} from "@t3tools/client-runtime/state/thread-search";
+import {
+  foldSearchQuery,
+  PALETTE_MESSAGE_LIMIT,
+  pickedQuery,
+  rankMessageMatches,
+} from "@t3tools/shared/paletteSearch";
 import type {
   EnvironmentId,
   OrchestrationThreadSearchScope,
@@ -9,8 +22,8 @@ import type {
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageSquareIcon } from "lucide-react";
+import { useState } from "react";
 
-import { useClientSettings } from "../hooks/useSettings";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -24,8 +37,11 @@ import {
 } from "../state/environments";
 import { useThreadSearch } from "../state/queries";
 import { primaryServerProvidersAtom } from "../state/server";
+import { threadEnvironment } from "../state/threads";
+import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThreadMessageRevealStore } from "../threadMessageRevealStore";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
 import { buildThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
 import { useEnvironmentLookups, useProjectLookups } from "./CommandPaletteLookups";
@@ -59,12 +75,26 @@ function useProviderEntryByEnvironmentAndInstanceId() {
   );
 }
 
-function useThreadSearchWithContentMatches(query: string, scope: OrchestrationThreadSearchScope) {
+function useConnectedThreadSearch(query: string, scope: OrchestrationThreadSearchScope) {
   const { environments } = useEnvironments();
+  const { projectEnvironmentLocationById } = useEnvironmentLookups();
   const environmentIds: ReadonlyArray<EnvironmentId> = environments
     .filter((environment) => environment.connection.phase === "connected")
     .map((environment) => environment.environmentId);
-  const threadSearch = useThreadSearch(environmentIds, query, scope);
+  // The palette matches environment names when there are several; older rows must match the same.
+  const environmentLabels =
+    environments.length > 1
+      ? Object.fromEntries(
+          environmentIds.flatMap((environmentId) => {
+            const label = projectEnvironmentLocationById.get(environmentId)?.label;
+            return label === undefined || label === null ? [] : [[environmentId, label]];
+          }),
+        )
+      : undefined;
+  const threadSearch = useThreadSearch(environmentIds, query, {
+    ...(environmentLabels === undefined ? {} : { environmentLabels }),
+    ...(scope === "archived" ? { threads: "archived" as const } : {}),
+  });
   const contentMatchByKey = new Map(
     threadSearch.matches.flatMap((match) =>
       match.source === "user" || match.source === "assistant"
@@ -76,30 +106,34 @@ function useThreadSearchWithContentMatches(query: string, scope: OrchestrationTh
 }
 
 /**
- * Every thread as a palette item, with message matches for a non-empty `threadSearchQuery`.
+ * Every visible thread as a palette item, plus, for a non-empty
+ * `threadSearchQuery`, the threads whose messages match, best first.
  * `scope: "archived"` searches archived threads instead; the caller builds those items
- * from the returned matches because archived shells are not in the client's shell list.
+ * from `contentMatchByKey` because archived shells are not in the client's shell list.
  */
 export function useCommandPaletteThreadItems(input: {
-  readonly activeThreadId: ThreadId | undefined;
+  readonly activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null;
   readonly threadSearchQuery: string;
   readonly scope: OrchestrationThreadSearchScope;
 }) {
-  const { activeThreadId, threadSearchQuery, scope } = input;
+  const { activeThread, threadSearchQuery, scope } = input;
   const navigate = useNavigate();
   const threads = useThreadShells();
-  const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
   const { projectEnvironmentLocationById } = useEnvironmentLookups();
   const providerEntryByEnvironmentAndInstanceId = useProviderEntryByEnvironmentAndInstanceId();
-  const { environmentIds, threadSearch, contentMatchByKey } = useThreadSearchWithContentMatches(
-    threadSearchQuery,
-    scope,
-  );
-  const { projectByKey, projectTitleById } = useProjectLookups();
+  const {
+    environmentIds,
+    threadSearch: messageSearch,
+    contentMatchByKey,
+  } = useConnectedThreadSearch(threadSearchQuery, scope);
+  const { projectByKey } = useProjectLookups();
+  const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
+  // Ranking is relative to when the palette opened, so rows do not reorder as time passes.
+  const [now] = useState(() => Date.now());
   const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
-  // Called after navigating to a thread: a content hit scrolls to the message it
-  // matched. Requesting before navigation resolves would be cleared by the
-  // thread switch.
+  // Called after navigating to an unarchived thread: its content hit scrolls to the
+  // message it matched. Requesting before navigation resolves would be cleared by
+  // the thread switch. Active message rows open find at the message instead.
   const requestContentMatchReveal = (ref: ScopedThreadRef) => {
     const messageId = contentMatchByKey.get(threadSearchMatchKey(ref))?.messageId;
     if (messageId !== undefined) {
@@ -107,11 +141,17 @@ export function useCommandPaletteThreadItems(input: {
     }
   };
 
+  const { environments } = useEnvironments();
   const threadItems = buildThreadActionItems({
     threads,
-    ...(activeThreadId ? { activeThreadId } : {}),
-    projectTitleById,
-    sortOrder: sidebarThreadSortOrder,
+    ...(environments.length > 1
+      ? {
+          environmentLabelOf: (thread: (typeof threads)[number]) =>
+            projectEnvironmentLocationById.get(thread.environmentId)?.label ?? null,
+        }
+      : {}),
+    ...(activeThread ? { activeThread } : {}),
+    projectByKey,
     icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
     renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
     renderTrailingContent: (thread) => (
@@ -139,7 +179,9 @@ export function useCommandPaletteThreadItems(input: {
           }
           branch={thread.branch}
           worktreePath={thread.worktreePath}
-          isCurrent={thread.id === activeThreadId}
+          isCurrent={
+            thread.id === activeThread?.id && thread.environmentId === activeThread.environmentId
+          }
           driverKind={providerEntry?.driverKind ?? null}
           providerDisplayName={
             thread.runtime?.providerName ?? providerEntry?.displayName ?? modelInstanceId
@@ -148,21 +190,6 @@ export function useCommandPaletteThreadItems(input: {
           acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
         />
       );
-    },
-    getContentMatch: (thread) => {
-      const match = contentMatchByKey.get(
-        threadSearchMatchKey({
-          environmentId: thread.environmentId,
-          threadId: thread.id,
-        }),
-      );
-      return match && (match.source === "user" || match.source === "assistant")
-        ? {
-            source: match.source,
-            snippet: match.snippet,
-            query: threadSearch.query,
-          }
-        : undefined;
     },
     getThreadState: (thread) => {
       const lastVisitedAt =
@@ -173,21 +200,97 @@ export function useCommandPaletteThreadItems(input: {
       };
     },
     runThread: async (thread) => {
-      const ref = scopeThreadRef(thread.environmentId, thread.id);
+      // A pick sends its open with the query, always, so the server records
+      // it; the thread view then skips its own open. The open thread is no pick.
+      const isOpen =
+        activeThread?.environmentId === thread.environmentId && activeThread.id === thread.id;
+      if (threadSearchQuery.trim().length > 0 && !threadSearchQuery.startsWith(">") && !isOpen) {
+        // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
+        claimThreadOpen(thread.environmentId, thread.id, Date.now());
+      }
+      if (
+        threadSearchQuery.trim().length > 0 &&
+        !threadSearchQuery.startsWith(">") &&
+        thread.lastVisitedAt !== undefined &&
+        !isOpen
+      ) {
+        void visitThread({
+          environmentId: thread.environmentId,
+          input: {
+            threadId: thread.id,
+            visitedAt: thread.updatedAt,
+            opened: true,
+            searchQuery: pickedQuery(threadSearchQuery),
+          },
+        });
+      }
       await navigate({
         to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(ref),
+        params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
       });
-      requestContentMatchReveal(ref);
     },
   });
 
+  const itemByValue = new Map(threadItems.map((item) => [item.value, item]));
+  const itemForMatch = (match: EnvironmentThreadSearchMatch) =>
+    itemByValue.get(`thread:${match.environmentId}:${match.threadId}`);
+  const rankedMessageItems = rankMessageMatches(
+    messageSearch.matches,
+    (match) => itemForMatch(match)?.threadSearch,
+    foldSearchQuery(threadSearchQuery),
+    now,
+    { withoutTitleMatches: true },
+  ).flatMap((match) => {
+    const item = itemForMatch(match);
+    if (!item) return [];
+    // The snippet replaces the project line, so a message row is as tall as a title row.
+    const { description: _description, ...rest } = item;
+    return [
+      {
+        ...rest,
+        // When the matching message was written, not when the thread last moved.
+        ...(match.messageCreatedAt
+          ? { timestamp: formatRelativeTimeLabel(match.messageCreatedAt) }
+          : {}),
+        threadContentMatch: {
+          source: match.source,
+          snippet: match.snippet,
+          query: messageSearch.query,
+        },
+        // Opens the thread with find on the word at the matched message, so it is in view.
+        run: async () => {
+          await item.run();
+          openThreadFindOnQuery(
+            scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
+            findForMessageMatch(match, messageSearch.query),
+          );
+        },
+      },
+    ];
+  });
+
+  // Rows already shown keep their places when a slower environment answers.
+  const [shownOrder, setShownOrder] = useState<ShownOrder | null>(null);
+  const order = nextShownOrder(
+    shownOrder,
+    messageSearch.query,
+    rankedMessageItems.map((item) => item.value),
+    PALETTE_MESSAGE_LIMIT,
+  );
+  if (order !== shownOrder) setShownOrder(order);
+  const messageItemByValue = new Map(rankedMessageItems.map((item) => [item.value, item]));
+  const threadMessageItems = order.keys
+    .slice(0, order.shown)
+    .flatMap((value) => messageItemByValue.get(value) ?? []);
+
   return {
     threadItems,
-    isSearchPending: threadSearch.isPending,
+    threadMessageItems,
+    now,
+    isSearchPending: messageSearch.isPending,
     environmentIds,
     contentMatchByKey,
-    searchedQuery: threadSearch.query,
+    searchedQuery: messageSearch.query,
     requestContentMatchReveal,
   };
 }

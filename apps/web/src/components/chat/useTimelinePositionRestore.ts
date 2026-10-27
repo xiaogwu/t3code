@@ -1,178 +1,154 @@
-import { useLayoutEffect, useRef } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
-import type { AssistantCitationRequest } from "./AssistantCitationSource";
-import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
+import { resolveTimelineRestoreTarget, type MessagesTimelineRow } from "./MessagesTimeline.logic";
 import type { RememberedTimelinePosition } from "./timelineScrollAnchoring";
+import type { TimelineViewport } from "./timelineViewport";
+
+// A streaming reply moves the end every frame, so the target may never hold
+// still. Past this many frames the list's own end maintenance takes over.
+const SETTLE_MAX_FRAMES = 60;
+
+/**
+ * Index and end scrolling start from estimated row sizes, so they can stop
+ * short of a tall row. Corrects against the DOM until the viewport holds the
+ * target for two layout frames, the frame budget runs out, the caller cancels,
+ * or the target disappears.
+ */
+export function settleListScroll(
+  list: Pick<LegendListRef, "getScrollableNode" | "scrollToOffset">,
+  target: (element: HTMLElement) => number | undefined,
+  isCancelled: () => boolean,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let stableFrames = 0;
+    let frames = 0;
+    const reconcile = () => {
+      if (isCancelled()) return resolve();
+      const element = list.getScrollableNode();
+      const offset = element ? target(element) : undefined;
+      frames += 1;
+      if (!element || offset === undefined || frames > SETTLE_MAX_FRAMES) return resolve();
+      if (Math.abs(element.scrollTop - offset) > 1) {
+        stableFrames = 0;
+        void list.scrollToOffset({ offset, animated: false }).then(() => {
+          requestAnimationFrame(reconcile);
+        });
+        return;
+      }
+      stableFrames += 1;
+      if (stableFrames >= 2) resolve();
+      else requestAnimationFrame(reconcile);
+    };
+    requestAnimationFrame(reconcile);
+  });
+}
+
+export const measuredEndOffset = (element: HTMLElement) =>
+  element.scrollHeight - element.clientHeight;
 
 /**
  * Scrolls a newly shown thread back to where the user left it, or to its end,
- * and reports the thread positioned once the saved row settles.
+ * and reports the thread positioned once the saved row settles. Any navigation
+ * on the viewport cancels it where it is. Returns the cancel for the
+ * operation's owner.
  */
-export function useTimelinePositionRestore({
-  listRef,
+export function startTimelinePositionRestore({
+  list,
+  viewport,
   listIdentityKey,
-  restoringThreadPosition,
-  rememberedPosition,
-  rows,
-  restoreTarget,
-  citationRequest,
-  cancelPositionRestoreRef,
-  onManualNavigation,
+  listOpenedOn,
+  rememberedPosition: position,
+  citationPending,
+  releaseForFind,
   onPositioned,
 }: {
-  readonly listRef: React.RefObject<LegendListRef | null>;
+  readonly list: LegendListRef;
+  readonly viewport: TimelineViewport;
   readonly listIdentityKey: string;
-  readonly restoringThreadPosition: boolean;
+  /** The identity the mounted list opened on, until it shows another; see nextListOpening. */
+  readonly listOpenedOn: string | null;
   readonly rememberedPosition: RememberedTimelinePosition | undefined;
-  readonly rows: MessagesTimelineRow[];
+  readonly citationPending: boolean;
   /**
-   * The row and offset to land on, resolved by row id, then by the saved row's
-   * timestamp, so a position outlives the row it was taken from. Memoize it:
-   * the restore effect depends on its identity.
+   * Find was open when the list started showing the thread. Opening find is
+   * navigation, so follow lets go; the thread still opens where it was left,
+   * and MessagesTimeline holds find's reveal until this reports it positioned.
    */
-  readonly restoreTarget:
-    | { readonly index: number; readonly rowId: string; readonly offsetWithinRow: number }
-    | undefined;
-  readonly citationRequest: AssistantCitationRequest | null;
-  readonly cancelPositionRestoreRef: React.RefObject<(() => void) | null> | undefined;
-  readonly onManualNavigation: () => void;
+  readonly releaseForFind: boolean;
   readonly onPositioned: (identity: string) => void;
-}) {
-  // Preserve initialScrollAtEnd's measured target until the list is reused
-  // for another thread; scrollToEnd would replace it with an estimated offset.
-  const listOpenedOnRef = useRef<{
-    readonly list: LegendListRef;
-    identity: string | null;
-  } | null>(null);
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    const opened = listOpenedOnRef.current;
-    if (!list) return;
-    if (opened?.list !== list) {
-      listOpenedOnRef.current = { list, identity: listIdentityKey };
-    } else if (opened.identity !== listIdentityKey) {
-      opened.identity = null;
-    }
+}): () => void {
+  if (citationPending) {
+    // The citation scroll owns positioning once the list has mounted.
+    onPositioned(listIdentityKey);
+    return () => {};
+  }
+  let cancelled = false;
+  const rows = list.getState().data as ReadonlyArray<MessagesTimelineRow>;
+  // Fork: resolved by row id, then by the saved row's timestamp, so a position
+  // outlives the row it was taken from (row ids encode transient UI state). The
+  // raw scroll offset is the last resort, for a position with no usable row.
+  const target =
+    position?.atEnd === false ? resolveTimelineRestoreTarget(rows, position) : undefined;
+  // Reading history or finding: follow lets go before the restore claims the viewport.
+  if (position?.atEnd === false || releaseForFind) viewport.navigate({ releasesFollow: true });
+  const releaseScrollHold = viewport.holdProgrammaticScroll();
+  const stop = () => {
+    cancelled = true;
+    releaseScrollHold();
+    unsubscribe();
+  };
+  const unsubscribe = viewport.subscribe(() => {
+    if (cancelled) return;
+    stop();
+    void list.scrollToOffset({ offset: viewport.scrollNode.scrollTop, animated: false });
+    onPositioned(listIdentityKey);
   });
-  useLayoutEffect(() => {
-    if (!restoringThreadPosition || rows.length === 0) return;
-    const list = listRef.current;
-    if (!list) return;
-    if (citationRequest !== null) {
-      // The citation scroll owns positioning once the list has mounted.
-      onPositioned(listIdentityKey);
-      return;
+  const finish = () => {
+    stop();
+    onPositioned(listIdentityKey);
+  };
+  const scrolling =
+    position?.atEnd === false
+      ? target
+        ? list.scrollToIndex({
+            index: target.index,
+            animated: false,
+            viewPosition: 0,
+            viewOffset: -target.offsetWithinRow,
+          })
+        : list.scrollToOffset({ offset: position.scrollOffset, animated: false })
+      : // initialScrollAtEnd measured this target; scrollToEnd would replace it with an estimate.
+        listOpenedOn === listIdentityKey
+        ? undefined
+        : list.scrollToEnd({ animated: false });
+  const settlesAtEnd = position?.atEnd !== false && scrolling !== undefined;
+  void Promise.resolve(scrolling).then(async () => {
+    if (cancelled) return;
+    if (settlesAtEnd) {
+      await settleListScroll(list, measuredEndOffset, () => cancelled);
+    } else if (target) {
+      // Keep the saved row mounted until its measured position and the DOM agree.
+      await settleListScroll(
+        list,
+        (element) => {
+          const state = list.getState();
+          const rowIndex = state.indexByKey(target.rowId);
+          const row = rowIndex === undefined ? undefined : state.elementAtIndex(rowIndex);
+          if (!row) return undefined;
+          return Math.max(
+            0,
+            Math.min(
+              element.scrollTop +
+                row.getBoundingClientRect().top -
+                element.getBoundingClientRect().top +
+                target.offsetWithinRow,
+              measuredEndOffset(element),
+            ),
+          );
+        },
+        () => cancelled,
+      );
     }
-    let cancelled = false;
-    let settleFrame: number | null = null;
-    const viewport: HTMLElement | null = list.getScrollableNode();
-    const cancelRestoration = () => {
-      if (cancelled) return;
-      cancelled = true;
-      if (settleFrame !== null) cancelAnimationFrame(settleFrame);
-      if (viewport) void list.scrollToOffset({ offset: viewport.scrollTop, animated: false });
-      onPositioned(listIdentityKey);
-    };
-    const cancelForNavigation = () => {
-      cancelRestoration();
-      onManualNavigation();
-    };
-    const onScrollKey = (event: globalThis.KeyboardEvent) => {
-      if (
-        ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key) &&
-        !(
-          event.target instanceof Element &&
-          event.target.closest("input, textarea, [contenteditable=true]")
-        )
-      )
-        cancelForNavigation();
-    };
-    viewport?.addEventListener("wheel", cancelForNavigation, { passive: true });
-    viewport?.addEventListener("touchmove", cancelForNavigation, { passive: true });
-    viewport?.addEventListener("pointerdown", cancelForNavigation, { passive: true });
-    viewport?.ownerDocument.addEventListener("keydown", onScrollKey);
-    const position = rememberedPosition;
-    // The raw scroll offset is the last resort, for a position whose row is
-    // gone and that carries no usable timestamp.
-    const target = restoreTarget;
-    if (position?.atEnd === false) onManualNavigation();
-    if (cancelPositionRestoreRef) cancelPositionRestoreRef.current = cancelRestoration;
-    const scrolling =
-      position?.atEnd === false
-        ? target
-          ? list.scrollToIndex({
-              index: target.index,
-              animated: false,
-              viewPosition: 0,
-              viewOffset: -target.offsetWithinRow,
-            })
-          : list.scrollToOffset({ offset: position.scrollOffset, animated: false })
-        : listOpenedOnRef.current?.identity === listIdentityKey
-          ? undefined
-          : list.scrollToEnd({ animated: false });
-    void Promise.resolve(scrolling).then(() => {
-      if (cancelled) return;
-      if (position?.atEnd !== false || !target) {
-        onPositioned(listIdentityKey);
-        return;
-      }
-      // Index scrolling starts from estimates. Keep the saved row mounted
-      // until its measured position and the DOM agree for two layout frames.
-      let stableFrames = 0;
-      const reconcile = () => {
-        if (cancelled) return;
-        const state = list.getState();
-        const rowIndex = state.indexByKey(target.rowId);
-        const row = rowIndex === undefined ? undefined : state.elementAtIndex(rowIndex);
-        const element = list.getScrollableNode();
-        if (!row || !element) return;
-        const offset = Math.max(
-          0,
-          Math.min(
-            element.scrollTop +
-              row.getBoundingClientRect().top -
-              element.getBoundingClientRect().top +
-              target.offsetWithinRow,
-            element.scrollHeight - element.clientHeight,
-          ),
-        );
-        if (Math.abs(element.scrollTop - offset) > 1) {
-          stableFrames = 0;
-          void list.scrollToOffset({ offset, animated: false }).then(() => {
-            if (!cancelled) settleFrame = requestAnimationFrame(reconcile);
-          });
-          return;
-        }
-        stableFrames += 1;
-        if (stableFrames >= 2) {
-          onPositioned(listIdentityKey);
-        } else {
-          settleFrame = requestAnimationFrame(reconcile);
-        }
-      };
-      settleFrame = requestAnimationFrame(reconcile);
-    });
-    return () => {
-      cancelled = true;
-      if (cancelPositionRestoreRef?.current === cancelRestoration) {
-        cancelPositionRestoreRef.current = null;
-      }
-      if (settleFrame !== null) cancelAnimationFrame(settleFrame);
-      viewport?.removeEventListener("wheel", cancelForNavigation);
-      viewport?.removeEventListener("touchmove", cancelForNavigation);
-      viewport?.removeEventListener("pointerdown", cancelForNavigation);
-      viewport?.ownerDocument.removeEventListener("keydown", onScrollKey);
-    };
-  }, [
-    citationRequest,
-    cancelPositionRestoreRef,
-    listIdentityKey,
-    listRef,
-    onManualNavigation,
-    onPositioned,
-    rememberedPosition,
-    restoreTarget,
-    restoringThreadPosition,
-    rows,
-  ]);
+    if (!cancelled) finish();
+  });
+  return stop;
 }

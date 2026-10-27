@@ -130,6 +130,7 @@ export function SnoozeForRouteScreen({ route }: StaticScreenProps<SnoozeForRoute
 
             {Platform.OS === "ios" ? (
               <SegmentedControl
+                variant="card"
                 options={MODE_OPTIONS}
                 selected={mode}
                 onSelect={(next) => {
@@ -164,6 +165,7 @@ export function SnoozeForRouteScreen({ route }: StaticScreenProps<SnoozeForRoute
                   value={amount}
                 />
                 <SegmentedControl
+                  variant="card"
                   options={DURATION_UNITS}
                   selected={unit}
                   onSelect={(next) => {

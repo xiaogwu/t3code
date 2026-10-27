@@ -8,6 +8,7 @@ import type {
 import type * as Effect from "effect/Effect";
 
 import type { TextGenerationPolicy } from "./textGenerationPolicy.ts";
+import type { ThreadTitleForkSource } from "./textGenerationPrompts.ts";
 
 export interface CommitMessageGenerationInput {
   cwd: string;
@@ -66,6 +67,7 @@ export interface ThreadTitleGenerationInput {
   cwd: string;
   message: string;
   previousTitle?: string | undefined;
+  forkSource?: ThreadTitleForkSource | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** Appended to the prompt: the user's title instructions and the title policy's rule guidance. */
   instructions?: string | undefined;

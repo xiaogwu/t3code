@@ -1,5 +1,5 @@
 import { resolveTimelineMinimapPreview, type TimelineMinimapItem } from "./timelineMinimapItems";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { BookmarkIcon, ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react";
 import type { AssistantThreadBookmark } from "@t3tools/contracts";
 import { Button } from "../ui/button";
@@ -63,11 +63,6 @@ export function TimelineMinimap({
 
   const pressedOnStripRef = useRef(false);
   const [passThrough, setPassThrough] = useState(false);
-
-  useEffect(() => {
-    if (!passThrough) return;
-    return onMouseButtonsReleased(() => setPassThrough(false));
-  }, [passThrough]);
 
   const resolvedActiveIndex =
     activeIndex !== null && activeIndex < items.length ? activeIndex : null;
@@ -152,7 +147,9 @@ export function TimelineMinimap({
             });
           }}
           onMouseMove={(event) => {
-            if (event.buttons !== 0 && !pressedOnStripRef.current) setPassThrough(true);
+            if (event.buttons === 0 || pressedOnStripRef.current || passThrough) return;
+            setPassThrough(true);
+            onMouseButtonsReleased(() => setPassThrough(false));
           }}
           style={{
             height: resolveTimelineMinimapHeightStyle(items.length),
@@ -243,8 +240,8 @@ export function TimelineMinimap({
                         ? "bg-primary"
                         : "bg-primary/70"
                       : activeDistance === 0
-                        ? "bg-muted-foreground/75"
-                        : "bg-muted-foreground/35",
+                        ? "bg-muted-foreground/60"
+                        : "bg-muted-foreground/25",
                     activeDistance === 0
                       ? "scale-x-100"
                       : activeDistance === 1
@@ -267,7 +264,7 @@ export function TimelineMinimap({
                   style={{ top }}
                 >
                   {isBookmark ? null : (
-                    <span className="absolute inset-0 rounded-full bg-foreground/90 opacity-0 transition-opacity duration-150 group-data-[in-view=true]/strip:opacity-100" />
+                    <span className="absolute inset-0 rounded-full bg-foreground/55 opacity-0 transition-opacity duration-150 group-data-[in-view=true]/strip:opacity-100" />
                   )}
                 </span>
               );

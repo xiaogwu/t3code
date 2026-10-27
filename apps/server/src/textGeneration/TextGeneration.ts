@@ -42,15 +42,13 @@ const resolveInstance = (
   instanceId: ProviderInstanceId,
 ): Effect.Effect<ProviderInstance, TextGenerationError> =>
   registry.getInstance(instanceId).pipe(
-    Effect.flatMap((instance) =>
-      instance
-        ? Effect.succeed(instance)
-        : Effect.fail(
-            new TextGenerationError({
-              operation,
-              detail: `No provider instance registered for id '${instanceId}'.`,
-            }),
-          ),
+    Effect.filterOrFail(
+      (instance): instance is ProviderInstance => instance !== undefined,
+      () =>
+        new TextGenerationError({
+          operation,
+          detail: `No provider instance registered for id '${instanceId}'.`,
+        }),
     ),
   );
 
@@ -180,46 +178,55 @@ export const makeTextGenerationFromRegistry = (
   sourceControl?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"],
 ): TextGeneration["Service"] =>
   TextGeneration.of({
-    generateCommitMessage: (input) =>
-      runWithFallback(registry, "generateCommitMessage", input, (textGeneration, attemptInput) =>
-        textGeneration.generateCommitMessage(attemptInput),
-      ),
-    generatePrContent: (input) =>
-      runWithFallback(registry, "generatePrContent", input, (textGeneration, attemptInput) =>
+    generateCommitMessage: Effect.fn("TextGeneration.generateCommitMessage")(function (input) {
+      return runWithFallback(
+        registry,
+        "generateCommitMessage",
+        input,
+        (textGeneration, attemptInput) => textGeneration.generateCommitMessage(attemptInput),
+      );
+    }),
+    generatePrContent: Effect.fn("TextGeneration.generatePrContent")(function (input) {
+      return runWithFallback(registry, "generatePrContent", input, (textGeneration, attemptInput) =>
         textGeneration.generatePrContent(attemptInput),
-      ),
-    generateBranchName: (input) =>
-      runWithFallback(registry, "generateBranchName", input, (textGeneration, attemptInput) =>
-        textGeneration.generateBranchName(attemptInput),
-      ),
-    generateReviewGuide: (input) =>
-      resolveInstance(registry, "generateReviewGuide", input.modelSelection.instanceId).pipe(
+      );
+    }),
+    generateBranchName: Effect.fn("TextGeneration.generateBranchName")(function (input) {
+      return runWithFallback(
+        registry,
+        "generateBranchName",
+        input,
+        (textGeneration, attemptInput) => textGeneration.generateBranchName(attemptInput),
+      );
+    }),
+    generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")(function (input) {
+      return resolveInstance(registry, "generateReviewGuide", input.modelSelection.instanceId).pipe(
         Effect.flatMap((instance) => instance.textGeneration.generateReviewGuide(input)),
-      ),
-    generateThreadTitle: (input) =>
-      Effect.gen(function* () {
-        // Resolve source-control links once, ahead of the fallback walk, so a
-        // retry against a fallback model does not re-fetch the same subjects.
-        const linkedContext =
-          input.linkedContext ??
-          (sourceControl === undefined
-            ? undefined
-            : yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
-                Effect.provideService(
-                  SourceControlProviderRegistry.SourceControlProviderRegistry,
-                  sourceControl,
-                ),
-              ));
-        return yield* runWithFallback(
-          registry,
-          "generateThreadTitle",
-          { ...input, linkedContext },
-          (textGeneration, attemptInput) => textGeneration.generateThreadTitle(attemptInput),
-        );
-      }),
+      );
+    }),
+    generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function* (input) {
+      // Resolve source-control links once, ahead of the fallback walk, so a
+      // retry against a fallback model does not re-fetch the same subjects.
+      const linkedContext =
+        input.linkedContext ??
+        (sourceControl === undefined
+          ? undefined
+          : yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
+              Effect.provideService(
+                SourceControlProviderRegistry.SourceControlProviderRegistry,
+                sourceControl,
+              ),
+            ));
+      return yield* runWithFallback(
+        registry,
+        "generateThreadTitle",
+        { ...input, linkedContext },
+        (textGeneration, attemptInput) => textGeneration.generateThreadTitle(attemptInput),
+      );
+    }),
   });
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;

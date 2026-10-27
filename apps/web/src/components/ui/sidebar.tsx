@@ -17,8 +17,8 @@ import {
 } from "~/components/ui/sheet";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
-import { useIsMobile } from "~/hooks/useMediaQuery";
-import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import {
   useSidebarPeekController,
   useSidebarPeekFocusHold,
@@ -46,6 +46,8 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
+  /** Runs before the desktop sidebar collapses. */
+  onCollapse: (listener: () => void) => () => void;
   /** Dia-style auto-hide mode: unpinned reveals as a floating overlay on
    * hover-intent instead of staying off-screen. */
   autoHide: boolean;
@@ -111,10 +113,82 @@ function useSidebarVisibility() {
   return isMobile ? openMobile : open;
 }
 
+// Same breakpoint as useIsMobile, also read when a shortcut fires.
+const SIDEBAR_MOBILE_QUERY = "(max-width: 767px)";
+
+function isMobileViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(SIDEBAR_MOBILE_QUERY).matches;
+}
+
+async function persistSidebarOpen(open: boolean) {
+  await cookieStore.set({
+    expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
+    name: SIDEBAR_COOKIE_NAME,
+    path: "/",
+    value: String(open),
+  });
+}
+
+// An offcanvas sidebar turns inert once collapsed, which drops focus to the body.
+function moveFocusOutOfCollapsingSidebar() {
+  const sidebar = document.activeElement?.closest<HTMLElement>(
+    '[data-slot="sidebar"][data-collapsible-mode="offcanvas"]',
+  );
+  const wrapper = sidebar?.closest<HTMLElement>('[data-slot="sidebar-wrapper"]');
+  if (!sidebar || !wrapper) return;
+  const trigger = Array.from(
+    wrapper.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]'),
+  ).find((element) => !sidebar.contains(element));
+  trigger?.focus({ preventScroll: true });
+}
+
+interface SidebarOpenState {
+  readonly open: boolean;
+  readonly openMobile: boolean;
+}
+
+/** Per-provider open state, kept outside React so shortcuts can toggle it at event time. */
+function createSidebarOpenStore(defaultOpen: boolean) {
+  let state: SidebarOpenState = { open: defaultOpen, openMobile: false };
+  const listeners = new Set<() => void>();
+  const collapseListeners = new Set<() => void>();
+  const publish = (next: SidebarOpenState) => {
+    state = next;
+    for (const listener of listeners) listener();
+  };
+  const setOpen = (open: boolean) => {
+    if (!open && state.open) {
+      for (const listener of collapseListeners) listener();
+      moveFocusOutOfCollapsingSidebar();
+    }
+    if (open !== state.open) publish({ ...state, open });
+    void persistSidebarOpen(open);
+  };
+  const setOpenMobile = (openMobile: boolean) => {
+    if (openMobile !== state.openMobile) publish({ ...state, openMobile });
+  };
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot: () => state,
+    setOpen,
+    setOpenMobile,
+    toggle: () => (isMobileViewport() ? setOpenMobile(!state.openMobile) : setOpen(!state.open)),
+    onCollapse: (listener: () => void) => {
+      collapseListeners.add(listener);
+      return () => {
+        collapseListeners.delete(listener);
+      };
+    },
+  };
+}
+
 function SidebarProvider({
   defaultOpen = true,
-  open: openProp,
-  onOpenChange: setOpenProp,
   autoHide = false,
   className,
   style,
@@ -122,37 +196,18 @@ function SidebarProvider({
   ...props
 }: React.ComponentProps<"div"> & {
   defaultOpen?: boolean;
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
   autoHide?: boolean;
 }) {
-  const isMobile = useIsMobile();
-  const [openMobile, setOpenMobile] = React.useState(false);
+  const isMobile = useMediaQuery(SIDEBAR_MOBILE_QUERY);
+  const [store] = React.useState(() => createSidebarOpenStore(defaultOpen));
+  const { open, openMobile } = React.useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
   const [mobileSheetMounted, setMobileSheetMounted] = React.useState(false);
   const setMobileSheetElement = (element: HTMLDivElement | null) => {
     setMobileSheetMounted(element !== null);
-  };
-
-  const [_open, _setOpen] = React.useState(defaultOpen);
-  const open = openProp ?? _open;
-  const setOpen = async (value: boolean | ((value: boolean) => boolean)) => {
-    const openState = typeof value === "function" ? value(open) : value;
-    if (setOpenProp) {
-      setOpenProp(openState);
-    } else {
-      _setOpen(openState);
-    }
-
-    await cookieStore.set({
-      expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-      name: SIDEBAR_COOKIE_NAME,
-      path: "/",
-      value: String(openState),
-    });
-  };
-
-  const toggleSidebar = () => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
   };
 
   const state = resolveSidebarState({ isMobile, open, openMobile });
@@ -169,13 +224,13 @@ function SidebarProvider({
   React.useEffect(() => {
     if (autoHide && !previousAutoHideRef.current) {
       forcedClosedByAutoHideRef.current = open;
-      if (open) void setOpen(false);
+      if (open) store.setOpen(false);
     } else if (!autoHide && previousAutoHideRef.current && forcedClosedByAutoHideRef.current) {
       forcedClosedByAutoHideRef.current = false;
-      void setOpen(true);
+      store.setOpen(true);
     }
     previousAutoHideRef.current = autoHide;
-  }, [autoHide, open, setOpen]);
+  }, [autoHide, open, store]);
   const peekEnabled = autoHide && !open && !(isMobile && openMobile);
   const peekController = useSidebarPeekController(peekEnabled);
   const peeked = peekEnabled && peekController.peeked;
@@ -191,10 +246,11 @@ function SidebarProvider({
     retractPeek: peekController.retract,
     mobileSheetMounted,
     setMobileSheetElement,
-    setOpen,
-    setOpenMobile,
+    setOpen: store.setOpen,
+    setOpenMobile: store.setOpenMobile,
     state,
-    toggleSidebar,
+    toggleSidebar: store.toggle,
+    onCollapse: store.onCollapse,
   };
 
   return (
@@ -276,29 +332,16 @@ function Sidebar({
   } = useSidebar();
   const containerRef = React.useRef<HTMLDivElement>(null);
   useSidebarPeekFocusHold(containerRef);
-  const desktopSidebarRef = React.useRef<HTMLDivElement>(null);
   // A peeked auto-hide panel still reports `collapsed`, but it is on screen and
   // must stay interactive, so only a truly hidden offcanvas sidebar goes inert.
   // That includes the parked panel beside a narrow window's closed drawer.
-  // The narrow-window panel mounts when auto-hide turns on or the drawer closes,
-  // so its mount has to flip this too for the effect below to re-run.
   const desktopSidebarMounted = !isMobile || (autoHide && !openMobile);
   const offcanvasCollapsed =
     desktopSidebarMounted && collapsible === "offcanvas" && state === "collapsed" && !peeked;
-
+  // A retracting peek goes inert without passing through setOpen, so move focus
+  // out here too before the browser drops it to the body.
   React.useLayoutEffect(() => {
-    const sidebar = desktopSidebarRef.current;
-    if (!sidebar) return;
-
-    // Transfer focus before inert causes the browser to clear the focused descendant.
-    if (offcanvasCollapsed && sidebar.contains(document.activeElement)) {
-      const wrapper = sidebar.closest('[data-slot="sidebar-wrapper"]');
-      const trigger = Array.from(
-        wrapper?.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]') ?? [],
-      ).find((element) => !sidebar.contains(element));
-      trigger?.focus({ preventScroll: true });
-    }
-    sidebar.toggleAttribute("inert", offcanvasCollapsed);
+    if (offcanvasCollapsed) moveFocusOutOfCollapsingSidebar();
   }, [offcanvasCollapsed]);
 
   const resolvedResizable = resolveSidebarResizable({ collapsible, isMobile, resizable });
@@ -323,7 +366,6 @@ function Sidebar({
 
   const desktopPanel = (
     <div
-      ref={desktopSidebarRef}
       className={cn(
         "group peer hidden text-sidebar-foreground md:block",
         // Narrow windows render the panel only for auto-hide; it must stay
@@ -331,6 +373,8 @@ function Sidebar({
         isMobile && "block",
       )}
       data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-collapsible-mode={collapsible}
+      inert={offcanvasCollapsed}
       data-peek={peeked ? "true" : undefined}
       data-side={side}
       data-slot="sidebar"
@@ -492,12 +536,10 @@ function SidebarRail({
   onPointerUp,
   ...props
 }: React.ComponentProps<"button">) {
-  const { open, peeked, toggleSidebar } = useSidebar();
+  const { open, peeked, toggleSidebar, onCollapse } = useSidebar();
   const sidebarInstance = React.use(SidebarInstanceContext);
-  const railRef = React.useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = React.useRef(false);
   const resolvedResizable = sidebarInstance?.resizable ?? null;
-  const latestResizable = React.useRef(resolvedResizable);
   // The floating peeked panel resizes the same way a pinned one does; only a
   // fully hidden sidebar has nothing to drag.
   const visuallyOpen = open || peeked;
@@ -505,7 +547,8 @@ function SidebarRail({
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
   const railTitle = canResize ? "Drag to resize sidebar" : "Toggle Sidebar";
   const resize = useResizeDrag<HTMLButtonElement>((event) => {
-    if (!resolvedResizable || !visuallyOpen) return null;
+    const options = resolvedResizable;
+    if (!options || !visuallyOpen) return null;
     const rail = event.currentTarget;
     const wrapper = rail.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const sidebarRoot = rail.closest<HTMLElement>("[data-slot='sidebar']");
@@ -515,13 +558,9 @@ function SidebarRail({
     if (!wrapper || !sidebarRoot || !sidebarContainer) return null;
 
     const side = sidebarInstance?.side ?? "left";
-    let width = clampSidebarWidth(
-      sidebarContainer.getBoundingClientRect().width,
-      resolvedResizable,
-    );
-    // Drag frames write width to the gap and container only. Changing the
-    // inherited --sidebar-width on the wrapper restyles the whole app, so it is
-    // written once when the drag commits.
+    let width = clampSidebarWidth(sidebarContainer.getBoundingClientRect().width, options);
+    // Write width only to gap/container during drag; inherited --sidebar-width restyles the whole app, so
+    // update it at commit.
     const widthTargets = [
       sidebarRoot.querySelector<HTMLElement>("[data-slot='sidebar-gap']"),
       sidebarContainer,
@@ -539,10 +578,8 @@ function SidebarRail({
     return {
       width,
       edge: side === "left" ? "right" : "left",
-      resize(value) {
-        const options = latestResizable.current;
-        if (!options) return width;
-        const nextWidth = clampSidebarWidth(value, options);
+      bounds: { min: options.minWidth, max: options.maxWidth },
+      resize(nextWidth) {
         const accepted =
           options.shouldAcceptWidth?.({
             currentWidth: width,
@@ -561,15 +598,14 @@ function SidebarRail({
       finish(finalWidth, moved) {
         wrapper.style.setProperty("--sidebar-width", `${finalWidth}px`);
         suppressClickRef.current = moved;
-        const options = latestResizable.current;
-        if (options?.storageKey) {
+        if (options.storageKey) {
           try {
             setLocalStorageItem(options.storageKey, finalWidth, Schema.Finite);
           } catch (error) {
             console.error("Could not persist sidebar width.", error);
           }
         }
-        options?.onResize?.(finalWidth);
+        options.onResize?.(finalWidth);
       },
       cleanup() {
         widthTargets.forEach((element) => {
@@ -578,14 +614,28 @@ function SidebarRail({
         });
       },
     };
-    // Toggling the sidebar (or a peek retracting) cancels a drag so the inline
-    // width never pins a collapsed sidebar open.
-  }, String(visuallyOpen));
-  const refreshResize = React.useEffectEvent(() => resize.refresh());
-  React.useLayoutEffect(() => {
-    latestResizable.current = resolvedResizable;
-    refreshResize();
-  }, [resolvedResizable]);
+  });
+  // Collapsing mid-drag abandons the drag instead of committing a width to a hidden sidebar.
+  // Created once: a new ref callback would run the old one's cleanup, which ends a live drag.
+  const [railRef] = React.useState(() => {
+    const { ref: dragRef, cancel } = resize;
+    return (node: HTMLButtonElement | null) => {
+      const releaseDrag = dragRef(node);
+      if (!releaseDrag) return undefined;
+      const stopCancelOnCollapse = onCollapse(cancel);
+      return () => {
+        stopCancelOnCollapse();
+        releaseDrag();
+      };
+    };
+  });
+
+  // A peek retracting mid-drag never collapses through setOpen, so cancel here
+  // too: the inline width must never pin a hidden sidebar open.
+  const cancelResize = resize.cancel;
+  React.useEffect(() => {
+    if (!visuallyOpen) cancelResize();
+  }, [visuallyOpen, cancelResize]);
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
@@ -602,26 +652,6 @@ function SidebarRail({
     toggleSidebar();
   };
 
-  React.useLayoutEffect(() => {
-    if (!resolvedResizable?.storageKey || typeof window === "undefined") return;
-    const rail = railRef.current;
-    if (!rail) return;
-    const wrapper = rail.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
-    if (!wrapper) return;
-
-    let storedWidth: number | null;
-    try {
-      storedWidth = getLocalStorageItem(resolvedResizable.storageKey, Schema.Finite);
-    } catch (error) {
-      console.error("Could not restore persisted sidebar width.", error);
-      return;
-    }
-    if (storedWidth === null) return;
-    const clampedWidth = clampSidebarWidth(storedWidth, resolvedResizable);
-    wrapper.style.setProperty("--sidebar-width", `${clampedWidth}px`);
-    resolvedResizable.onResize?.(clampedWidth);
-  }, [resolvedResizable]);
-
   return (
     <Tooltip>
       <TooltipTrigger
@@ -629,7 +659,7 @@ function SidebarRail({
           <button
             aria-label={railLabel}
             className={cn(
-              /* disable pointer events only when offcanvas sidebar is collapsed, that's when the rail sits over the native scrollbar on windows and linux. icon mode stays fully clickable. peeked is an exception: the floating panel still needs to be resizable. */
+              /* A collapsed offcanvas rail overlaps the native scrollbar on Windows and Linux. A peeked panel is the exception: the floating panel still needs to be resizable. */
               "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]:not([data-peek=true])_&]:pointer-events-none",
               "[[data-panel-animations=true]_&]:transition-all [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
               "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
@@ -738,9 +768,8 @@ function SidebarContent({
         hideScrollbars
         scrollFade
         scrollFadePadding={false}
-        // Thread rows provide keyboard access to this scroll region. Keeping
-        // Base UI's viewport out of the tab order lets its presentational role
-        // flatten in WebKit instead of becoming a VoiceOver interaction group.
+        // Rows provide keyboard access; exclude the viewport from tab order to flatten VoiceOver's WebKit
+        // interaction boundary.
         viewportTabIndex={-1}
         className="h-auto min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]]:[--fade-size:0.75rem]"
       >

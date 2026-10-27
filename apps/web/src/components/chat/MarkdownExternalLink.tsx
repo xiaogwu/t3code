@@ -2,8 +2,10 @@ import { faviconUrlForOrigin } from "@t3tools/shared/favicon";
 import { GlobeIcon, ListTodoIcon } from "lucide-react";
 import { Children, Fragment, memo, useState, type ReactNode } from "react";
 
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+
 import { cn } from "../../lib/utils";
-import { GitHubIcon } from "../Icons";
+import { sourceControlIcon } from "../../sourceControlPresentation";
 
 const MARKDOWN_LINK_FAVICON_CLASS_NAME = "block size-full shrink-0 select-none";
 
@@ -21,13 +23,14 @@ function brandLinkIcon(host: string, href: string | undefined): ReactNode {
   if (href?.startsWith(REMINDERS_BRIDGE_ORIGIN)) {
     return <ListTodoIcon className={MARKDOWN_LINK_FAVICON_CLASS_NAME} />;
   }
-  if (isGitHubHost(host)) return <GitHubIcon className={MARKDOWN_LINK_FAVICON_CLASS_NAME} />;
-  return null;
+  return sourceControlHostIcon(host);
 }
 
-function isGitHubHost(host: string): boolean {
-  const hostname = host.toLowerCase();
-  return hostname === "github.com" || hostname.endsWith(".github.com");
+function sourceControlHostIcon(host: string): ReactNode {
+  const definition = sourceControlClients.findByPublicDomain(host);
+  if (definition === undefined) return null;
+  const Icon = sourceControlIcon(definition);
+  return <Icon className={MARKDOWN_LINK_FAVICON_CLASS_NAME} />;
 }
 
 const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({
