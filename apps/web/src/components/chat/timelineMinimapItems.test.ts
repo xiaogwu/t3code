@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, ThreadBookmarkId, ThreadId } from "@t3tools/contracts";
 import type { AssistantThreadBookmark } from "@t3tools/contracts";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
-import { deriveTimelineMinimapItems } from "./timelineMinimapItems";
+import { deriveTimelineMinimapItems, resolveTimelineMinimapPreview } from "./timelineMinimapItems";
 
 function messageRow(id: string, role: "user" | "assistant", text: string): MessagesTimelineRow {
   return {
@@ -13,7 +13,10 @@ function messageRow(id: string, role: "user" | "assistant", text: string): Messa
       id: MessageId.make(id),
       role,
       text,
+      runId: null,
+      streaming: false,
       createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z",
     },
     durationStart: "2026-04-01T00:00:00.000Z",
     showAssistantMeta: true,
@@ -113,5 +116,21 @@ describe("deriveTimelineMinimapItems", () => {
 
     const entry = items.find((item) => item.kind === "bookmark");
     expect(entry?.userText).toBe("second prompt");
+  });
+});
+
+describe("resolveTimelineMinimapPreview", () => {
+  it("previews a thread autolink as prose, not its URL", () => {
+    const preview = resolveTimelineMinimapPreview({
+      kind: "prompt",
+      id: "turn-1",
+      rowIndex: 0,
+      userText: null,
+      assistantText:
+        "Started <t3-thread://v2/env-1/thread-1> and [Fix CI](t3-thread://v2/env-1/t2).",
+    });
+    expect(preview?.kind === "prompt" ? preview.assistantText : null).toBe(
+      "Started a thread and Fix CI.",
+    );
   });
 });

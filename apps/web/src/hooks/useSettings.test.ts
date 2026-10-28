@@ -20,7 +20,7 @@ import {
   persistClientSettingsPatch,
   persistClientSettingsUpdate,
   prepareModelPreferencesPatch,
-  toggleLegacySidebarPreference,
+  toggleBoringSidebarPreference,
   toggleSidebarThreadSortPreference,
 } from "./useSettings";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
@@ -339,10 +339,16 @@ it("uses the environment's model preferences after migration, including empty li
   expect(merged.providerModelPreferences).toEqual({});
 });
 
-describe("toggleLegacySidebarPreference", () => {
-  it("inverts the current sidebar choice", () => {
-    expect(toggleLegacySidebarPreference(false)).toEqual({ legacySidebarEnabled: true });
-    expect(toggleLegacySidebarPreference(true)).toEqual({ legacySidebarEnabled: false });
+describe("toggleBoringSidebarPreference", () => {
+  it("inverts the current sidebar choice and clears the legacy opt-in", () => {
+    expect(toggleBoringSidebarPreference(false)).toEqual({
+      boringSidebarEnabled: true,
+      legacySidebarEnabled: false,
+    });
+    expect(toggleBoringSidebarPreference(true)).toEqual({
+      boringSidebarEnabled: false,
+      legacySidebarEnabled: false,
+    });
   });
 });
 

@@ -24,7 +24,6 @@ import {
 } from "./timelineScrollAnchoring";
 import { subscribeToThreadScrollRequests } from "./threadScrollRequest";
 import { useThreadMessageRevealStore } from "../../threadMessageRevealStore";
-import { type ChatComposerHandle } from "./ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./pageScrollController";
 import {
   FOLLOWING,
@@ -73,7 +72,6 @@ function createVisitScrollState(
 ) {
   return {
     visit,
-    intent: null as "toward-end" | "away-from-end" | null,
     // Debounce *showing* the scroll-to-bottom pill so it doesn't flash during
     // thread switches. LegendList fires scroll events with isAtEnd=false while
     // initialScrollAtEnd is settling; hiding is always immediate.
@@ -171,7 +169,6 @@ function sameRunObservation(
 
 interface TimelineFollowInput {
   readonly legendListRef: RefObject<LegendListRef | null>;
-  readonly composerRef: RefObject<ChatComposerHandle | null>;
   readonly composerTimelineInset: number;
   readonly routeThreadKey: string;
   readonly activeThreadKey: string | null;
@@ -217,7 +214,6 @@ const DEFAULT_SEND_SCROLL_BEHAVIOR: TimelineSendScrollBehavior = {
 export function useTimelineFollow(input: TimelineFollowInput) {
   const {
     legendListRef,
-    composerRef,
     composerTimelineInset,
     routeThreadKey,
     activeThreadKey,
@@ -273,7 +269,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       (current.mode === "following" || current.atEnd)
     );
   };
-  const isTimelineAtLogicalEndStable = useStableCallback(isTimelineAtLogicalEnd);
   const visitScrollRef = useRef<VisitScrollState | null>(null);
   /** Only from handlers: the bookkeeping of the visit they run in. */
   const visitScroll = () => {
@@ -367,8 +362,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     null,
   );
   const handlePageScrollStart = useStableCallback((key: PageScrollKey) => {
-    visitScroll().intent = key === "PageUp" ? "away-from-end" : "toward-end";
-    composerRef.current?.collapseForTimelineScrollKey(key);
     if ((key === "PageUp" && timelineRealContentOverflowsViewport()) || !isTimelineAtLogicalEnd()) {
       // Through the viewport, so a running position restore stops too.
       viewportRef.current?.navigate({ releasesFollow: true });
@@ -420,24 +413,20 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   // A stable callback rather than an effect event: keyboard handlers call it too.
   const scrollTimelineTo = useStableCallback((target: "top" | "end") => {
     if (target === "end") {
-      visitScroll().intent = "toward-end";
-      composerRef.current?.restoreAfterTimelineReachedEnd();
       scrollToEnd(true);
       return;
     }
-    visitScroll().intent = "away-from-end";
-    composerRef.current?.collapseForTimelineScrollKey("Home");
     // Through the viewport, so a running position restore stops too.
     if (viewportRef.current) viewportRef.current.navigate({ releasesFollow: true });
     else releaseFollowForNavigation();
     void legendListRef.current?.scrollToIndex({ index: 0, animated: true });
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- subscribes to an external window event bus
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to an external window event bus
   useEffect(() => subscribeToThreadScrollRequests(scrollTimelineTo), [scrollTimelineTo]);
   // The list does not follow footer layout, so the resting composer cannot scroll it. Growth
   // above the composer (a new notice) would cover the last rows instead.
   const followedInsetRef = useRef(composerTimelineInset);
-  // oxlint-disable-next-line t3code/react-effect-budget -- scrolls the list after its bottom inset grows
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the list after its bottom inset grows
   useLayoutEffect(() => {
     const grew = composerTimelineInset > followedInsetRef.current;
     followedInsetRef.current = composerTimelineInset;
@@ -445,31 +434,12 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   }, [composerTimelineInset, readCurrentFollow, scrollToEndStable]);
 
   const handleNavigation = (navigation: TimelineNavigation) => {
-    const composer = composerRef.current;
     const awayFromEnd = () => resolveTimelineIsAtEnd(legendListRef.current?.getState()) === false;
     const releases = navigationReleasesFollow(navigation, {
       contentScrollsUp: timelineRealContentOverflowsViewport,
       awayFromEnd,
     });
-    if (navigation.source === "wheel") {
-      visitScroll().intent = navigation.direction === "down" ? "toward-end" : "away-from-end";
-      const current = readFollow();
-      if (navigation.direction === "down" && (current.mode === "following" || current.atEnd)) {
-        composer?.restoreAfterTimelineReachedEnd();
-      }
-    }
-    if (navigation.source === "key") {
-      visitScroll().intent = navigation.direction === "down" ? "toward-end" : "away-from-end";
-    }
     if (releases) releaseFollowForNavigation();
-    if (navigation.source === "key" && navigation.key !== " ") {
-      if (navigation.direction === "up") {
-        if (releases) composer?.collapseForTimelineScrollKey(navigation.key);
-      } else {
-        composer?.collapseForTimelineScrollKey(navigation.key);
-        if (isTimelineAtLogicalEnd()) composer?.restoreAfterTimelineReachedEnd();
-      }
-    }
   };
   const handleNavigationStable = useStableCallback(handleNavigation);
   /**
@@ -533,7 +503,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     setTimelineAnchor(releaseChatTimelineAnchor);
     return true;
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- re-checks the collapsed-anchor release once the turn settles
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-checks the collapsed-anchor release once the turn settles
   useEffect(() => {
     if (!activeTurnInProgress) maybeReleaseCollapsedTimelineAnchor();
   }, [activeTurnInProgress, maybeReleaseCollapsedTimelineAnchor]);
@@ -551,7 +521,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     }
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- drops the anchored end space once its run settles
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops the anchored end space once its run settles
   useEffect(() => {
     if (anchorRunSettled) releaseSettledAnchor();
   }, [anchorRunSettled, activeThreadKey, releaseSettledAnchor]);
@@ -680,10 +650,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   };
   const onTimelineAnchorSizeChangedStable = useStableCallback(onTimelineAnchorSizeChanged);
 
-  const onToolOutputCollapsedAtEnd = () => {
-    composerRef.current?.restoreAfterTimelineReachedEnd();
-  };
-  const onToolOutputCollapsedAtEndStable = useStableCallback(onToolOutputCollapsedAtEnd);
   // The list ignores footer layout, so a new queued turn or status line there would land
   // under the composer. Follow it when the reader was following the end.
   const onTimelineFooterGrow = () => {
@@ -709,9 +675,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     });
     if (after === before) return;
     if (after.mode === "following") {
-      if (scroll.intent === "toward-end") {
-        composerRef.current?.restoreAfterTimelineReachedEnd();
-      }
       setTimelineAnchor(releaseChatTimelineAnchor);
       scroll.showScrollDebouncer.cancel();
       setShowScrollToBottom(false);
@@ -732,6 +695,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   // the anchored end space; the trigger is streamed thread data. A
   // totalSize listener cannot replace it: the anchored end space can already
   // be 0, so dropping it changes no size and no list event fires.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the timeline to the end after the commit that drops anchored end space
   useLayoutEffect(() => {
     if (timelineAnchorMessageId === null || !timelineLiveFollowEnabled) return;
     // Fork: a follow-up send holds its anchor through tool activity.
@@ -815,7 +779,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       armStaleAnchorGuard(null);
     },
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- applies a reveal requested through an external store
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies a reveal requested through an external store
   useEffect(() => {
     // A request for a thread that never became active waits in the store until
     // that thread mounts or a later reveal replaces it.
@@ -844,7 +808,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     scroll.revealHistoryRequest = requestKey;
     threadHistoryControls?.onLoadEarlier(messageId);
   });
-  // oxlint-disable-next-line t3code/react-effect-budget -- pages history toward a revealed message
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pages history toward a revealed message
   useEffect(() => {
     requestRevealHistory();
   }, [
@@ -854,6 +818,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     timelineEntries,
     timelineMessages,
   ]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the reveal timers on unmount
   useEffect(
     () => () => {
       if (revealStaleAnchorTimeoutRef.current !== null) {
@@ -900,14 +865,12 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   return {
     showScrollToBottom,
     timelineLiveFollowEnabled,
-    isTimelineAtLogicalEndStable,
     onComposerPageScrollKeyDownStable,
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
-    onToolOutputCollapsedAtEndStable,
     onTimelineFooterGrowStable,
     onIsAtEndChangeStable,
     anchorNewTurn,

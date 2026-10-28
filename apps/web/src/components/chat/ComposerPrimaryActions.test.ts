@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { isMacPlatform } from "~/lib/utils";
 import { composerSubmitTooltip } from "./ComposerPrimaryActions";
 
 describe("composerSubmitTooltip", () => {
@@ -17,7 +18,8 @@ describe("composerSubmitTooltip", () => {
   };
 
   it("explains the queue instead of offering steer while compacting", () => {
-    expect(composerSubmitTooltip(running)).toBe("Click to steer, Ctrl/⌘-click to queue");
+    const modifier = isMacPlatform(navigator.platform) ? "⌘" : "Ctrl";
+    expect(composerSubmitTooltip(running)).toBe(`Click to steer, ${modifier}-click to queue`);
     expect(composerSubmitTooltip({ ...running, queuesBehindCompaction: true })).toBe(
       "Sends after compacting",
     );

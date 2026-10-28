@@ -6,33 +6,12 @@ import {
 } from "../../threadTimelinePositionStore";
 import {
   observeTimelineRun,
-  getAnchoredTurnMetrics,
   readTimelinePosition,
   rememberTimelinePosition,
   resolveRevealHistoryRequest,
   resolveTimelineSendScrollBehavior,
   shouldReleaseCollapsedTimelineAnchor,
 } from "./timelineScrollAnchoring";
-
-function buildState({
-  positions,
-  sizes,
-  scroll = 0,
-  scrollLength = 700,
-}: {
-  readonly positions: readonly number[];
-  readonly sizes: readonly number[];
-  readonly scroll?: number;
-  readonly scrollLength?: number;
-}) {
-  return {
-    data: positions.map((_, index) => index),
-    scroll,
-    scrollLength,
-    positionAtIndex: (index: number) => positions[index],
-    sizeAtIndex: (index: number) => sizes[index],
-  };
-}
 
 describe("timeline scroll anchoring", () => {
   it("anchors a thread's opening send and lets tool activity release it", () => {
@@ -75,26 +54,6 @@ describe("timeline scroll anchoring", () => {
       anchorNewTurn: false,
       releaseOnToolActivity: false,
     });
-  });
-
-  it("targets the real row end instead of any temporary reserved tail", () => {
-    const state = buildState({
-      positions: [0, 1720, 1880],
-      sizes: [1600, 80, 120],
-      scroll: 1900,
-      scrollLength: 760,
-    });
-
-    const metrics = getAnchoredTurnMetrics({
-      state,
-      anchorIndex: 1,
-      composerOverlayHeight: 180,
-      anchorOffset: 16,
-    });
-
-    expect(metrics?.lastBottom).toBe(2000);
-    expect(metrics?.targetScrollToRevealEnd).toBe(1436);
-    expect(metrics?.scrollDeltaToRevealEnd).toBe(0);
   });
 });
 
