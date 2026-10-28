@@ -15,6 +15,17 @@ const BUILT_IN_PATTERNS: Record<string, RegExp> = {
   radar: /r(?:dar|adar):\/\/(\d+)/,
 };
 
+// Agents cite Radars and issues in passing, so only the user's own words pick
+// those prefixes. PR links still count from replies: an agent opening a PR is
+// what the thread is about.
+const USER_ONLY_URL_KINDS = new Set(["radar", "github_issue"]);
+
+function userMessages(context: string): string {
+  const parts = context.split(/(?:^|\n\n)(USER|ASSISTANT):\n/);
+  if (parts.length === 1) return context;
+  return parts.flatMap((part, index) => (parts[index - 1] === "USER" ? [part] : [])).join("\n\n");
+}
+
 function interpolate(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 }
@@ -41,7 +52,8 @@ function matchRule(context: string, rule: TitlePolicyRule): string | null {
   }
   if (rule.when.urlKind !== undefined) {
     const pattern = BUILT_IN_PATTERNS[rule.when.urlKind];
-    return pattern === undefined ? null : (context.match(pattern)?.[1] ?? null);
+    const source = USER_ONLY_URL_KINDS.has(rule.when.urlKind) ? userMessages(context) : context;
+    return pattern === undefined ? null : (source.match(pattern)?.[1] ?? null);
   }
   if (rule.when.urlMatches !== undefined) {
     // A pattern without a `{name}` capture never matches.
