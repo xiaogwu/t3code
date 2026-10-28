@@ -231,8 +231,6 @@ const makeSpawnInputCapturingRuntime = Effect.gen(function* () {
     createOpenCodeSdkClient: () => ({}) as never,
     loadOpenCodeInventory: unusedRuntimeMethod,
     loadOpenCodeSkills: unusedRuntimeMethod,
-    loadInventoryFromCli: unusedRuntimeMethod,
-    loadSkillsFromCli: unusedRuntimeMethod,
   };
   return { runtime, spawnInputs };
 });
