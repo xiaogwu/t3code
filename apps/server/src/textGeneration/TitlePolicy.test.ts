@@ -46,6 +46,21 @@ describe("resolveTitlePolicyRule", () => {
     expect(prefixOf("USER:\nplease run /oliver")).toBeNull();
   });
 
+  it("takes Radar and issue references from user messages, PR links from anyone", () => {
+    const radarInReply = "USER:\nRank this backlog\n\nASSISTANT:\n#8 (rdar://71615102) is small";
+    expect(prefixOf(radarInReply)).toBeNull();
+    expect(prefixOf(`${radarInReply}\n\nUSER:\nlook at rdar://42`)).toBe("Radar 42");
+    expect(
+      prefixOf("USER:\nfix it\n\nASSISTANT:\nsee https://github.com/acme/app/issues/932"),
+    ).toBeNull();
+    expect(
+      prefixOf("USER:\nfix it\n\nASSISTANT:\nOpened https://github.com/acme/app/pull/4821"),
+    ).toBe("PR#4821:");
+    expect(
+      prefixOf("USER:\nfix it\n\nASSISTANT:\nOpened https://prodgit.apple.com/team/repo/pull/391"),
+    ).toBe("PR#391:");
+  });
+
   it("prefers higher priority, then the earlier rule", () => {
     const both = "https://github.com/acme/app/pull/4821 https://github.com/acme/app/issues/932";
     expect(prefixOf(both)).toBe("PR#4821:");
