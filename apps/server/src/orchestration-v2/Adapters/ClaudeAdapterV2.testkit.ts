@@ -1028,7 +1028,8 @@ function layerClaudeProviderAdapterRegistryReplay(
               environment: [{ name: "CLAUDE_CODE_TMPDIR", value: tmpRoot, sensitive: false }],
             },
           },
-        }),
+          // The transcript check before a resume must not read the host's real ~/.claude.
+        }).pipe(Layer.provide(Layer.succeed(HostProcess.HomeDirectory, tmpRoot))),
       ),
       Effect.provide(NodeServices.layer),
     ),

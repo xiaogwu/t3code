@@ -4241,6 +4241,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  // Read once at construction so the adapter's provider layer, not each caller, picks the home.
+  const hostHomeDirectory = yield* HostProcess.HomeDirectory;
   const { attachmentsDir, fileSystem, path, crypto, idAllocator, queryRunner } = adapterOptions;
   const subagentModelCatalog = scopeClaudeModelCatalog(
     BUNDLED_CLAUDE_MODEL_CATALOG,
@@ -4504,7 +4506,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             const projectsDir = path.join(
               configuredDir.length > 0
                 ? path.resolve(session.cwd, configuredDir)
-                : path.join(yield* HostProcess.HomeDirectory, ".claude"),
+                : path.join(hostHomeDirectory, ".claude"),
               "projects",
             );
             // Empty only when every copy of the id is empty; any message means
