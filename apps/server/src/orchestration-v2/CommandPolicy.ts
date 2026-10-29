@@ -94,18 +94,30 @@ export function resolveMessageDispatchIntent(
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
 ): MessageDispatchMode {
-  const resolved = resolveRequestedDispatchIntent(projection, requestedMode, deliveryIntent);
-  // Fork: a /compact (or, since upstream #20184, /logout) run cannot be steered
+  const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent);
+  // Fork: a /compact or /logout run cannot be steered
   // or restarted, so a send while one runs waits behind it instead of being
   // rejected or interrupting it. Upstream queues only steers; the fork also
   // queues explicit restarts.
   if (
-    (resolved.type === "steer_active" || resolved.type === "restart_active") &&
-    isActiveMaintenanceRun(projection, resolved.targetRunId)
+    (mode.type === "steer_active" || mode.type === "restart_active") &&
+    isActiveMaintenanceRun(projection, mode.targetRunId)
   ) {
     return { type: "queue_after_active" };
   }
-  return resolved;
+  if (mode.type !== "steer_active") return mode;
+  // A provider that can neither steer nor restart its turn takes the message after the turn.
+  const target = projection.runs.find((run) => run.id === mode.targetRunId);
+  const turns =
+    target === undefined || !isActiveRun(target)
+      ? undefined
+      : providerTurnCapabilities(projection, target);
+  return turns !== undefined &&
+    !turns.supportsActiveSteering &&
+    !(turns.supportsInterrupt && turns.supportsSteeringByInterruptRestart) &&
+    turns.supportsQueuedMessages
+    ? { type: "queue_after_active" }
+    : mode;
 }
 
 function isActiveMaintenanceRun(
@@ -113,33 +125,44 @@ function isActiveMaintenanceRun(
   runId: OrchestrationV2Run["id"],
 ): boolean {
   const run = projection.runs.find((candidate) => candidate.id === runId);
-  if (
-    run === undefined ||
-    (run.status !== "preparing" &&
-      run.status !== "starting" &&
-      run.status !== "running" &&
-      run.status !== "waiting")
-  ) {
-    return false;
-  }
+  if (run === undefined || !isActiveRun(run)) return false;
   const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
   return message !== undefined && isNativeMaintenanceCommand(message);
 }
 
-function resolveRequestedDispatchIntent(
+function isActiveRun(run: OrchestrationV2Run): boolean {
+  return (
+    run.status === "preparing" ||
+    run.status === "starting" ||
+    run.status === "running" ||
+    run.status === "waiting"
+  );
+}
+
+function providerTurnCapabilities(
+  projection: OrchestrationV2ThreadProjection,
+  run: OrchestrationV2Run,
+) {
+  const providerThread = projection.providerThreads.find(
+    (candidate) => candidate.id === run.providerThreadId,
+  );
+  const providerSession =
+    providerThread?.providerSessionId == null
+      ? undefined
+      : projection.providerSessions.find(
+          (candidate) => candidate.id === providerThread.providerSessionId,
+        );
+  return providerSession?.capabilities.turns;
+}
+
+function resolveDeliveryIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
   deliveryIntent: "auto" | "steer" | "restart" | undefined,
 ): MessageDispatchMode {
   if (deliveryIntent === undefined) return requestedMode;
 
-  const activeRun = projection.runs.findLast(
-    (run) =>
-      run.status === "preparing" ||
-      run.status === "starting" ||
-      run.status === "running" ||
-      run.status === "waiting",
-  );
+  const activeRun = projection.runs.findLast(isActiveRun);
   if (activeRun === undefined) return { type: "start_immediately" };
   if (deliveryIntent === "steer") {
     return { type: "steer_active", targetRunId: activeRun.id };
@@ -159,16 +182,7 @@ function resolveRequestedDispatchIntent(
     return { type: "queue_after_active" };
   }
 
-  const providerThread = projection.providerThreads.find(
-    (candidate) => candidate.id === activeRun.providerThreadId,
-  );
-  const providerSession =
-    providerThread?.providerSessionId == null
-      ? undefined
-      : projection.providerSessions.find(
-          (candidate) => candidate.id === providerThread.providerSessionId,
-        );
-  const capabilities = providerSession?.capabilities.turns;
+  const capabilities = providerTurnCapabilities(projection, activeRun);
   if (capabilities?.supportsActiveSteering === true) {
     return { type: "steer_active", targetRunId: activeRun.id };
   }

@@ -31,6 +31,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "../state/server";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { orchestrationEnvironment } from "../state/orchestration";
+import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
@@ -254,6 +255,20 @@ export function useThreadReadStateActions() {
   return { markThreadManuallyUnread, markThreadRead };
 }
 
+/** A No project thread that already has its own folder, on a server that can promote it. */
+export function canTurnThreadIntoProject(threadRef: ScopedThreadRef): boolean {
+  const thread = readThreadShell(threadRef);
+  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
+  if (!thread?.worktreePath || config?.environment.capabilities.threadProjectFromScratch !== true) {
+    return false;
+  }
+  const project = readProject({
+    environmentId: threadRef.environmentId,
+    projectId: thread.projectId,
+  });
+  return project !== null && isScratchProject(project, config.scratchWorkspaceRoot);
+}
+
 function threadOperationFailure(target: ScopedThreadRef) {
   return readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
     ? null
@@ -311,6 +326,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const markThreadUnread = useMarkThreadUnread();
+  const createProjectFromThread = useAtomCommand(projectEnvironment.createFromThread, {
+    reportFailure: false,
+  });
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
@@ -977,5 +995,10 @@ export function useThreadActions() {
     setThreadAutoSettle,
     bookmarkAssistantText,
     unbookmarkAssistantText,
+    turnThreadIntoProject: (target: ScopedThreadRef) =>
+      createProjectFromThread({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId },
+      }),
   };
 }

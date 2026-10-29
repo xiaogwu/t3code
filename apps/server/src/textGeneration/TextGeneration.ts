@@ -4,6 +4,18 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  isProviderAvailable,
+  isProviderTextGenerationCapable,
+  resolveProjectProviderInstanceEnabled,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import { exhaustedUsageWindow } from "@t3tools/shared/usageLimits";
+import {
+  defaultTextGenerationModel,
+  fallbackTextGenerationModelSelection,
+} from "@t3tools/shared/serverSettings";
+import * as ServerSettings from "../serverSettings.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { TextGenerationError } from "@t3tools/contracts";
 
@@ -170,48 +182,135 @@ const runWithFallback = Effect.fn("TextGeneration.runWithFallback")(function* <
   });
 });
 
+// Review guides investigate the checkout read-only; the other drivers reject that request.
+const INVESTIGATING_DRIVERS = new Set(["codex", "claudeAgent"]);
+
+/**
+ * When the selected provider's usage window is already exhausted, swap the
+ * primary selection for an available text-generation-capable provider before any attempt.
+ * The fork's `fallbackModelSelections` walk (`runWithFallback`) still runs after this, so a
+ * failure on the swapped-in primary advances through the configured fallbacks.
+ */
+const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimitedSelection")(
+  function* (
+    registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
+    serverSettings: ServerSettings.ServerSettingsService["Service"],
+    operation: TextGenerationOp,
+    selection: ModelSelection,
+  ): Effect.fn.Return<ModelSelection, TextGenerationError, never> {
+    const snapshots = yield* registry.listInstances.pipe(
+      Effect.flatMap((instances) =>
+        Effect.forEach(instances, (instance) => instance.snapshot.getSnapshot),
+      ),
+    );
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    const limited = exhaustedUsageWindow(
+      snapshots.find((provider) => provider.instanceId === selection.instanceId),
+      now,
+      selection.model,
+    );
+    if (!limited) return selection;
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Could not read fallback model settings.",
+            cause,
+          }),
+      ),
+    );
+    return (
+      fallbackTextGenerationModelSelection(
+        settings.providerInstances,
+        (instanceId, driver) => {
+          const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
+          return (
+            instanceId !== selection.instanceId &&
+            provider?.enabled === true &&
+            resolveProjectProviderInstanceEnabled(settings, null, instanceId) &&
+            provider.installed &&
+            provider.auth.status !== "unauthenticated" &&
+            isProviderAvailable(provider) &&
+            isProviderTextGenerationCapable(provider) &&
+            (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
+            !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
+          );
+        },
+        { includeConfiguredInstances: true },
+      ) ?? selection
+    );
+  },
+);
+
 export const makeTextGenerationFromRegistry = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
   // Optional: callers that only exercise model fallback build the service from a
   // bare registry. Without it a thread title skips source-control link
   // resolution and uses whatever `linkedContext` the caller already supplied.
   sourceControl?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"],
-): TextGeneration["Service"] =>
-  TextGeneration.of({
-    generateCommitMessage: Effect.fn("TextGeneration.generateCommitMessage")(function (input) {
-      return runWithFallback(
+  // Optional for the same reason: without it the usage-limit preflight is skipped and the
+  // primary selection is attempted as given.
+  serverSettings?: ServerSettings.ServerSettingsService["Service"],
+): TextGeneration["Service"] => {
+  const preflight = <Input extends { readonly modelSelection: ModelSelection }>(
+    operation: TextGenerationOp,
+    input: Input,
+  ): Effect.Effect<Input, TextGenerationError> =>
+    serverSettings === undefined
+      ? Effect.succeed(input)
+      : resolveUsageLimitedSelection(
+          registry,
+          serverSettings,
+          operation,
+          input.modelSelection,
+        ).pipe(Effect.map((modelSelection) => ({ ...input, modelSelection })));
+
+  return TextGeneration.of({
+    generateCommitMessage: Effect.fn("TextGeneration.generateCommitMessage")(function* (input) {
+      const prepared = yield* preflight("generateCommitMessage", input);
+      return yield* runWithFallback(
         registry,
         "generateCommitMessage",
-        input,
+        prepared,
         (textGeneration, attemptInput) => textGeneration.generateCommitMessage(attemptInput),
       );
     }),
-    generatePrContent: Effect.fn("TextGeneration.generatePrContent")(function (input) {
-      return runWithFallback(registry, "generatePrContent", input, (textGeneration, attemptInput) =>
-        textGeneration.generatePrContent(attemptInput),
+    generatePrContent: Effect.fn("TextGeneration.generatePrContent")(function* (input) {
+      const prepared = yield* preflight("generatePrContent", input);
+      return yield* runWithFallback(
+        registry,
+        "generatePrContent",
+        prepared,
+        (textGeneration, attemptInput) => textGeneration.generatePrContent(attemptInput),
       );
     }),
-    generateBranchName: Effect.fn("TextGeneration.generateBranchName")(function (input) {
-      return runWithFallback(
+    generateBranchName: Effect.fn("TextGeneration.generateBranchName")(function* (input) {
+      const prepared = yield* preflight("generateBranchName", input);
+      return yield* runWithFallback(
         registry,
         "generateBranchName",
-        input,
+        prepared,
         (textGeneration, attemptInput) => textGeneration.generateBranchName(attemptInput),
       );
     }),
-    generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")(function (input) {
-      return resolveInstance(registry, "generateReviewGuide", input.modelSelection.instanceId).pipe(
-        Effect.flatMap((instance) => instance.textGeneration.generateReviewGuide(input)),
-      );
+    generateReviewGuide: Effect.fn("TextGeneration.generateReviewGuide")(function* (input) {
+      const prepared = yield* preflight("generateReviewGuide", input);
+      return yield* resolveInstance(
+        registry,
+        "generateReviewGuide",
+        prepared.modelSelection.instanceId,
+      ).pipe(Effect.flatMap((instance) => instance.textGeneration.generateReviewGuide(prepared)));
     }),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function* (input) {
+      const prepared = yield* preflight("generateThreadTitle", input);
       // Resolve source-control links once, ahead of the fallback walk, so a
       // retry against a fallback model does not re-fetch the same subjects.
       const linkedContext =
-        input.linkedContext ??
+        prepared.linkedContext ??
         (sourceControl === undefined
           ? undefined
-          : yield* ThreadTitleLinks.resolveThreadTitleLinks(input).pipe(
+          : yield* ThreadTitleLinks.resolveThreadTitleLinks(prepared).pipe(
               Effect.provideService(
                 SourceControlProviderRegistry.SourceControlProviderRegistry,
                 sourceControl,
@@ -220,17 +319,19 @@ export const makeTextGenerationFromRegistry = (
       return yield* runWithFallback(
         registry,
         "generateThreadTitle",
-        { ...input, linkedContext },
+        { ...prepared, linkedContext },
         (textGeneration, attemptInput) => textGeneration.generateThreadTitle(attemptInput),
       );
     }),
   });
+};
 
 /** @public */
 export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
-  return makeTextGenerationFromRegistry(registry, sourceControl);
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  return makeTextGenerationFromRegistry(registry, sourceControl, serverSettings);
 });
 
 export const layer = Layer.effect(TextGeneration, make);
