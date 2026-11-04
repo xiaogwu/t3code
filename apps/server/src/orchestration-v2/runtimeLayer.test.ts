@@ -2756,7 +2756,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
   it.effect("adds and removes bookmarks idempotently without counting as activity", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionReplay.ProjectionReplay;
       const threadId = ThreadId.make("runtime-layer-bookmarks-thread");
       const citation = (text: string, start: number) => ({
         version: 1 as const,

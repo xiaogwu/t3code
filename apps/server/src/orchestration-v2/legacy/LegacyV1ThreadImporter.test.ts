@@ -685,7 +685,7 @@ it.layer(layerTest)("LegacyV1ThreadImporter", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const maintenance = yield* ProjectionReplay.ProjectionReplay;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const eventSink = yield* EventSink.EventSinkV2;
       const threadId = ThreadId.make("thread:legacy-bookmarks");

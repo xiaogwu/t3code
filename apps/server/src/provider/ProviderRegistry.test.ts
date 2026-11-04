@@ -3129,6 +3129,8 @@ it.layer(
         );
         assert.strictEqual(yield* Ref.get(versionCalls), 2);
       }),
+    );
+
     it.effect("adds models Claude Code reports that the catalog does not know", () =>
       Effect.gen(function* () {
         const status = yield* checkClaudeProviderStatus(
