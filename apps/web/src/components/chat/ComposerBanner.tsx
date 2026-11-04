@@ -33,26 +33,34 @@ const variantColors: Record<ComposerBannerVariant, string> = {
     "[--chat-composer-attached-outline:color-mix(in_srgb,var(--warning)_28%,transparent)] [--chat-composer-attached-tint:color-mix(in_srgb,var(--warning)_8%,transparent)]",
 };
 
+/**
+ * An attached surface tucks its bottom under the card below it. A detached one is a whole card
+ * of its own, for a notice that sits apart from the composer.
+ */
 function Surface({
   variant = "default",
+  detached = false,
   className,
   ...props
 }: ComponentProps<"div"> & {
   variant?: ComposerBannerVariant;
+  detached?: boolean;
 }) {
   return (
     <div
-      data-composer-banner-surface="attached"
+      data-composer-banner-surface={detached ? "detached" : "attached"}
       data-variant={variant}
       className={cn(
         surfaceColors,
         "relative isolate border-0 bg-transparent shadow-none [--chat-composer-attached-tint:transparent]",
         variantColors[variant],
-        // The mask cut-off (1rem) bleeds one pixel past the seam (1rem + 1px): a cut-off
-        // that lands off the device-pixel grid otherwise exposes a row of chat text where
-        // the composer's surface starts. The composer covers the extra row, so the
-        // overlap never shows.
-        "[--chat-composer-attachment-overlap:calc(1rem+1px)] before:rounded-t-2xl before:mask-t-from-transparent before:mask-t-from-4 before:mask-t-to-black before:mask-t-to-4",
+        detached
+          ? "[--chat-composer-attachment-overlap:0px] before:rounded-2xl"
+          : // The mask cut-off (1rem) bleeds one pixel past the seam (1rem + 1px): a cut-off
+            // that lands off the device-pixel grid otherwise exposes a row of chat text where
+            // the composer's surface starts. The composer covers the extra row, so the
+            // overlap never shows.
+            "[--chat-composer-attachment-overlap:calc(1rem+1px)] before:rounded-t-2xl before:mask-t-from-transparent before:mask-t-from-4 before:mask-t-to-black before:mask-t-to-4",
         "before:pointer-events-none before:absolute before:inset-0 before:-z-1 before:border before:border-(--chat-composer-attached-outline)",
         // Opaque, like the composer itself. Banners, the command menu and the prompt
         // history palette all render on this surface directly over the virtualized
@@ -60,7 +68,7 @@ function Surface({
         // whole surface when scrolling becomes idle, which reads as a flicker.
         "before:bg-(--chat-composer-attached-surface) before:bg-linear-to-b before:from-(--chat-composer-attached-tint) before:to-(--chat-composer-attached-tint)",
         "before:shadow-composer dark:before:shadow-composer-dark",
-        "dark:before:bg-composer-seam-above",
+        !detached && "dark:before:bg-composer-seam-above",
         className,
       )}
       {...props}
@@ -114,9 +122,8 @@ function Root({
   variant = "default",
   width = "fill",
   ...props
-}: ComponentProps<"div"> & {
+}: ComponentProps<typeof Surface> & {
   density?: "default" | "comfortable" | "spacious";
-  variant?: ComposerBannerVariant;
   width?: "fill" | "content";
 }) {
   return (

@@ -231,7 +231,7 @@ export function TimelineMinimap({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "group/strip pointer-events-none absolute left-0 h-0.5 w-6 origin-left -translate-y-1/2 rounded-full transition-transform duration-150",
+                    "pointer-events-none absolute left-0 h-0.5 w-6 origin-left -translate-y-1/2 rounded-full transition-transform duration-150",
                     // Bookmarks read in the accent colour and skip the in-view
                     // overlay, so they stay distinguishable from the prompt
                     // that happens to be on screen.
@@ -239,9 +239,12 @@ export function TimelineMinimap({
                       ? activeDistance === 0
                         ? "bg-primary"
                         : "bg-primary/70"
-                      : activeDistance === 0
-                        ? "bg-muted-foreground/60"
-                        : "bg-muted-foreground/25",
+                      : [
+                          "after:absolute after:inset-0 after:rounded-full after:bg-foreground/55 after:opacity-0 after:transition-opacity after:duration-150 data-[in-view=true]:after:opacity-100",
+                          activeDistance === 0
+                            ? "bg-muted-foreground/60"
+                            : "bg-muted-foreground/25",
+                        ],
                     activeDistance === 0
                       ? "scale-x-100"
                       : activeDistance === 1
@@ -262,11 +265,7 @@ export function TimelineMinimap({
                     }
                   }}
                   style={{ top }}
-                >
-                  {isBookmark ? null : (
-                    <span className="absolute inset-0 rounded-full bg-foreground/55 opacity-0 transition-opacity duration-150 group-data-[in-view=true]/strip:opacity-100" />
-                  )}
-                </span>
+                />
               );
             })}
             {activeItem ? (

@@ -15,7 +15,7 @@ layer("062_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 79 }, (_, index) => index + 1),
+        Array.from({ length: 85 }, (_, index) => index + 1),
       );
     }),
   );
@@ -45,6 +45,12 @@ layer("062_OrchestrationV2", (it) => {
         [77, "PeerLinks"],
         [78, "PeerLinkFence"],
         [79, "WaitingLinkRequestIndex"],
+        [80, "ActiveTurnItemIndexes"],
+        [81, "ExcludeAttachmentPlaceholdersFromSearch"],
+        [82, "SubagentDeliveryState"],
+        [83, "ProjectionProjectsPinArchive"],
+        [84, "RepairBooleanSettledOverride"],
+        [85, "DropOrchestrationEventCorrelationIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 

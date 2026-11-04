@@ -1,5 +1,6 @@
 import type { AssistantThreadBookmark, MessageId } from "@t3tools/contracts";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { isAttachmentOnlyBootstrapPrompt } from "@t3tools/shared/composerContextReferences";
 import type { Nodes } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -49,7 +50,7 @@ export function deriveTimelineMinimapItems(
     }
 
     if (row.message.role === "user") {
-      currentUserText = row.message.text;
+      currentUserText = isAttachmentOnlyBootstrapPrompt(row.message.text) ? "" : row.message.text;
       items.push({
         kind: "prompt",
         id: row.id,

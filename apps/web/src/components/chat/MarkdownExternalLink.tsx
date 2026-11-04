@@ -78,12 +78,13 @@ function leadingExternalLinkTextLength(text: string): number {
 /**
  * Splits a URL where a line may break: before each run of `/ . ? # & = - _ ~ %`,
  * so a wrapped line starts with the delimiter the way style guides break URLs.
- * A segment too long for the line still falls back to the root `overflow-wrap`.
  */
 export function externalLinkBreakSegments(text: string): string[] {
   return text.match(/[/.?#&=\-_~%]*[^/.?#&=\-_~%]*/g)?.filter((segment) => segment !== "") ?? [];
 }
 
+// One node per segment, not per character. A segment too long for a narrow table column
+// may break anywhere; short ones, like a PR number, stay whole.
 function breakableExternalLinkText(text: string): ReactNode[] {
   let offset = 0;
   return externalLinkBreakSegments(text).map((segment) => {
@@ -92,7 +93,11 @@ function breakableExternalLinkText(text: string): ReactNode[] {
     return (
       <Fragment key={start}>
         {start > 0 ? <wbr /> : null}
-        {segment}
+        {segment.length <= 16 ? (
+          segment
+        ) : (
+          <span className="[overflow-wrap:anywhere]">{segment}</span>
+        )}
       </Fragment>
     );
   });
@@ -105,7 +110,7 @@ export function MarkdownExternalLinkContent({
   children,
 }: {
   host: string;
-  href: string | undefined;
+  href?: string | undefined;
   plainText: string | null;
   children: ReactNode;
 }) {
@@ -141,7 +146,7 @@ export function MarkdownExternalLinkContent({
 
   return (
     <>
-      <span className="whitespace-nowrap">
+      <span className="[overflow-wrap:anywhere]">
         <MarkdownLinkFavicon host={host} href={href} />
         {firstChild}
       </span>

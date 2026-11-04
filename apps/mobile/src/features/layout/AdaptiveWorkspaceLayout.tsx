@@ -15,7 +15,16 @@ import { EnvironmentId, ThreadId, type SidebarProjectGroupingMode } from "@t3too
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { NavigationContext, NavigationRouteContext, useNavigation } from "@react-navigation/native";
-import { use, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  use,
+  useDeferredValue,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Keyboard, Platform, useWindowDimensions, View } from "react-native";
 import { KeyboardController, useKeyboardState } from "react-native-keyboard-controller";
 import Animated, {
@@ -129,12 +138,48 @@ export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefi
     );
   })();
 
-  // useFocusEffect re-runs when the renderer changes while focused, so the
-  // pane always shows this render's content, and its cleanup deactivates on
-  // blur and unmount.
-  useFocusEffect(() =>
-    wrappedRender === undefined ? undefined : registerWorkspaceInspector(wrappedRender),
-  );
+  const focusedRef = useRef(false);
+  const deactivateRef = useRef<(() => void) | null>(null);
+
+  const syncRegistration = useEffectEvent(() => {
+    if (!focusedRef.current || wrappedRender === undefined) {
+      deactivateRef.current?.();
+      return;
+    }
+    deactivateRef.current = registerWorkspaceInspector(wrappedRender);
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Navigation focus events own the inspector registration lifetime.
+  useEffect(() => {
+    if (navigation === undefined) return;
+    const focus = () => {
+      if (focusedRef.current) return;
+      focusedRef.current = true;
+      syncRegistration();
+    };
+    const blur = () => {
+      focusedRef.current = false;
+      syncRegistration();
+    };
+    if (navigation.isFocused()) focus();
+    const unsubscribeFocus = navigation.addListener("focus", focus);
+    const unsubscribeBlur = navigation.addListener("blur", blur);
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+      focusedRef.current = false;
+      deactivateRef.current?.();
+      deactivateRef.current = null;
+    };
+  }, [navigation]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Changed pane content replaces the focused inspector registration.
+  useEffect(() => {
+    if (focusedRef.current) {
+      syncRegistration();
+    }
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Changed pane content replaces its existing native workspace registration.
+  }, [wrappedRender]);
 }
 
 export function AdaptiveWorkspaceLayout(props: {
@@ -787,10 +832,22 @@ function AdaptiveWorkspaceLayoutContent(
       0,
       viewportWidth -
         renderedRailWidth.value -
-        renderedSidebarWidth.value -
+        (workspacePage ? 0 : renderedSidebarWidth.value) -
         renderedInspectorWidth.value,
     ),
   );
+  // Android can resize the native row before React removes its split panes on a fold.
+  const androidSplit = Platform.OS === "android" && layout.usesSplitView;
+  const androidContentSlotStyle = useAnimatedStyle(() => ({
+    width: androidSplit ? renderedContentWidth.value : ("100%" as const),
+  }));
+  // While the sidebar animates, clip the settled navigator instead of reflowing its text every frame.
+  const androidNavigatorLimit = useAnimatedStyle(() => ({
+    maxWidth:
+      androidSplit && contentTargetWidth !== null && renderedContentWidth.value < contentTargetWidth
+        ? contentTargetWidth
+        : ("100%" as const),
+  }));
 
   const handleSelectThread = (thread: EnvironmentThreadShell) => {
     handleSelectThreadRoute({
@@ -861,11 +918,11 @@ function AdaptiveWorkspaceLayoutContent(
     >
       <AndroidHingeObserver onChange={handleHingeChange} />
       {shouldRenderNavigationRail ? (
-        <Animated.View className="self-stretch" style={railAnimatedStyle} />
+        <Animated.View className="shrink self-stretch" style={railAnimatedStyle} />
       ) : null}
       {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
         <Animated.View
-          className="self-stretch overflow-hidden"
+          className="self-stretch overflow-hidden android:shrink"
           accessibilityElementsHidden={workspacePage || !panes.primarySidebarVisible}
           collapsable={false}
           importantForAccessibility={
@@ -897,7 +954,6 @@ function AdaptiveWorkspaceLayoutContent(
                 <AndroidHomeFabLayout
                   sidebar
                   disabled={workspacePage}
-                  paneWidth={layout.listPaneWidth}
                   onStartNewTask={handleStartNewTask}
                 >
                   <ThreadNavigationSidebar
@@ -930,17 +986,18 @@ function AdaptiveWorkspaceLayoutContent(
           </Animated.View>
         </Animated.View>
       ) : null}
-      <View
+      <Animated.View
         className={
           Platform.OS === "android"
-            ? "flex-1 overflow-hidden bg-header"
+            ? "max-w-full shrink-0 overflow-hidden bg-header"
             : "flex-1 overflow-hidden bg-screen"
         }
+        style={Platform.OS === "android" ? androidContentSlotStyle : undefined}
         collapsable={false}
       >
-        <View
+        <Animated.View
           collapsable={false}
-          style={
+          style={[
             contentTargetWidth !== null
               ? {
                   flex: 1,
@@ -948,8 +1005,9 @@ function AdaptiveWorkspaceLayoutContent(
                   alignSelf: contentAnchor.end ? "flex-end" : "flex-start",
                   marginRight: contentAnchor.end ? contentEndGap : 0,
                 }
-              : { flex: 1 }
-          }
+              : { flex: 1 },
+            Platform.OS === "android" ? androidNavigatorLimit : undefined,
+          ]}
         >
           {/* Android holds the content still, so its floating controls keep its width. */}
           <WorkspaceContentWidthContext
@@ -992,8 +1050,8 @@ function AdaptiveWorkspaceLayoutContent(
               ) : null}
             </WorkspaceSettledContentWidthContext>
           </WorkspaceContentWidthContext>
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
       <WorkspaceInspectorPane
         pathname={props.pathname}
         renderedInspectorWidth={renderedInspectorWidth}
@@ -1004,11 +1062,14 @@ function AdaptiveWorkspaceLayoutContent(
         onClosed={handleWorkspaceInspectorClosed}
       />
       {shouldRenderNavigationRail && navigationRailWidth > 0 ? (
-        // The rail reserves its slot above and draws over the panes, so it can widen over
-        // the list in place. It takes the whole workspace only while it is open.
+        // Its trailing inset clips the old rail as soon as Android fits the workspace to a cover display.
         <View
-          className="absolute inset-y-0 left-0"
-          style={railOverlay ? { right: 0 } : { width: navigationRailWidth }}
+          className="absolute inset-y-0 left-0 overflow-hidden"
+          style={
+            railOverlay
+              ? { right: 0 }
+              : { right: viewportWidth - navigationRailWidth, maxWidth: navigationRailWidth }
+          }
         >
           <AndroidWorkspaceNavigation
             onNewThread={handleStartNewTask}

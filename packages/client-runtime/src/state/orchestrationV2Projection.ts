@@ -293,8 +293,9 @@ export function applyOrchestrationV2ProjectionEvent(
     case "thread.provider-switched":
     case "thread.guest-share-updated":
       return { ...base, thread: event.payload };
-    // Visited tracking and bookmarks are read state, not activity: skip the updatedAt bump.
+    // Visited tracking, bookmarks, and tags are read state, not activity: skip the updatedAt bump.
     case "thread.visited":
+    case "thread.tags-updated":
     case "thread.marked-unread":
     case "thread.bookmark-added":
     case "thread.bookmark-removed":
