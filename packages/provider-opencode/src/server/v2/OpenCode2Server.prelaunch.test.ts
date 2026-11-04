@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -17,8 +18,8 @@ import * as OpenCode2Server from "./OpenCode2Server.ts";
 
 interface SpawnRecord {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
-  readonly env?: Record<string, string | undefined> | undefined;
+  readonly args: ChildProcess.StandardCommand["args"];
+  readonly env?: ChildProcess.StandardCommand["options"]["env"];
 }
 
 const SERVE_SPAWN_FAILURE = PlatformError.systemError({
@@ -100,7 +101,7 @@ const withServer = <A, E>(
           Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
           Layer.provide(OpenCodeServerLedger.layerTest),
         ),
-      ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
     Effect.provideService(HostProcess.Platform, "darwin"),
   );

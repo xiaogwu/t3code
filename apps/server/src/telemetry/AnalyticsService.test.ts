@@ -444,6 +444,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
           Layer.mergeAll(
             Layer.succeed(HostProcess.Platform, "linux"),
             Layer.succeed(HostProcess.Architecture, "arm64"),
+            ManagedPolicy.layerTest(),
           ),
         ),
         Layer.provideMerge(NodeHttpServer.layerTest),

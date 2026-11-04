@@ -2952,7 +2952,12 @@ describe("ClaudeAdapterV2 native session identity", () => {
 
   it.effect("resumes an imported native session on its first T3 turn", () =>
     Effect.gen(function* () {
-      const openedQueries = yield* openTurnWithOrdinal(1, false, undefined, "imported-native-session");
+      const openedQueries = yield* openTurnWithOrdinal(
+        1,
+        false,
+        undefined,
+        "imported-native-session",
+      );
       assert.equal(openedQueries.length, 1);
       assert.equal(openedQueries[0]?.options.resume, "imported-native-session");
       assert.equal(openedQueries[0]?.options.sessionId, undefined);
@@ -6288,7 +6293,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       assert.isUndefined(harness.getOpenedOptions()?.resume);
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
       ),
     ),
   );

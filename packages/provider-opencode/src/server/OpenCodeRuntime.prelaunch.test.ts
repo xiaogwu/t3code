@@ -12,8 +12,8 @@ import * as OpenCodeServerLedger from "./OpenCodeServerLedger.ts";
 
 interface SpawnRecord {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
-  readonly env?: Record<string, string | undefined> | undefined;
+  readonly args: ChildProcess.StandardCommand["args"];
+  readonly env?: ChildProcess.StandardCommand["options"]["env"];
   readonly extendEnv?: boolean | undefined;
 }
 

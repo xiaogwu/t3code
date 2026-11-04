@@ -52,7 +52,7 @@ describe("DesktopEnvironment", () => {
       // with the nightly it was cut from.
       assert.equal(environment.isDevelopment, false);
       assert.equal(environment.appUserModelId, "com.t3tools.t3code");
-      assert.equal(environment.linuxWmClass, "t3code");
+      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
     }),
   );
 
