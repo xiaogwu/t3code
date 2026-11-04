@@ -519,7 +519,7 @@ const make = Effect.gen(function* () {
           AND message.role IN ('user', 'assistant')
         ORDER BY message.created_at DESC, message.message_id DESC
         LIMIT 1
-      `;
+      `.pipe(NodeSqliteClient.readOnly);
     const latestUser = yield* sql<LegacyMessageRow>`
         SELECT
           message.message_id,
@@ -550,7 +550,7 @@ const make = Effect.gen(function* () {
           AND message.role = 'user'
         ORDER BY message.created_at DESC, message.message_id DESC
         LIMIT 1
-      `;
+      `.pipe(NodeSqliteClient.readOnly);
     return [latestUser[0], latest[0]].filter(
       (message, index, selected): message is LegacyMessageRow =>
         message !== undefined &&
@@ -619,7 +619,7 @@ const make = Effect.gen(function* () {
            )
          )
       ORDER BY thread.created_at ASC, thread.thread_id ASC
-    `;
+    `.pipe(NodeSqliteClient.readOnly);
     let repairedThreadCount = 0;
     for (const row of repairRows) {
       const decoded = decodeStoredThread(row.payload_json);
@@ -725,7 +725,7 @@ const make = Effect.gen(function* () {
           AND event.event_type = 'thread.created'
       )
       ORDER BY thread.created_at ASC, thread.thread_id ASC
-    `;
+    `.pipe(NodeSqliteClient.readOnly);
     let importedThreadCount = repairedThreadCount;
     let importedMessageCount = 0;
     const environmentId = yield* readEnvironmentId;

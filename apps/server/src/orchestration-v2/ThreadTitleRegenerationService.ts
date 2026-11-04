@@ -14,6 +14,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
@@ -60,6 +61,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
+  const fileSystem = yield* FileSystem.FileSystem;
 
   type Outcome =
     | { readonly type: "stale" }
@@ -196,8 +198,13 @@ const make = Effect.gen(function* () {
       } else {
         // A deleted source should not cost the fork its title.
         const inherited = yield* forkSource(thread).pipe(Effect.orElseSucceed(() => undefined));
+        // Storage cleanup removes worktrees but keeps the path; CLIs cannot spawn in a missing cwd.
+        const worktreePath = thread.worktreePath;
+        const worktreeExists =
+          worktreePath !== null &&
+          (yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => false)));
         const result = yield* textGeneration.generateThreadTitle({
-          cwd: thread.worktreePath ?? project.value.workspaceRoot,
+          cwd: worktreeExists ? worktreePath : project.value.workspaceRoot,
           message: context.message,
           attachments: context.attachments,
           ...(kind.type === "initial" ? {} : { previousTitle: thread.title }),
