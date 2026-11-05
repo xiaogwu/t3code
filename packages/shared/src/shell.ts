@@ -5,13 +5,13 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as Cache from "effect/Cache";
 import * as Clock from "effect/Clock";
-import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import type { ShellEnvironmentPatch } from "@t3tools/contracts";
 import * as HostProcess from "./HostProcess.ts";
@@ -353,9 +353,10 @@ type SpawnShellProbe = (
 const LOGIN_SHELL_KILL_GRACE = Duration.seconds(1);
 const LOGIN_SHELL_TIMEOUT = Duration.millis(LOGIN_SHELL_TIMEOUT_MS);
 
-export class LoginShellProbeError extends Data.TaggedError("LoginShellProbeError")<{
-  readonly cause: unknown;
-}> {}
+export class LoginShellProbeError extends Schema.TaggedError<LoginShellProbeError>()(
+  "LoginShellProbeError",
+  { cause: Schema.Defect() },
+) {}
 
 export type ShellEnvironmentAsyncReader = (
   shell: string,
