@@ -713,19 +713,6 @@ export class DesktopBuildNoArtifactsProducedError extends Schema.TaggedError<Des
   }
 }
 
-export class DesktopBuildArtifactCopyError extends Schema.TaggedError<DesktopBuildArtifactCopyError>()(
-  "DesktopBuildArtifactCopyError",
-  {
-    from: Schema.String,
-    to: Schema.String,
-    reason: Schema.String,
-  },
-) {
-  override get message(): string {
-    return `Could not copy build artifact ${this.from} to ${this.to}: ${this.reason}`;
-  }
-}
-
 export class WslRuntimeArchiveMissingError extends Schema.TaggedError<WslRuntimeArchiveMissingError>()(
   "WslRuntimeArchiveMissingError",
   {
@@ -4217,7 +4204,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     yield* artifact.type === "Directory"
       ? Effect.tryPromise({
           try: () => copyStageArtifactTree(from, to),
-          catch: (cause) => new DesktopBuildArtifactCopyError({ from, to, reason: String(cause) }),
+          catch: (cause) => new DesktopBuildArtifactCopyError({ from, to, cause }),
         })
       : fs.copyFile(from, to);
     copiedArtifacts.push(to);
