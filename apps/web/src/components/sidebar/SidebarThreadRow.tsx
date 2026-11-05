@@ -764,9 +764,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         icon: "working" as const,
         className: "text-sky-600 dark:text-sky-400",
       }
-    : status === "working"
+    : status === "preparing" || status === "working"
       ? {
-          label: thread.goal?.status === "active" ? "Goal" : "Working",
+          label:
+            status === "preparing"
+              ? "Setting up"
+              : thread.goal?.status === "active"
+                ? "Goal"
+                : "Working",
           icon: "working" as const,
           className: "text-info-foreground",
         }
@@ -1007,7 +1012,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
     shouldRecede &&
-      status === "working" &&
+      (status === "preparing" || status === "working") &&
       "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
     isFileDragOver && !props.isActive && !isSelected && "bg-sidebar-row-hover",
@@ -1545,7 +1550,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             BackgroundThreadAnnouncer and the open thread's
                             timeline speak status changes instead. */}
                           {topStatus.label}
-                          {status === "working" ? (
+                          {status === "preparing" || status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
                             </span>

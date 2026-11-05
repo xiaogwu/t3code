@@ -426,7 +426,7 @@ describe("readEnvironmentFromWindowsShell", () => {
 
       expect(
         yield* readEnvironmentFromWindowsShell(["PATH"], {}, (...args) =>
-          Effect.try(() => execFile(...args)).pipe(Effect.option),
+          Effect.sync(() => Option.liftThrowable(execFile)(...args)),
         ),
       ).toEqual({
         PATH: "C:\\Users\\testuser\\AppData\\Roaming\\npm",
@@ -454,7 +454,7 @@ describe("readEnvironmentFromWindowsShell", () => {
 
       expect(
         yield* readEnvironmentFromWindowsShell(["FNM_DIR"], {}, (...args) =>
-          Effect.try(() => execFile(...args)).pipe(Effect.option),
+          Effect.sync(() => Option.liftThrowable(execFile)(...args)),
         ),
       ).toEqual({
         FNM_DIR: "C:\\Users\\testuser\\AppData\\Roaming\\fnm",
@@ -474,7 +474,7 @@ describe("readEnvironmentFromWindowsShell", () => {
 
       expect(
         yield* readEnvironmentFromWindowsShell(["PATH"], { loadProfile: true }, (...args) =>
-          Effect.try(() => execFile(...args)).pipe(Effect.option),
+          Effect.sync(() => Option.liftThrowable(execFile)(...args)),
         ),
       ).toEqual({
         PATH: "C:\\Tools",
@@ -505,7 +505,7 @@ describe("readEnvironmentFromWindowsShell", () => {
 
       expect(
         yield* readEnvironmentFromWindowsShell(["PATH"], {}, (...args) =>
-          Effect.try(() => execFile(...args)).pipe(Effect.option),
+          Effect.sync(() => Option.liftThrowable(execFile)(...args)),
         ),
       ).toEqual({
         PATH: "C:\\Tools",

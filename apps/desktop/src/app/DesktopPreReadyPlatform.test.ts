@@ -57,6 +57,7 @@ vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
 }));
 
+import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 
 describe("DesktopPreReadyPlatform", () => {
@@ -125,8 +126,6 @@ describe("DesktopPreReadyPlatform", () => {
   ])("prepares a $label Linux desktop entry before startup yields", ({ previousEntry }) => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     vi.stubEnv("T3CODE_DESKTOP_DEV_BUILD", "");
-    vi.stubEnv("XDG_DATA_HOME", "/xdg");
-    vi.stubEnv("APPIMAGE", "/Applications/current.AppImage");
     getSwitchValueMock.mockReturnValue("");
     let desktopName = "t3code.desktop";
     let desktopEntry = previousEntry;
@@ -151,6 +150,12 @@ describe("DesktopPreReadyPlatform", () => {
         yield* Layer.build(
           DesktopPreReadyPlatform.layer.pipe(
             Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
+            Layer.provide(
+              DesktopConfig.layerTest({
+                XDG_DATA_HOME: "/xdg",
+                APPIMAGE: "/Applications/current.AppImage",
+              }),
+            ),
           ),
         );
         const identity = yield* Effect.promise(() => portalIdentity);
@@ -170,8 +175,6 @@ describe("DesktopPreReadyPlatform", () => {
   it.effect("brands the early Linux desktop entry as a dev build when the marker is set", () => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     vi.stubEnv("T3CODE_DESKTOP_DEV_BUILD", "1");
-    vi.stubEnv("XDG_DATA_HOME", "/xdg");
-    vi.stubEnv("APPIMAGE", "/Applications/current.AppImage");
     getSwitchValueMock.mockReturnValue("");
     let desktopEntry: string | undefined;
     writeFileSyncMock.mockImplementation((path: string, contents: string) => {
@@ -183,6 +186,12 @@ describe("DesktopPreReadyPlatform", () => {
         yield* Layer.build(
           DesktopPreReadyPlatform.layer.pipe(
             Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
+            Layer.provide(
+              DesktopConfig.layerTest({
+                XDG_DATA_HOME: "/xdg",
+                APPIMAGE: "/Applications/current.AppImage",
+              }),
+            ),
           ),
         );
 
@@ -193,9 +202,6 @@ describe("DesktopPreReadyPlatform", () => {
 
   it.effect("points the early portal entry at a configured distribution launcher", () => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
-    vi.stubEnv("XDG_DATA_HOME", "/xdg");
-    vi.stubEnv("APPIMAGE", "/Applications/current.AppImage");
-    vi.stubEnv("T3CODE_DESKTOP_LAUNCHER_PATH", " /opt/T3 Code/t3code ");
     getSwitchValueMock.mockReturnValue("");
 
     return Effect.scoped(
@@ -203,6 +209,13 @@ describe("DesktopPreReadyPlatform", () => {
         yield* Layer.build(
           DesktopPreReadyPlatform.layer.pipe(
             Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
+            Layer.provide(
+              DesktopConfig.layerTest({
+                XDG_DATA_HOME: "/xdg",
+                APPIMAGE: "/Applications/current.AppImage",
+                T3CODE_DESKTOP_LAUNCHER_PATH: " /opt/T3 Code/t3code ",
+              }),
+            ),
           ),
         );
         const entry = writeFileSyncMock.mock.calls.find(
