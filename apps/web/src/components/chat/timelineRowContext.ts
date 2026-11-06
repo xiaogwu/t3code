@@ -118,6 +118,7 @@ export interface TimelineRowActivityState {
    * list itself has already left the timeline.
    */
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  liveAnswerPreview: string | null;
 }
 
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);

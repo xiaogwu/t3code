@@ -35,6 +35,8 @@ export type {
   ReviewGuideGenerationResult,
   ThreadTitleGenerationInput,
   ThreadTitleGenerationResult,
+  TranscriptionPostProcessingInput,
+  TranscriptionPostProcessingResult,
 } from "@t3tools/provider-core/server/textGeneration";
 
 export class TextGeneration extends Context.Service<TextGeneration, ProviderTextGeneration>()(
@@ -46,7 +48,8 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
-  | "generateReviewGuide";
+  | "generateReviewGuide"
+  | "generateTranscriptionPostProcessing";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -204,12 +207,13 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
       ),
     );
     const now = DateTime.toEpochMillis(yield* DateTime.now);
-    const limited = exhaustedUsageWindow(
-      snapshots.find((provider) => provider.instanceId === selection.instanceId),
-      now,
-      selection.model,
-    );
-    if (!limited) return selection;
+    const selected = snapshots.find((provider) => provider.instanceId === selection.instanceId);
+    // Only a failed probe counts: a pending one is also not installed yet.
+    const unusable =
+      selected?.enabled === true &&
+      selected.status === "error" &&
+      (!selected.installed || selected.auth.status === "unauthenticated");
+    if (!unusable && !exhaustedUsageWindow(selected, now, selection.model)) return selection;
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
         (cause) =>
@@ -231,6 +235,7 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
             resolveProjectProviderInstanceEnabled(settings, null, instanceId) &&
             provider.installed &&
             provider.auth.status !== "unauthenticated" &&
+            provider.status !== "error" &&
             isProviderAvailable(provider) &&
             isProviderTextGenerationCapable(provider) &&
             (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
@@ -301,6 +306,20 @@ export const makeTextGenerationFromRegistry = (
         "generateReviewGuide",
         prepared.modelSelection.instanceId,
       ).pipe(Effect.flatMap((instance) => instance.textGeneration.generateReviewGuide(prepared)));
+    }),
+    generateTranscriptionPostProcessing: Effect.fn(
+      "TextGeneration.generateTranscriptionPostProcessing",
+    )(function* (input) {
+      const prepared = yield* preflight("generateTranscriptionPostProcessing", input);
+      return yield* resolveInstance(
+        registry,
+        "generateTranscriptionPostProcessing",
+        prepared.modelSelection.instanceId,
+      ).pipe(
+        Effect.flatMap((instance) =>
+          instance.textGeneration.generateTranscriptionPostProcessing(prepared),
+        ),
+      );
     }),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function* (input) {
       const prepared = yield* preflight("generateThreadTitle", input);

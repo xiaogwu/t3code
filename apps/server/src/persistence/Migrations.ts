@@ -107,6 +107,8 @@ import Migration0085 from "./Migrations/085_DropOrchestrationEventCorrelationInd
 
 // Upstream ships this as 079.
 import Migration0086 from "./Migrations/086_DelegatedRecoveryIndexes.ts";
+// Upstream ships this as 080.
+import Migration0087 from "./Migrations/087_ScheduledTaskThreadMode.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -208,6 +210,8 @@ export const migrationEntries = [
   [85, "DropOrchestrationEventCorrelationIndex", Migration0085],
   // Upstream ships this as 79.
   [86, "DelegatedRecoveryIndexes", Migration0086],
+  // Upstream ships this as 80.
+  [87, "ScheduledTaskThreadMode", Migration0087],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
