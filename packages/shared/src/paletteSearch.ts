@@ -448,6 +448,8 @@ function matchSearchFields(
 
 // A two-letter Latin substring of a message is noise rather than a match.
 const MESSAGE_TOKEN_MIN_LENGTH = 3;
+// A pasted link's fragment ("#event-2661378") points within the page; messages hold the bare link.
+const URL_FRAGMENT = /^([a-z][a-z\d+.-]*:\/\/[^#]+)#.*$/;
 
 /**
  * Keep accents: the server index folds Latin accents, and stripping marks breaks Korean/Japanese.
@@ -467,6 +469,7 @@ export function messageSearchTokens(query: string): {
     .normalize("NFC")
     .toLowerCase()
     .split(/\s+/)
+    .map((token) => token.replace(URL_FRAGMENT, "$1"))
     .filter((token) => token.length > 0);
   const searchable = (token: string) => {
     const length = Array.from(token).length;
