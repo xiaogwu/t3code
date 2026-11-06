@@ -450,6 +450,8 @@ function matchSearchFields(
 const MESSAGE_TOKEN_MIN_LENGTH = 3;
 // A pasted link's fragment ("#event-2661378") points within the page; messages hold the bare link.
 const URL_FRAGMENT = /^([a-z][a-z\d+.-]*:\/\/[^#]+)#.*$/;
+// A pull request's tabs ("/files", "/commits/<sha>") are pages of it; messages hold its own link.
+const PULL_REQUEST_PAGE = /^([a-z][a-z\d+.-]*:\/\/\S*\/pull\/\d+)[/?].*$/;
 
 /**
  * Keep accents: the server index folds Latin accents, and stripping marks breaks Korean/Japanese.
@@ -469,7 +471,7 @@ export function messageSearchTokens(query: string): {
     .normalize("NFC")
     .toLowerCase()
     .split(/\s+/)
-    .map((token) => token.replace(URL_FRAGMENT, "$1"))
+    .map((token) => token.replace(URL_FRAGMENT, "$1").replace(PULL_REQUEST_PAGE, "$1"))
     .filter((token) => token.length > 0);
   const searchable = (token: string) => {
     const length = Array.from(token).length;
