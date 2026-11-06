@@ -683,6 +683,11 @@ describe("scoreMessageMatch", () => {
         "https://prodgit.example.com/a/b/pull/1795#event-2661378",
         { quality: 1, offset: 4 },
       ],
+      [
+        "See https://prodgit.example.com/a/b/pull/1795",
+        "https://prodgit.example.com/a/b/pull/1795/files",
+        { quality: 1, offset: 4 },
+      ],
     ] as const) {
       expect(scoreMessageMatch(text, query), `${query} in ${text}`).toEqual(expected);
     }
