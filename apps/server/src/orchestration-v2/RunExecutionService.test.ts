@@ -3917,7 +3917,7 @@ it.effect.each([
           McpAppModelContext.layerEmpty,
           PreviewAgentActivity.layer,
           Layer.mock(CheckpointService.CheckpointServiceV2)({ captureBaseline: () => Effect.void }),
-          Layer.mock(EventSink.EventSinkV2)({
+          mockEventSink({
             write: () => Effect.succeed([]),
             writeWithEffects: (input) =>
               (input.events.some((event) => event.type === "run.updated")
