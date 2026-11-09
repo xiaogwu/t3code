@@ -3109,7 +3109,7 @@ function OpenCommandPaletteDialog(props: {
                 className={cn(THREAD_FILTER_CHIP_CLASS, active && THREAD_FILTER_CHIP_ACTIVE_CLASS)}
                 key={filter}
                 onClick={() => {
-                  handleQueryChange(toggleThreadStateFilterQuery(query, filter));
+                  handleQueryChange(toggleThreadStateFilterQuery(query, filter), null);
                 }}
                 type="button"
               >
@@ -3127,7 +3127,7 @@ function OpenCommandPaletteDialog(props: {
               isArchivedOnly && THREAD_FILTER_CHIP_ACTIVE_CLASS,
             )}
             onClick={() => {
-              handleQueryChange(toggleArchivedScopeQuery(query));
+              handleQueryChange(toggleArchivedScopeQuery(query), null);
             }}
             type="button"
           >

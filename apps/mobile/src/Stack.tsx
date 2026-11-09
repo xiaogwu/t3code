@@ -640,18 +640,14 @@ const RootStackConfig = createWorkspaceStackNavigator({
     SnoozeFor: createNativeStackScreen({
       screen: SnoozeForRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/snooze`,
-      options: {
-        gestureEnabled: true,
-        ...(Platform.OS === "android"
-          ? { presentation: "card" as const, headerShown: false }
-          : {
-              ...SHEET_SOLID_HEADER_OPTIONS,
-              presentation: "formSheet" as const,
-              sheetAllowedDetents: [0.55, 0.8],
-              sheetGrabberVisible: true,
-              title: "Snooze until",
-            }),
-      },
+      // Android pushes it as a card; the screen draws its own bar there.
+      options: sheetRoute({
+        title: "Snooze until",
+        header: "solid",
+        detent: 0.55,
+        maxDetent: 0.8,
+        android: "card",
+      }),
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,
