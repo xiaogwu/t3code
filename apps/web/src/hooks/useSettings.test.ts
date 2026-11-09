@@ -340,15 +340,9 @@ it("uses the environment's model preferences after migration, including empty li
 });
 
 describe("toggleBoringSidebarPreference", () => {
-  it("inverts the current sidebar choice and clears the legacy opt-in", () => {
-    expect(toggleBoringSidebarPreference(false)).toEqual({
-      boringSidebarEnabled: true,
-      legacySidebarEnabled: false,
-    });
-    expect(toggleBoringSidebarPreference(true)).toEqual({
-      boringSidebarEnabled: false,
-      legacySidebarEnabled: false,
-    });
+  it("inverts the current sidebar choice", () => {
+    expect(toggleBoringSidebarPreference(false)).toEqual({ boringSidebarEnabled: true });
+    expect(toggleBoringSidebarPreference(true)).toEqual({ boringSidebarEnabled: false });
   });
 });
 
