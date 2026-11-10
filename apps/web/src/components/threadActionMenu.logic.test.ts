@@ -92,10 +92,11 @@ describe("buildThreadActionMenuItems", () => {
     ).not.toBe(true);
   });
 
-  it("offers Markdown and PDF export as a submenu", () => {
+  it("offers Markdown, HTML, and PDF export as a submenu", () => {
     const exportItem = buildThreadActionMenuItems(baseState).find((item) => item.id === "export");
     expect(exportItem?.children?.map((child) => child.id)).toEqual([
       "export-markdown",
+      "export-html",
       "export-pdf",
     ]);
   });
@@ -106,7 +107,12 @@ describe("buildThreadActionMenuItems", () => {
         .find((item) => item.id === "export")
         ?.children?.map((child) => child.id);
     expect(children(false)).not.toContain("export-share");
-    expect(children(true)).toEqual(["export-markdown", "export-pdf", "export-share"]);
+    expect(children(true)).toEqual([
+      "export-markdown",
+      "export-html",
+      "export-pdf",
+      "export-share",
+    ]);
   });
 
   it("offers Mark read instead of Mark unread once a thread reads as unread", () => {

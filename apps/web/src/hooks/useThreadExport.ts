@@ -10,7 +10,7 @@ import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadExportHtml, printHtmlDocument, shareThreadFile } from "../threadExport";
 
-export type ThreadExportFormat = "markdown" | "pdf" | "share";
+export type ThreadExportFormat = "markdown" | "html" | "pdf" | "share";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -24,7 +24,7 @@ function failureToast(title: string, error: unknown) {
 
 /**
  * Exports a whole thread (the server reads every message, not the loaded
- * window) as Markdown or PDF. Markdown downloads as a file. PDF saves through
+ * window) as Markdown, HTML, or PDF. Markdown and HTML download as files. PDF saves through
  * the desktop shell when it can, and otherwise opens the browser print dialog.
  * Share hands the Markdown file to the system share sheet.
  */
@@ -75,6 +75,10 @@ export function useThreadExport() {
       return;
     }
     const html = buildThreadExportHtml({ title, markdown });
+    if (format === "html") {
+      downloadTextFile(fileName.replace(/\.md$/, ".html"), html, "text/html;charset=utf-8");
+      return;
+    }
     const bridge = window.desktopBridge;
     if (!bridge?.exportThreadPdf) {
       printHtmlDocument(html);

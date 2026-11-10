@@ -33,6 +33,7 @@ export type ThreadActionMenuId =
   | "copy-thread-id"
   | "export"
   | "export-markdown"
+  | "export-html"
   | "export-pdf"
   | "export-share"
   | "archive"
@@ -138,6 +139,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-thread-id",
     "export",
     "export-markdown",
+    "export-html",
     "export-pdf",
     "export-share",
   ].includes(action);
@@ -286,6 +288,7 @@ export function buildThreadActionMenuItems(
       icon: "download",
       children: [
         { id: "export-markdown", label: "Markdown" },
+        { id: "export-html", label: "HTML" },
         { id: "export-pdf", label: "PDF" },
         ...(state.canShare ? [{ id: "export-share" as const, label: "Share…" }] : []),
       ],

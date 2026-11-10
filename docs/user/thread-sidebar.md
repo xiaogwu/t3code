@@ -256,8 +256,8 @@ be selected again. The option is hidden when the connected environment needs a s
 
 ## Export a thread
 
-Open a thread's context menu and choose **Export → Markdown** or **Export → PDF**, or run
-**Export thread as Markdown** / **Export thread as PDF** from the command palette. `Cmd/Ctrl+Alt+E`
+Open a thread's context menu and choose **Export → Markdown**, **Export → HTML**, or **Export → PDF**, or
+run the matching **Export thread as…** command from the command palette. `Cmd/Ctrl+Alt+E`
 exports a PDF; bind **Thread: Export as Markdown** in **Settings → Keybindings** to get a Markdown
 shortcut. Exports cover the whole thread, not only the part loaded on screen.
 
