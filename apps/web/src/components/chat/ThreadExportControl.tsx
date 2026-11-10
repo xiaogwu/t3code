@@ -13,7 +13,7 @@ import {
   THREAD_DETAILS_PANEL_LABEL_CLASS,
 } from "./threadDetailsPanelStyles";
 
-/** Thread details panel row that exports the whole thread as Markdown or PDF. */
+/** Thread details panel row that exports the whole thread as Markdown, HTML, or PDF. */
 export function ThreadExportControl(props: {
   threadRef: ScopedThreadRef;
   keybindings: ResolvedKeybindingsConfig;
@@ -45,6 +45,9 @@ export function ThreadExportControl(props: {
           <MenuShortcut>
             {shortcutLabelForCommand(props.keybindings, "thread.exportMarkdown")}
           </MenuShortcut>
+        </MenuItem>
+        <MenuItem onClick={() => void exportThread(props.threadRef, "html")}>
+          <MenuItemLabel>HTML</MenuItemLabel>
         </MenuItem>
         <MenuItem onClick={() => void exportThread(props.threadRef, "pdf")}>
           <MenuItemLabel>PDF</MenuItemLabel>

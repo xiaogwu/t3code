@@ -3072,6 +3072,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "export-markdown":
             await exportThread(threadRef, "markdown");
             return;
+          case "export-html":
+            await exportThread(threadRef, "html");
+            return;
           case "export-pdf":
             await exportThread(threadRef, "pdf");
             return;

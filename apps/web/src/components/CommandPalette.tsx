@@ -1649,6 +1649,14 @@ function OpenCommandPaletteDialog(props: {
       },
       {
         kind: "action",
+        value: "action:export-thread-html",
+        searchTerms: ["export", "download", "save", "html", "web", "transcript"],
+        title: "Export thread as HTML",
+        icon: <DownloadIcon className={ITEM_ICON_CLASS} />,
+        run: () => exportThread(exportRef, "html"),
+      },
+      {
+        kind: "action",
         value: "action:export-thread-pdf",
         searchTerms: ["export", "download", "save", "pdf", "print", "transcript"],
         title: "Export thread as PDF",
