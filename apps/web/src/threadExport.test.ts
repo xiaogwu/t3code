@@ -38,27 +38,24 @@ describe("buildThreadExportHtml", () => {
       title: "t",
       markdown: [
         "# t",
-        "- Exported: 2026-11-10T20:24:59.243Z",
+        "- Exported: 2026-11-10 20:24 UTC",
         "---",
-        "## User · 2026-10-16T01:01:30.019Z",
+        "## User · 2026-10-16 01:01 UTC",
         "Hi",
-        "## Assistant · 2026-10-16T01:01:51.035Z",
+        "## Assistant · 2026-10-16 01:02 UTC",
         "## Notes\n\nOne",
-        "## Assistant · 2026-10-16T01:02:02.990Z",
-        "Two",
       ].join("\n\n"),
     });
 
     expect(html).toContain('<ul class="meta">');
-    expect(html).not.toContain("2026-11-10T20:24:59.243Z</li>");
+    expect(html).not.toContain("UTC</li>");
     expect(html).not.toContain("<hr>");
     expect(html).toMatch(
-      /<section class="message user"><header>.*?<time datetime="2026-10-16T01:01:30.019Z">.*?<p>Hi<\/p>\s*<\/section>/s,
+      /<section class="message user"><header>.*?<time datetime="2026-10-16T01:01:00Z">.*?<p>Hi<\/p>\s*<\/section>/s,
     );
     expect(html).toMatch(
       /<section class="message assistant">.*?<h2>Notes<\/h2>\s*<p>One<\/p>\s*<\/section>/s,
     );
-    expect(html).toContain('<section class="message assistant continued">');
   });
 });
 

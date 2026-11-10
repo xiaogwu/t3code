@@ -29,10 +29,8 @@ img { max-width: 100%; }
 ul.meta { display: flex; flex-wrap: wrap; gap: 4pt 16pt; list-style: none; margin: 0 0 18pt; padding: 0 0 12pt; border-bottom: 1px solid #d8dee4; color: #6e7781; font-size: 9.5pt; }
 ul.meta li + li { margin-top: 0; }
 .message { margin: 16pt 0; }
-.message.continued { margin-top: 10pt; }
 .message > header { display: flex; align-items: baseline; gap: 8pt; margin-bottom: 4pt; color: #6e7781; font-size: 9pt; break-after: avoid; }
 .message > header .role { color: #1f2328; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.message.continued > header .role { display: none; }
 .message.user, .message.plan { border-radius: 8px; padding: 8pt 12pt; }
 .message.user { background: #f1f4f8; }
 .message.plan { border: 1px solid #d0d7de; }
@@ -40,16 +38,21 @@ ul.meta li + li { margin-top: 0; }
 .message > :last-child { margin-bottom: 0; }
 `;
 
-const SPEAKER_HEADING = /^(User|Assistant|Plan) · (\S+)$/;
-const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+const SPEAKER_HEADING = /^(User|Assistant|Plan) · (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC)$/;
+const EXPORT_TIME = /\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/g;
 const TIMESTAMP_FORMAT = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
 
-function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : TIMESTAMP_FORMAT.format(date);
+/** `2026-10-19 10:00 UTC` (the Markdown's time) as an ISO instant. */
+function exportTimeToIso(time: string): string {
+  return `${time.slice(0, 10)}T${time.slice(11, 16)}:00Z`;
+}
+
+function formatExportTime(time: string): string {
+  const date = new Date(exportTimeToIso(time));
+  return Number.isNaN(date.getTime()) ? time : TIMESTAMP_FORMAT.format(date);
 }
 
 function textOf(node: Element): string {
@@ -68,12 +71,11 @@ function element(tagName: string, className: string[], children: ElementContent[
 /**
  * Restyles the export Markdown's structure: the "Branch / Exported" list
  * under the title becomes a muted meta line, and each "User · <iso>" heading
- * opens a message section with a readable local time.
+ * opens a message section with the time in the reader's locale.
  */
 function shapeThreadDocument(root: Root): Root {
   const children: RootContent[] = [];
   let section: Element | null = null;
-  let previousRole: string | null = null;
   let afterTitle = false;
   for (const node of root.children) {
     if (node.type === "element" && node.tagName === "h1") {
@@ -88,7 +90,7 @@ function shapeThreadDocument(root: Root): Root {
           if (item.type !== "element") continue;
           for (const child of item.children) {
             if (child.type === "text")
-              child.value = child.value.replace(ISO_TIMESTAMP, formatTimestamp);
+              child.value = child.value.replace(EXPORT_TIME, formatExportTime);
           }
         }
         node.properties = { ...node.properties, className: ["meta"] };
@@ -100,25 +102,27 @@ function shapeThreadDocument(root: Root): Root {
     const speaker =
       node.type === "element" && node.tagName === "h2" ? SPEAKER_HEADING.exec(textOf(node)) : null;
     if (speaker) {
-      const [, label = "", iso = ""] = speaker;
+      const [, label = "", time = ""] = speaker;
       const role = label.toLowerCase();
-      const className = ["message", role, ...(role === previousRole ? ["continued"] : [])];
-      section = element("section", className, [
-        element(
-          "header",
-          [],
-          [
-            element("span", ["role"], [{ type: "text", value: label }]),
-            {
-              type: "element",
-              tagName: "time",
-              properties: { dateTime: iso },
-              children: [{ type: "text", value: formatTimestamp(iso) }],
-            },
-          ],
-        ),
-      ]);
-      previousRole = role;
+      section = element(
+        "section",
+        ["message", role],
+        [
+          element(
+            "header",
+            [],
+            [
+              element("span", ["role"], [{ type: "text", value: label }]),
+              {
+                type: "element",
+                tagName: "time",
+                properties: { dateTime: exportTimeToIso(time) },
+                children: [{ type: "text", value: formatExportTime(time) }],
+              },
+            ],
+          ),
+        ],
+      );
       children.push(section);
       continue;
     }

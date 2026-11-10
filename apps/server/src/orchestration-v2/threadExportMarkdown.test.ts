@@ -20,7 +20,7 @@ const row = (position: number, item: Record<string, unknown>) =>
     },
   }) as unknown as OrchestrationV2ProjectedTurnItem;
 
-it("renders messages and plans in order with roles and timestamps", () => {
+it("renders messages and plans in order, one heading per assistant reply, without T3 links", () => {
   const markdown = renderThreadMarkdown({
     title: "Fix the sidebar",
     branch: "feature/sidebar",
@@ -35,19 +35,27 @@ it("renders messages and plans in order with roles and timestamps", () => {
         ],
       }),
       row(1, { type: "assistant_message", text: "On it.\n\n## Not a section" }),
-      row(2, { type: "proposed_plan", markdown: "# Plan\n- step" }),
-      row(3, { type: "command_execution", text: "ignored" }),
+      row(2, { type: "command_execution", text: "ignored" }),
+      row(3, { type: "assistant_message", text: "Done." }),
+      row(4, { type: "proposed_plan", markdown: "# Plan\n- step" }),
+      row(5, {
+        type: "user_message",
+        text: "See ![shot.png](t3-context://v1/image/image_1) and [notes](t3-context://v1/file/f_2)",
+        attachments: [],
+      }),
     ],
   });
 
   expect(markdown).toBe(
     [
       "# Fix the sidebar",
-      "- Branch: feature/sidebar\n- Exported: 2026-10-19T12:00:00.000Z",
+      "- Branch: feature/sidebar\n- Exported: 2026-10-19 12:00 UTC",
       "---",
-      "## User · 2026-10-19T10:00:00.000Z\n\nPlease fix it\n\nAttachments: shot.png, notes.pdf",
-      "## Assistant · 2026-10-19T10:01:00.000Z\n\nOn it.\n\n## Not a section",
-      "## Plan · 2026-10-19T10:02:00.000Z\n\n# Plan\n- step",
+      "## User · 2026-10-19 10:00 UTC\n\nPlease fix it\n\nAttachments: shot.png, notes.pdf",
+      "## Assistant · 2026-10-19 10:01 UTC\n\nOn it.\n\n## Not a section",
+      "Done.",
+      "## Plan · 2026-10-19 10:04 UTC\n\n# Plan\n- step",
+      "## User · 2026-10-19 10:05 UTC\n\nSee [shot.png] and notes",
     ].join("\n\n") + "\n",
   );
 });
