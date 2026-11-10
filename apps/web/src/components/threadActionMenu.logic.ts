@@ -34,6 +34,7 @@ export type ThreadActionMenuId =
   | "export"
   | "export-markdown"
   | "export-pdf"
+  | "export-share"
   | "archive"
   | "delete";
 
@@ -80,6 +81,8 @@ export interface ThreadActionMenuState {
   readonly canFind?: boolean;
   /** The chat header can scroll the sidebar to this thread; the sidebar row is already there. */
   readonly canRevealInSidebar?: boolean;
+  /** The browser can hand a file to the system share sheet; adds Export → Share…. */
+  readonly canShare: boolean;
   readonly branch: string | null;
   readonly projectFilter: {
     readonly label: string;
@@ -136,6 +139,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "export",
     "export-markdown",
     "export-pdf",
+    "export-share",
   ].includes(action);
 }
 
@@ -283,6 +287,7 @@ export function buildThreadActionMenuItems(
       children: [
         { id: "export-markdown", label: "Markdown" },
         { id: "export-pdf", label: "PDF" },
+        ...(state.canShare ? [{ id: "export-share" as const, label: "Share…" }] : []),
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },

@@ -5,6 +5,7 @@ import { useRef } from "react";
 import { useThreadExport } from "../../hooks/useThreadExport";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { cn } from "../../lib/utils";
+import { canShareThreadFile } from "../../threadExport";
 import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
@@ -51,6 +52,11 @@ export function ThreadExportControl(props: {
             {shortcutLabelForCommand(props.keybindings, "thread.exportPdf")}
           </MenuShortcut>
         </MenuItem>
+        {canShareThreadFile() ? (
+          <MenuItem onClick={() => void exportThread(props.threadRef, "share")}>
+            <MenuItemLabel>Share…</MenuItemLabel>
+          </MenuItem>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

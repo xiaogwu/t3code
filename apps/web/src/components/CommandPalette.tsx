@@ -82,6 +82,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlugIcon,
+  ShareIcon,
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
@@ -154,6 +155,7 @@ import { visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useThreadExport } from "../hooks/useThreadExport";
+import { canShareThreadFile } from "../threadExport";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
@@ -1655,6 +1657,16 @@ function OpenCommandPaletteDialog(props: {
         run: () => exportThread(exportRef, "pdf"),
       },
     );
+    if (canShareThreadFile()) {
+      actionItems.push({
+        kind: "action",
+        value: "action:share-thread",
+        searchTerms: ["share", "send", "airdrop", "markdown", "export", "transcript"],
+        title: "Share thread…",
+        icon: <ShareIcon className={ITEM_ICON_CLASS} />,
+        run: () => exportThread(exportRef, "share"),
+      });
+    }
     actionItems.push({
       kind: "action",
       value: "action:restart-agent-session",

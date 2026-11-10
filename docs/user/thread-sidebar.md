@@ -265,6 +265,7 @@ The export holds your messages, the agent's replies, and proposed plans. Tool ac
 diffs are not included, and attachments appear by file name only. On desktop, PDF export asks where to
 save the file. In a browser it opens the print dialog; choose **Save as PDF** as the destination. The
 mobile app can share a thread as Markdown from the thread list; it has no PDF export.
+On browsers that support it, **Export → Share…** sends the Markdown file to the system share sheet.
 
 ## Inspect agent work
 

@@ -47,6 +47,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
+import { canShareThreadFile } from "../threadExport";
 import { useThreadExport } from "./useThreadExport";
 
 function failureToast(title: string, error: unknown) {
@@ -139,6 +140,7 @@ export function useThreadActionMenu(input: {
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
+        canShare: canShareThreadFile(),
         canFind: onFind !== undefined,
         canRevealInSidebar: onRevealInSidebar !== undefined,
         branch: thread.branch ?? null,
@@ -324,6 +326,9 @@ export function useThreadActionMenu(input: {
           return;
         case "export-pdf":
           await exportThread(threadRef, "pdf");
+          return;
+        case "export-share":
+          await exportThread(threadRef, "share");
           return;
         case "archive": {
           if (confirmThreadArchive) {

@@ -79,3 +79,44 @@ export function printHtmlDocument(html: string): void {
   document.body.append(frame);
   printFrame = frame;
 }
+
+let canShareFiles: boolean | undefined;
+
+/** Whether this browser can hand a Markdown file to the system share sheet. Computed once. */
+export function canShareThreadFile(): boolean {
+  canShareFiles ??= (() => {
+    try {
+      return (
+        typeof navigator !== "undefined" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [new File([""], "thread.md", { type: "text/markdown" })] })
+      );
+    } catch {
+      return false;
+    }
+  })();
+  return canShareFiles;
+}
+
+/**
+ * Shares a thread's Markdown file through the system share sheet. The browser
+ * only allows this inside a user gesture, so "activation-lost" means the caller
+ * should ask for a fresh click and try again.
+ */
+export async function shareThreadFile(input: {
+  readonly title: string;
+  readonly fileName: string;
+  readonly markdown: string;
+}): Promise<"shared" | "cancelled" | "activation-lost"> {
+  const file = new File([input.markdown], input.fileName, { type: "text/markdown" });
+  try {
+    await navigator.share({ files: [file], title: input.title });
+    return "shared";
+  } catch (error) {
+    if (error instanceof DOMException || error instanceof Error) {
+      if (error.name === "AbortError") return "cancelled";
+      if (error.name === "NotAllowedError") return "activation-lost";
+    }
+    throw error;
+  }
+}
