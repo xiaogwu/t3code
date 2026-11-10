@@ -19,28 +19,55 @@ export function threadExportFileName(title: string, threadId: ThreadId): string 
   return `${segment.length > 0 ? segment : fallback}.md`;
 }
 
-function sectionFor(row: OrchestrationV2ProjectedTurnItem): string | null {
+/** `2026-10-19 10:00 UTC`: readable, and the same wherever the file is opened. */
+function exportTime(at: DateTime.DateTime): string {
+  const iso = DateTime.formatIso(at);
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
+/** T3 context links (pasted images, mentions) only resolve inside T3, so keep just their names. */
+function withoutContextLinks(text: string): string {
+  return text.replace(
+    /(!?)\[([^\]]*)\]\(t3-context:\/\/[^)\s]*\)/g,
+    (_, image: string, name: string) => (image ? `[${name}]` : name),
+  );
+}
+
+interface Section {
+  readonly role: "User" | "Assistant" | "Plan";
+  readonly at: string;
+  readonly body: string;
+}
+
+function messageBody(text: string, attachments: ReadonlyArray<string>): string | null {
+  if (text.trim().length === 0 && attachments.length === 0) return null;
+  const lines = [withoutContextLinks(text.trim())];
+  if (attachments.length > 0) lines.push(`Attachments: ${attachments.join(", ")}`);
+  return lines.join("\n\n");
+}
+
+function sectionFor(row: OrchestrationV2ProjectedTurnItem): Section | null {
   const item = row.item;
-  const at = DateTime.formatIso(item.startedAt ?? item.updatedAt);
+  const at = exportTime(item.startedAt ?? item.updatedAt);
   switch (item.type) {
     case "user_message": {
-      const attachments = item.attachments.map((attachment) => attachment.name);
-      if (item.text.trim().length === 0 && attachments.length === 0) return null;
-      const lines = [`## User · ${at}`, "", item.text.trim()];
-      if (attachments.length > 0) lines.push("", `Attachments: ${attachments.join(", ")}`);
-      return lines.join("\n");
+      const body = messageBody(
+        item.text,
+        item.attachments.map((attachment) => attachment.name),
+      );
+      return body === null ? null : { role: "User", at, body };
     }
     case "assistant_message": {
-      const attachments = (item.attachments ?? []).map((attachment) => attachment.name);
-      if (item.text.trim().length === 0 && attachments.length === 0) return null;
-      const lines = [`## Assistant · ${at}`, "", item.text.trim()];
-      if (attachments.length > 0) lines.push("", `Attachments: ${attachments.join(", ")}`);
-      return lines.join("\n");
+      const body = messageBody(
+        item.text,
+        (item.attachments ?? []).map((attachment) => attachment.name),
+      );
+      return body === null ? null : { role: "Assistant", at, body };
     }
     case "proposed_plan":
       return item.markdown.trim().length === 0
         ? null
-        : [`## Plan · ${at}`, "", item.markdown.trim()].join("\n");
+        : { role: "Plan", at, body: item.markdown.trim() };
     default:
       return null;
   }
@@ -59,12 +86,21 @@ export function renderThreadMarkdown(input: {
 }): string {
   const meta = [
     ...(input.branch === null ? [] : [`- Branch: ${input.branch}`]),
-    `- Exported: ${DateTime.formatIso(input.exportedAt)}`,
+    `- Exported: ${exportTime(input.exportedAt)}`,
   ];
-  const sections = input.rows.flatMap((row) => {
+  // An agent often answers in several messages; they read as one reply under one heading.
+  const sections: string[] = [];
+  let previousRole: Section["role"] | null = null;
+  for (const row of input.rows) {
     const section = sectionFor(row);
-    return section === null ? [] : [section];
-  });
+    if (section === null) continue;
+    if (section.role === "Assistant" && previousRole === "Assistant") {
+      sections.push(section.body);
+    } else {
+      sections.push(`## ${section.role} · ${section.at}\n\n${section.body}`);
+    }
+    previousRole = section.role;
+  }
   return [
     `# ${input.title}`,
     meta.join("\n"),
