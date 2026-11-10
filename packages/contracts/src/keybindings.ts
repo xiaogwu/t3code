@@ -61,6 +61,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "workspace.focusNext",
   "workspace.focusPrevious",
   "sidebar.toggle",
+  "sidebar.revealThread",
   "sidebar.version.toggle",
   "sidebar.sort.toggle",
   "sidebarAutoHide.toggle",

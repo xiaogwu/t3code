@@ -358,6 +358,10 @@ export const LoadBalancingWeights = Schema.Record(
 
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
+/** What switching threads does to the sidebar: expand what hides the row, only scroll, or nothing. */
+export const SidebarAutoReveal = Schema.Literals(["reveal", "scrollOnly", "off"]);
+export type SidebarAutoReveal = typeof SidebarAutoReveal.Type;
+
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
@@ -550,6 +554,9 @@ export const ClientSettingsSchema = Schema.Struct({
   // reveals on hover-intent from the window edge instead of staying pinned
   // open. Off by default so existing users see no behavioral change.
   sidebarAutoHide: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  sidebarAutoReveal: SidebarAutoReveal.pipe(
+    Schema.withDecodingDefault(Effect.succeed("scrollOnly" as const)),
+  ),
   // Working and monitoring threads fold into a Working shelf and return
   // to the top of the inbox once they need the user. The inbox then orders by
   // time, so manual placement there is ignored (and kept) while it is on.
@@ -2089,6 +2096,7 @@ export const ClientSettingsPatch = Schema.Struct({
   threadDetailsUsageEnabled: Schema.optionalKey(Schema.Boolean),
   threadDetailsItems: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   sidebarAutoHide: Schema.optionalKey(Schema.Boolean),
+  sidebarAutoReveal: Schema.optionalKey(SidebarAutoReveal),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(

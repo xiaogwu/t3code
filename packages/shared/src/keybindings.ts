@@ -58,6 +58,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle" },
   { key: "mod+alt+b", command: "sidebar.version.toggle" },
   { key: "mod+alt+s", command: "sidebar.sort.toggle" },
+  // mod+shift+r is the desktop menu's Force Reload.
+  { key: "mod+alt+r", command: "sidebar.revealThread", when: "!terminalFocus" },
   { key: "f6", command: "workspace.focusNext" },
   { key: "shift+f6", command: "workspace.focusPrevious" },
   // Some browsers keep plain F6 for their own toolbars; mod+F6 reaches the page in all of them.

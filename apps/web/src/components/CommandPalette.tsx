@@ -86,6 +86,7 @@ import {
   UserPlusIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
+import { requestSidebarReveal } from "./sidebar/routeReveal";
 import {
   useDeferredValue,
   useEffect,
@@ -1482,6 +1483,20 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "chat.find",
       run: async () => {
         openThreadFind(activeThreadKey);
+      },
+    });
+  }
+
+  if (activeThreadKey !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:reveal-thread-in-sidebar",
+      title: "Reveal Thread in Sidebar",
+      searchTerms: ["reveal", "sidebar", "scroll", "locate", "show", "thread", "expand"],
+      icon: <PanelLeftIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "sidebar.revealThread",
+      run: async () => {
+        requestSidebarReveal();
       },
     });
   }

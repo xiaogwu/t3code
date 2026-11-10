@@ -49,7 +49,11 @@ import ThreadSidebar from "./Sidebar";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { SidebarEdgeTrigger } from "./SidebarEdgeTrigger";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
-import type { SidebarRouteReveal } from "./sidebar/routeReveal";
+import {
+  requestSidebarReveal,
+  sidebarRevealRequest,
+  type SidebarRouteReveal,
+} from "./sidebar/routeReveal";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   resolveInitialThreadSidebarWidth,
@@ -311,7 +315,15 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar, peeked, peekPanelHandlers, isMobile, mobileSheetMounted } = useSidebar();
+  const {
+    toggleSidebar,
+    setOpen,
+    setOpenMobile,
+    peeked,
+    peekPanelHandlers,
+    isMobile,
+    mobileSheetMounted,
+  } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const boringSidebarEnabled = useClientSettings((settings) => settings.boringSidebarEnabled);
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
@@ -346,6 +358,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
       const command = resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } });
       if (
         command !== "sidebar.toggle" &&
+        command !== "sidebar.revealThread" &&
         command !== "sidebar.version.toggle" &&
         command !== "sidebar.sort.toggle" &&
         command !== "sidebarAutoHide.toggle"
@@ -357,6 +370,10 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
       event.stopPropagation();
       if (command === "sidebar.toggle") {
         toggleSidebar();
+        return;
+      }
+      if (command === "sidebar.revealThread") {
+        requestSidebarReveal();
         return;
       }
       if (command === "sidebarAutoHide.toggle") {
@@ -387,6 +404,19 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
     toggleSidebar,
     usagePageOpen,
   ]);
+
+  // A reveal request may come from the palette or a menu while the sidebar is hidden; the
+  // Sidebar consumes it once it mounts.
+  const revealRequested = useSyncExternalStore(
+    sidebarRevealRequest.subscribe,
+    sidebarRevealRequest.getSnapshot,
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the hidden sidebar for a reveal request raised outside it
+  useEffect(() => {
+    if (!revealRequested || isSidebarVisible) return;
+    if (isMobile) setOpenMobile(true);
+    else setOpen(true);
+  }, [revealRequested, isSidebarVisible, isMobile, setOpen, setOpenMobile]);
 
   // The control lives as long as the shell, so it carries the shell's commands. Created
   // once so re-renders never re-register them.
