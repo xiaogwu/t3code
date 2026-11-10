@@ -1,3 +1,4 @@
+import type { SidebarAutoReveal } from "@t3tools/contracts/settings";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -10,21 +11,31 @@ function RevealList(props: {
   readonly reveal: SidebarRouteReveal;
   readonly rowKeys: ReadonlyArray<string>;
   readonly activeKey: string | null;
+  readonly autoReveal?: SidebarAutoReveal;
 }) {
-  const revealActiveRow = useActiveRowReveal(props.reveal, props.activeKey);
+  const { revealRow: revealActiveRow, revealNow } = useActiveRowReveal(
+    props.reveal,
+    props.activeKey,
+    props.autoReveal,
+  );
   return (
-    <ul aria-label="Threads" style={{ height: ROW_HEIGHT_PX * 4, overflowY: "auto", margin: 0 }}>
-      {props.rowKeys.map((key) => (
-        <li
-          key={key}
-          ref={key === props.activeKey ? (row) => revealActiveRow(row, key) : undefined}
-          tabIndex={-1}
-          style={{ height: ROW_HEIGHT_PX }}
-        >
-          {key}
-        </li>
-      ))}
-    </ul>
+    <>
+      <button type="button" onClick={() => revealNow(true)}>
+        Reveal
+      </button>
+      <ul aria-label="Threads" style={{ height: ROW_HEIGHT_PX * 4, overflowY: "auto", margin: 0 }}>
+        {props.rowKeys.map((key) => (
+          <li
+            key={key}
+            ref={key === props.activeKey ? (row) => revealActiveRow(row, key) : undefined}
+            tabIndex={-1}
+            style={{ height: ROW_HEIGHT_PX }}
+          >
+            {key}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -140,5 +151,38 @@ describe("useActiveRowReveal", () => {
       { router: false },
     );
     await expect.element(screen.getByText("thread-40", { exact: true })).toBeInViewport();
+  });
+
+  it("leaves the list alone on a route change when auto reveal is off", async () => {
+    const reveal = newReveal();
+    const keys = rowKeys(50);
+    await using screen = await render(
+      <RevealList reveal={reveal} rowKeys={keys} activeKey="thread-0" autoReveal="off" />,
+      // No router: the route arrives as the activeKey prop.
+      { router: false },
+    );
+    const target = screen.getByText("thread-40", { exact: true });
+
+    await screen.rerender(
+      <RevealList reveal={reveal} rowKeys={keys} activeKey="thread-40" autoReveal="off" />,
+    );
+
+    await vi.waitFor(() => expect(reveal.pendingKey).toBeNull());
+    await expect.element(target).not.toBeInViewport();
+  });
+
+  it("scrolls on a manual reveal under off, even though the route change did not", async () => {
+    const reveal = newReveal();
+    await using screen = await render(
+      <RevealList reveal={reveal} rowKeys={rowKeys(50)} activeKey="thread-40" autoReveal="off" />,
+      // No router: the route arrives as the activeKey prop.
+      { router: false },
+    );
+    const target = screen.getByText("thread-40", { exact: true });
+    await expect.element(target).not.toBeInViewport();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reveal" }));
+
+    await expect.element(target).toBeInViewport();
   });
 });

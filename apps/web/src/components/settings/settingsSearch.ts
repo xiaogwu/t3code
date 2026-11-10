@@ -375,6 +375,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["reveal peek hover edge float pin unpin dia"],
   },
   {
+    id: "sidebar-auto-reveal",
+    title: "Reveal open thread in sidebar",
+    to: "/settings/appearance",
+    searchTerms: ["scroll expand folder shelf switch thread follow"],
+  },
+  {
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",

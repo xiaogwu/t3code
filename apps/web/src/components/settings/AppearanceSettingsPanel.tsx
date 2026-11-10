@@ -12,6 +12,7 @@ import {
   MIN_APPEARANCE_CONTRAST,
   MIN_GLASS_OPACITY,
   MIN_PANEL_ANIMATION_DURATION_MS,
+  type SidebarAutoReveal,
 } from "@t3tools/contracts/settings";
 import {
   resolveSidebarStageBackdropVariant,
@@ -77,6 +78,12 @@ const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   comfortable: "Comfortable",
   wide: "Wide",
   full: "Full",
+};
+
+const SIDEBAR_AUTO_REVEAL_LABELS: Record<SidebarAutoReveal, string> = {
+  reveal: "Expand and scroll",
+  scrollOnly: "Scroll only",
+  off: "Off",
 };
 
 const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
@@ -490,6 +497,36 @@ export function AppearanceSettingsPanel() {
               onCheckedChange={(checked) => updateSettings({ sidebarAutoHide: Boolean(checked) })}
               aria-label="Auto-hide sidebar"
             />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("sidebar-auto-reveal")}
+          description="When you switch threads, scroll the sidebar to the open one, and optionally expand the folder or shelf holding it. Reveal Thread in Sidebar always does both."
+          control={
+            <div className="w-full sm:w-40">
+              <Select
+                value={settings.sidebarAutoReveal}
+                onValueChange={(value) => {
+                  if (value === "reveal" || value === "scrollOnly" || value === "off")
+                    updateSettings({ sidebarAutoReveal: value });
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0"
+                  aria-label="Reveal open thread in sidebar"
+                >
+                  <SelectValue>
+                    {SIDEBAR_AUTO_REVEAL_LABELS[settings.sidebarAutoReveal]}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="reveal">Expand and scroll</SelectItem>
+                  <SelectItem value="scrollOnly">Scroll only (default)</SelectItem>
+                  <SelectItem value="off">Off</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
           }
         />
       </SettingsSection>

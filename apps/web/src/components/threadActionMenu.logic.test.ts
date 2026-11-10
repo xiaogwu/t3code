@@ -79,6 +79,18 @@ describe("buildThreadActionMenuItems", () => {
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
   });
 
+  it("offers Reveal in sidebar only where the caller can scroll the sidebar", () => {
+    expect(ids(baseState)).not.toContain("reveal-in-sidebar");
+    expect(ids({ ...baseState, canRevealInSidebar: true })).toContain("reveal-in-sidebar");
+    expect(
+      buildThreadActionMenuItems({
+        ...baseState,
+        canOperate: false,
+        canRevealInSidebar: true,
+      }).find((item) => item.id === "reveal-in-sidebar")?.disabled,
+    ).not.toBe(true);
+  });
+
   it("offers Mark read instead of Mark unread once a thread reads as unread", () => {
     expect(
       buildThreadActionMenuItems({ ...baseState, isUnread: true }).find(

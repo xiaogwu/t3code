@@ -3,6 +3,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 
 export type ThreadActionMenuId =
   | "find"
+  | "reveal-in-sidebar"
   | "new-thread-on-branch"
   | "filter-by-project"
   | "turn-into-project"
@@ -74,6 +75,8 @@ export function buildDraftActionMenuItems(options: {
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
   readonly canFind?: boolean;
+  /** The chat header can scroll the sidebar to this thread; the sidebar row is already there. */
+  readonly canRevealInSidebar?: boolean;
   readonly branch: string | null;
   readonly projectFilter: {
     readonly label: string;
@@ -116,6 +119,7 @@ export interface ThreadActionMenuState {
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
+    "reveal-in-sidebar",
     "new-thread-on-branch",
     "project-settings",
     "mark-read",
@@ -135,6 +139,9 @@ export function buildThreadActionMenuItems(
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
     ...(state.canFind
       ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
+      : []),
+    ...(state.canRevealInSidebar
+      ? [{ id: "reveal-in-sidebar" as const, label: "Reveal in sidebar", icon: "folder-tree" }]
       : []),
     ...(state.branch
       ? [

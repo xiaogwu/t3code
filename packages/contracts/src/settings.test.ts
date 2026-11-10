@@ -346,6 +346,14 @@ describe("ClientSettings sidebar", () => {
     expect(patch.sidebarThreadSortOrder).toBeUndefined();
   });
 
+  it("scrolls to the open thread by default and patches the reveal mode", () => {
+    expect(decodeClientSettings({}).sidebarAutoReveal).toBe("scrollOnly");
+    expect(decodeClientSettingsPatch({ sidebarAutoReveal: "reveal" }).sidebarAutoReveal).toBe(
+      "reveal",
+    );
+    expect(() => decodeClientSettingsPatch({ sidebarAutoReveal: "always" })).toThrow();
+  });
+
   it("keeps auto-hide off by default and patchable", () => {
     expect(decodeClientSettings({}).sidebarAutoHide).toBe(false);
     expect(decodeClientSettings({ sidebarAutoHide: true }).sidebarAutoHide).toBe(true);

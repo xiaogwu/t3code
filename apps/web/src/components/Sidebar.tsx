@@ -240,7 +240,11 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
+  armManualSidebarReveal,
+  consumeSidebarRevealRequest,
+  isHiddenByProjectScope,
   resolveSidebarRouteReveal,
+  sidebarRevealRequest,
   type SidebarRouteReveal,
   useActiveRowReveal,
 } from "./sidebar/routeReveal";
@@ -553,6 +557,43 @@ function useSidebarThreads(input: {
               : EMPTY_THREADS,
           };
         });
+  // Opens whatever keeps the thread's row at its listed place; the open thread's own row is
+  // always drawn, so a closed container only shows it out of order.
+  const revealThreadContainers = (threadKey: string | null): boolean => {
+    if (threadKey === null) return false;
+    const holds = (list: readonly EnvironmentThreadShell[]) =>
+      list.some((thread) => threadShellKey(thread) === threadKey);
+    let changed = false;
+    const folder = projectFolders?.find(
+      (candidate) => candidate.collapsed && holds(candidate.threads),
+    );
+    if (folder !== undefined) {
+      setProjectExpanded(sidebarFolderExpansionKeys(folder.group), true);
+      changed = true;
+    }
+    if (holds(settledThreads)) {
+      if (!settledShelfExpanded) {
+        setSettledShelfExpanded(true);
+        changed = true;
+      }
+      const index = listedSettledThreads.findIndex(
+        (thread) => threadShellKey(thread) === threadKey,
+      );
+      if (index >= settledVisibleCount) {
+        setSettledTail((current) => ({ ...current, count: index + 1 }));
+        changed = true;
+      }
+    }
+    if (!snoozedShelfExpanded && holds(snoozedThreads)) {
+      setSnoozedShelfExpanded(true);
+      changed = true;
+    }
+    if (!workingShelfExpanded && holds(workingThreads)) {
+      setWorkingShelfExpanded(true);
+      changed = true;
+    }
+    return changed;
+  };
   const orderedThreads = [
     ...pinnedThreads,
     ...(projectFolders === null
@@ -599,6 +640,7 @@ function useSidebarThreads(input: {
     workingShelfExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     projectFolders,
+    revealThreadContainers,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
@@ -1185,7 +1227,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     clearSelection();
     setPersistedProjectScopeKeys([]);
   }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
-  const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
+  const sidebarAutoReveal = useClientSettings((s) => s.sidebarAutoReveal);
+  const { revealRow: revealActiveRow, revealNow: revealActiveRowNow } = useActiveRowReveal(
+    routeReveal,
+    routeRowThreadKey,
+    sidebarAutoReveal,
+  );
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
     thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
@@ -1352,6 +1399,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     workingShelfExpanded,
     toggleWorkingShelf,
     projectFolders,
+    revealThreadContainers,
     toggleProjectFolder,
     renderedSettledThreads,
     visibleSnoozedThreads,
@@ -1525,6 +1573,49 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setThreadSearchQuery("");
     setSearchHighlightKey(null);
   };
+  // Expanding or clearing a search moves a row that is already mounted, so its ref does not
+  // fire; the tick scrolls to it from an effect once the new layout has committed.
+  const [scrollTick, setScrollTick] = useState(0);
+  const scrollIsManualRef = useRef(false);
+  const scheduleScrollToActiveRow = (manual: boolean) => {
+    scrollIsManualRef.current = manual;
+    setScrollTick((tick) => tick + 1);
+  };
+  const scrollToActiveRow = useStableCallback(() => revealActiveRowNow(scrollIsManualRef.current));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the sidebar viewport once the layout it depends on has committed
+  useEffect(() => {
+    if (scrollTick > 0) scrollToActiveRow();
+  }, [scrollTick, scrollToActiveRow]);
+  // Stable so a later collapse stays collapsed: only a route change or the mode switch reveals.
+  const expandForRoute = useStableCallback((threadKey: string | null) => {
+    if (revealThreadContainers(threadKey)) scheduleScrollToActiveRow(false);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expands persisted shelf and folder state for the newly open thread
+  useEffect(() => {
+    if (sidebarAutoReveal === "reveal") expandForRoute(routeRowThreadKey);
+  }, [expandForRoute, routeRowThreadKey, sidebarAutoReveal]);
+  const revealRequested = useSyncExternalStore(
+    sidebarRevealRequest.subscribe,
+    sidebarRevealRequest.getSnapshot,
+  );
+  const revealOpenThread = useStableCallback(() => {
+    consumeSidebarRevealRequest();
+    if (routeRowThreadKey === null) return;
+    clearThreadSearch();
+    const thread = threads.find((candidate) => threadShellKey(candidate) === routeRowThreadKey);
+    if (thread && isHiddenByProjectScope(thread, chosenScopeProjectKeys, delegatedUnderParent)) {
+      clearSelection();
+      setPersistedProjectScopeKeys([]);
+    }
+    revealThreadContainers(routeRowThreadKey);
+    // A row that is not mounted yet claims the reveal when its ref fires.
+    armManualSidebarReveal(routeReveal, routeRowThreadKey);
+    scheduleScrollToActiveRow(true);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- consumes a reveal request raised outside the sidebar by a command, shortcut or menu
+  useEffect(() => {
+    if (revealRequested) revealOpenThread();
+  }, [revealRequested, revealOpenThread]);
   const selectThreadSearchResult = (thread: EnvironmentThreadShell) => {
     const ref = scopeThreadRef(thread.environmentId, thread.id);
     // A row listed for a message match opens find on it, as the palette does.
