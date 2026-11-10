@@ -39,11 +39,13 @@ export const sidebarRevealRequest = {
 
 function flashRow(row: HTMLElement): void {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // An outline paints above the row's children; an inset shadow is covered by them.
+  const ring = "color-mix(in oklab, var(--color-primary) 70%, transparent)";
   row.animate(
     [
-      { boxShadow: "inset 0 0 0 0 transparent" },
-      { boxShadow: "inset 0 0 0 2px color-mix(in oklab, var(--color-primary) 70%, transparent)" },
-      { boxShadow: "inset 0 0 0 0 transparent" },
+      { outline: "2px solid transparent", outlineOffset: "-2px" },
+      { outline: `2px solid ${ring}`, outlineOffset: "-2px" },
+      { outline: "2px solid transparent", outlineOffset: "-2px" },
     ],
     { duration: 650, iterations: 2 },
   );
