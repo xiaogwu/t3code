@@ -20,6 +20,26 @@ export function hasDesktopNotifications(mode: NotificationMode) {
   return mode === "notifications" || mode === "notifications-and-sound";
 }
 
+/** Null hours means the rest of the day. */
+export const IN_APP_SNOOZE_CHOICES = [
+  { label: "1h", hours: 1 },
+  { label: "2h", hours: 2 },
+  { label: "3h", hours: 3 },
+  { label: "Rest of day", hours: null },
+] as const;
+
+export function inAppSnoozeEnd(hours: number | null, now: Date): Date {
+  if (hours !== null) return new Date(now.getTime() + hours * 3_600_000);
+  const end = new Date(now);
+  // Hour 24 rolls to the next local midnight, which stays correct across DST changes.
+  end.setHours(24, 0, 0, 0);
+  return end;
+}
+
+export function isInAppSnoozed(snoozedUntil: string | null, nowMs: number): boolean {
+  return snoozedUntil !== null && Date.parse(snoozedUntil) > nowMs;
+}
+
 const TAG_HASH_OFFSET_BASIS = 0xcbf29ce484222325n;
 const TAG_HASH_PRIME = 0x100000001b3n;
 const TAG_HASH_MASK = 0xffffffffffffffffn;

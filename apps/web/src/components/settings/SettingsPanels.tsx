@@ -66,6 +66,7 @@ import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
 import { SnoozePresetsRow } from "./SnoozePresetsSettings";
+import { useDeadlinePassed } from "../../hooks/useDeadline";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { managedTelemetryOffMessage, usePrimaryManagedPolicy } from "../../state/managedPolicy";
 import {
@@ -767,6 +768,32 @@ function AutoSettleDaysInput({
   );
 }
 
+function InAppNotificationsDescription() {
+  const snoozedUntil = useScopedSettings((settings) => settings.inAppNotificationsSnoozedUntil);
+  const updateSettings = useUpdateScopedSettings();
+  const untilMs = snoozedUntil === null ? null : Date.parse(snoozedUntil);
+  const passed = useDeadlinePassed(untilMs);
+  const description =
+    "Show a toast when another thread finishes, fails, or needs input or approval while this app has focus.";
+  if (untilMs === null || passed) return description;
+  return (
+    <>
+      {description}{" "}
+      <span className="text-foreground">
+        Snoozed until{" "}
+        {new Date(untilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+      </span>{" "}
+      <Button
+        size="xs"
+        variant="link"
+        onClick={() => updateSettings({ inAppNotificationsSnoozedUntil: null })}
+      >
+        Resume
+      </Button>
+    </>
+  );
+}
+
 export function GeneralSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -780,7 +807,7 @@ export function GeneralSettingsPanel() {
         <NotificationSettings />
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
-          description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
+          description={<InAppNotificationsDescription />}
           control={
             <Switch
               checked={settings.inAppNotificationsEnabled}

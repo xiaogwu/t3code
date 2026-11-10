@@ -49,6 +49,8 @@ export type ThreadToastData = {
     | "outline"
     | "secondary";
   expandableContent?: ReactNode;
+  /** A full-width row under the body and actions. */
+  footer?: ReactNode;
   expandableLabels?: { expand?: string; collapse?: string };
   expandableDescriptionTrigger?: boolean;
   actionLayout?: "inline" | "stacked-end";
@@ -428,6 +430,11 @@ function ToastBodyContent({
           ) : null}
         </div>
       ) : null}
+      {toastData?.footer ? (
+        <div className="basis-full border-t border-border/60 pt-2" data-slot="toast-footer">
+          {toastData.footer}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -678,7 +685,12 @@ function Toasts({ position }: { position: ToastPosition }) {
                   "pointer-events-auto min-h-0 overflow-y-visible pl-3.5 text-sm transition-opacity duration-250 [overflow-x:clip] data-expanded:opacity-100",
                   stackedActionLayout
                     ? "flex flex-col gap-2 py-2.5 pr-3.5"
-                    : cn("py-3", "flex items-center justify-between gap-1.5", inlineContentEndPad),
+                    : cn(
+                        "py-3",
+                        "flex items-center justify-between gap-1.5",
+                        toast.data?.footer && "flex-wrap",
+                        inlineContentEndPad,
+                      ),
                   hideCollapsedContent &&
                     "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
                 )}

@@ -11,13 +11,18 @@ import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as Option from "effect/Option";
 import type { AtomRegistry } from "effect/reactivity";
 import {
+  BellOffIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
 } from "lucide-react";
 
-import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
+import {
+  getClientSettings,
+  subscribeClientSettings,
+  updateClientSettings,
+} from "../hooks/useSettings";
 import { isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
 import { environmentShell } from "../state/shell";
@@ -25,6 +30,9 @@ import { environmentThreadShells } from "../state/threads";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
+  IN_APP_SNOOZE_CHOICES,
+  inAppSnoozeEnd,
+  isInAppSnoozed,
   playNotificationSound,
   setNotificationBadge,
   threadNotificationTag,
@@ -36,6 +44,7 @@ import {
   type ThreadNotificationKind,
   type ThreadNotificationObservation,
 } from "./ThreadNotificationCoordinator.logic";
+import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
 
 interface NotificationState extends ThreadNotificationObservation {
@@ -110,6 +119,29 @@ export function startThreadNotifications(
     pending.clear();
     setNotificationBadge(0);
   };
+  const snoozeInAppNotifications = (hours: number | null) => {
+    const previous = getClientSettings().inAppNotificationsSnoozedUntil;
+    const until = inAppSnoozeEnd(hours, new Date());
+    void updateClientSettings({ inAppNotificationsSnoozedUntil: until.toISOString() });
+    for (const toastIds of openToasts.values()) {
+      for (const toastId of toastIds) toastManager.close(toastId);
+    }
+    openToasts.clear();
+    const confirmationId = toastManager.add({
+      type: "info",
+      title: `Notifications snoozed until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`,
+      data: {
+        leadingIcon: <BellOffIcon aria-hidden className="size-4 text-muted-foreground" />,
+      },
+      actionProps: {
+        children: "Undo",
+        onClick: () => {
+          toastManager.close(confirmationId);
+          void updateClientSettings({ inAppNotificationsSnoozedUntil: previous });
+        },
+      },
+    });
+  };
 
   const present = (
     environmentId: EnvironmentId,
@@ -123,7 +155,11 @@ export function startThreadNotifications(
         .has(threadKey({ environmentId, threadId: thread.id }))
     )
       return;
-    const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
+    const {
+      notificationMode: mode,
+      inAppNotificationsEnabled,
+      inAppNotificationsSnoozedUntil,
+    } = getClientSettings();
     const active = (router.state.matches.at(-1)?.params ?? {}) as {
       environmentId?: string;
       threadId?: string;
@@ -147,6 +183,7 @@ export function startThreadNotifications(
     }
     if (
       inAppNotificationsEnabled &&
+      !isInAppSnoozed(inAppNotificationsSnoozedUntil, Date.now()) &&
       document.visibilityState === "visible" &&
       document.hasFocus() &&
       (active.environmentId !== environmentId || active.threadId !== thread.id)
@@ -159,6 +196,24 @@ export function startThreadNotifications(
         description: thread.title,
         data: {
           hideCopyButton: true,
+          footer: (
+            <div className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <BellOffIcon aria-hidden className="size-3.5" />
+                Snooze
+              </span>
+              {IN_APP_SNOOZE_CHOICES.map((choice) => (
+                <Button
+                  key={choice.label}
+                  size="xs"
+                  variant="outline"
+                  onClick={() => snoozeInAppNotifications(choice.hours)}
+                >
+                  {choice.label}
+                </Button>
+              ))}
+            </div>
+          ),
           leadingIcon:
             kind === "completion" ? (
               <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
