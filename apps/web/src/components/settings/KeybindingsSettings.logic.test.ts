@@ -2,6 +2,7 @@ import { assert, describe, expect, it } from "vite-plus/test";
 import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import {
   compileResolvedKeybindingsConfig,
+  DEFAULT_RESOLVED_KEYBINDINGS,
   parseKeybindingShortcut,
 } from "@t3tools/shared/keybindings";
 
@@ -11,6 +12,7 @@ import {
   buildKeybindingRows,
   commandLabel,
   filterKeybindingRows,
+  groupKeybindingRows,
   buildWhenVariableOptions,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
@@ -21,6 +23,14 @@ import {
 } from "./KeybindingsSettings.logic";
 
 describe("KeybindingsSettings.logic", () => {
+  it("labels the export commands and groups them with threads", () => {
+    expect(commandLabel("thread.exportMarkdown")).toBe("Thread: Export as Markdown");
+    expect(commandLabel("thread.exportPdf")).toBe("Thread: Export as PDF");
+    const groups = groupKeybindingRows(
+      filterKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS), "export"),
+    );
+    expect(groups.map((group) => group.title)).toEqual(["Threads"]);
+  });
   it("keeps sibling row identities when a saved binding moves to the end", () => {
     const bindings = compileResolvedKeybindingsConfig([
       { command: "chat.new", key: "mod+n" },

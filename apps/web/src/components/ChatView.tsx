@@ -75,6 +75,7 @@ import {
   resolveIdleCompaction,
   RuntimeMode,
 } from "@t3tools/contracts";
+import { useThreadExport } from "../hooks/useThreadExport";
 import {
   deriveProviderSubagentStatus,
   deriveProviderExtensionStatuses,
@@ -429,6 +430,7 @@ export default function ChatView(props: ChatViewProps) {
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
+  const exportThread = useThreadExport();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
   const currentRouteThreadKeyRef = useRef<string | null>(routeThreadKey);
@@ -2746,6 +2748,14 @@ export default function ChatView(props: ChatViewProps) {
       },
       "thread.scrollToEnd": ({ event }) => {
         if (!event.repeat) scrollTimelineTo("end");
+      },
+      "thread.exportMarkdown": ({ event }) => {
+        if (!isServerThread || !activeThreadRef) return false;
+        if (!event.repeat) void exportThread(activeThreadRef, "markdown");
+      },
+      "thread.exportPdf": ({ event }) => {
+        if (!isServerThread || !activeThreadRef) return false;
+        if (!event.repeat) void exportThread(activeThreadRef, "pdf");
       },
       "chat.find": () => {
         if (!isServerThread || serverConfig?.threadFind !== true || activeThreadKey === null)

@@ -62,8 +62,12 @@ export function normalizePlanMarkdownForExport(planMarkdown: string): string {
   return `${planMarkdown.trimEnd()}\n`;
 }
 
-export function downloadPlanAsTextFile(filename: string, contents: string): void {
-  const blob = new Blob([contents], { type: "text/markdown;charset=utf-8" });
+export function downloadTextFile(
+  filename: string,
+  contents: string,
+  mimeType = "text/markdown;charset=utf-8",
+): void {
+  const blob = new Blob([contents], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

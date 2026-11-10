@@ -39,6 +39,7 @@ import {
   THREAD_DETAILS_PANEL_LABEL_CLASS,
 } from "./threadDetailsPanelStyles";
 import { Menu, MenuPopup } from "../ui/menu";
+import { ThreadExportControl } from "./ThreadExportControl";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -153,6 +154,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
           environment: density === "full" && visible.environment,
           openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
           scripts: visible.scripts && props.activeProjectScripts !== undefined,
+          export: visible.export && props.draftId === undefined,
           branch: props.gitCwd !== null && props.isGitRepo && visible.branch,
           git:
             props.gitCwd !== null &&
@@ -162,7 +164,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
         return (
           <>
             <div className="group/details-items">
-              {show.environment || show.openIn || show.scripts ? (
+              {show.environment || show.openIn || show.scripts || show.export ? (
                 <ThreadDetailsSection
                   headingId="thread-details-workspace-heading"
                   title="Workspace"
@@ -206,6 +208,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         onAddScript={props.onAddProjectScript}
                         onUpdateScript={props.onUpdateProjectScript}
                         onDeleteScript={props.onDeleteProjectScript}
+                      />
+                    ) : null}
+
+                    {show.export ? (
+                      <ThreadExportControl
+                        threadRef={activeThreadRef}
+                        keybindings={props.keybindings}
                       />
                     ) : null}
                   </div>

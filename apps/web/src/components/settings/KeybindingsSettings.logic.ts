@@ -378,6 +378,8 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "thread.steerQueuedMessage") return "Queue: Send First Queued Message";
   if (command === "thread.editQueuedMessage") return "Queue: Edit Last Queued Message";
   if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread";
+  if (command === "thread.exportMarkdown") return "Thread: Export as Markdown";
+  if (command === "thread.exportPdf") return "Thread: Export as PDF";
   if (command === "sidebar.sort.toggle") return "Thread: Sort Order";
   if (command === "sidebar.revealThread") return "Thread: Reveal in Sidebar";
   const usageMetric = METRIC_OPTIONS.find((option) => option.command === command);

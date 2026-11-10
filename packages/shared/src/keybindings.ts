@@ -134,6 +134,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+]", command: "thread.next" },
   { key: "mod+alt+u", command: "thread.readState.toggle" },
   { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
+  { key: "mod+alt+e", command: "thread.exportPdf", when: "!terminalFocus" },
   { key: "mod+alt+arrowup", command: "thread.scrollToTop", when: "!terminalFocus" },
   { key: "mod+alt+arrowdown", command: "thread.scrollToEnd", when: "!terminalFocus" },
   { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },

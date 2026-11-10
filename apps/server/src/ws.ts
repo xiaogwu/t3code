@@ -2122,6 +2122,17 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [ORCHESTRATION_V2_WS_METHODS.exportThread]: (input) =>
+          threadManagement.exportThreadMarkdown(input.threadId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationV2GetThreadProjectionError({
+                  threadId: input.threadId,
+                  message: "Failed to export thread",
+                  cause,
+                }),
+            ),
+          ),
         [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: (input) =>
           checkpointDiffQuery.getTurnDiff(input).pipe(
             Effect.mapError(

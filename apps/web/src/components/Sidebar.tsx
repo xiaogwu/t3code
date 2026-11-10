@@ -128,6 +128,8 @@ import {
   useThreadActions,
   useThreadReadStateActions,
 } from "../hooks/useThreadActions";
+import { useThreadExport } from "../hooks/useThreadExport";
+import { canShareThreadFile } from "../threadExport";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
@@ -1029,6 +1031,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
+  const exportThread = useThreadExport();
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onCopy: ({ threadId }) => {
       toastManager.add({
@@ -2854,6 +2857,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           settlePromise(() =>
             api.contextMenu.show(
               buildThreadActionMenuItems({
+                canShare: canShareThreadFile(),
                 canOperate: readEnvironmentScope(
                   threadRef.environmentId,
                   AuthOrchestrationOperateScope,
@@ -3064,6 +3068,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "export-markdown":
+            await exportThread(threadRef, "markdown");
+            return;
+          case "export-pdf":
+            await exportThread(threadRef, "pdf");
+            return;
+          case "export-share":
+            await exportThread(threadRef, "share");
             return;
           case "archive": {
             if (confirmThreadArchive) {

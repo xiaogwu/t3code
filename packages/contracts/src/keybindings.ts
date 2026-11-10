@@ -42,6 +42,8 @@ const THREAD_KEYBINDING_COMMANDS = [
   "thread.next",
   "thread.readState.toggle",
   "thread.copyReference",
+  "thread.exportMarkdown",
+  "thread.exportPdf",
   "thread.scrollToTop",
   "thread.scrollToEnd",
   "thread.settle",

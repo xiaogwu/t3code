@@ -31,6 +31,10 @@ export type ThreadActionMenuId =
   | "copy-branch"
   | "copy-thread"
   | "copy-thread-id"
+  | "export"
+  | "export-markdown"
+  | "export-pdf"
+  | "export-share"
   | "archive"
   | "delete";
 
@@ -77,6 +81,8 @@ export interface ThreadActionMenuState {
   readonly canFind?: boolean;
   /** The chat header can scroll the sidebar to this thread; the sidebar row is already there. */
   readonly canRevealInSidebar?: boolean;
+  /** The browser can hand a file to the system share sheet; adds Export → Share…. */
+  readonly canShare: boolean;
   readonly branch: string | null;
   readonly projectFilter: {
     readonly label: string;
@@ -115,7 +121,7 @@ export interface ThreadActionMenuState {
   readonly canTurnIntoProject?: boolean;
 }
 
-/** Local navigation, read markers, and copying remain available to read-only clients. */
+/** Local navigation, read markers, copying, and exporting remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
@@ -130,6 +136,10 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-branch",
     "copy-thread",
     "copy-thread-id",
+    "export",
+    "export-markdown",
+    "export-pdf",
+    "export-share",
   ].includes(action);
 }
 
@@ -268,6 +278,16 @@ export function buildThreadActionMenuItems(
           : []),
         { id: "copy-thread", label: "Thread", icon: "message-square" },
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+      ],
+    },
+    {
+      id: "export",
+      label: "Export",
+      icon: "download",
+      children: [
+        { id: "export-markdown", label: "Markdown" },
+        { id: "export-pdf", label: "PDF" },
+        ...(state.canShare ? [{ id: "export-share" as const, label: "Share…" }] : []),
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },

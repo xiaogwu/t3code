@@ -4,6 +4,7 @@ import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./thread
 
 const baseState: ThreadActionMenuState = {
   canOperate: true,
+  canShare: false,
   branch: null,
   projectFilter: null,
   isPinned: false,
@@ -89,6 +90,23 @@ describe("buildThreadActionMenuItems", () => {
         canRevealInSidebar: true,
       }).find((item) => item.id === "reveal-in-sidebar")?.disabled,
     ).not.toBe(true);
+  });
+
+  it("offers Markdown and PDF export as a submenu", () => {
+    const exportItem = buildThreadActionMenuItems(baseState).find((item) => item.id === "export");
+    expect(exportItem?.children?.map((child) => child.id)).toEqual([
+      "export-markdown",
+      "export-pdf",
+    ]);
+  });
+
+  it("offers Share only when the browser can share files", () => {
+    const children = (canShare: boolean) =>
+      buildThreadActionMenuItems({ ...baseState, canShare })
+        .find((item) => item.id === "export")
+        ?.children?.map((child) => child.id);
+    expect(children(false)).not.toContain("export-share");
+    expect(children(true)).toEqual(["export-markdown", "export-pdf", "export-share"]);
   });
 
   it("offers Mark read instead of Mark unread once a thread reads as unread", () => {

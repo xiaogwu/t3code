@@ -254,6 +254,19 @@ To generate a fresh title from the conversation, open a thread's context menu an
 **Regenerate title**. While T3 Code is generating it, the action reads **Regenerating…** and cannot
 be selected again. The option is hidden when the connected environment needs a server update.
 
+## Export a thread
+
+Open a thread's context menu and choose **Export → Markdown** or **Export → PDF**, or run
+**Export thread as Markdown** / **Export thread as PDF** from the command palette. `Cmd/Ctrl+Alt+E`
+exports a PDF; bind **Thread: Export as Markdown** in **Settings → Keybindings** to get a Markdown
+shortcut. Exports cover the whole thread, not only the part loaded on screen.
+
+The export holds your messages, the agent's replies, and proposed plans. Tool activity, reasoning, and
+diffs are not included, and attachments appear by file name only. On desktop, PDF export asks where to
+save the file. In a browser it opens the print dialog; choose **Save as PDF** as the destination. The
+mobile app can share a thread as Markdown from the thread list; it has no PDF export.
+On browsers that support it, **Export → Share…** sends the Markdown file to the system share sheet.
+
 ## Inspect agent work
 
 **Limited** means the provider stopped on a usage or rate limit. The conversation

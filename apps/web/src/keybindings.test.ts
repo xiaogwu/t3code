@@ -927,6 +927,26 @@ describe("composer and pull request shortcuts", () => {
     },
   );
 
+  it.each(["MacIntel", "Win32", "Linux"])(
+    "exports the thread as PDF with mod+alt+e on %s, and Markdown has no default",
+    (platform) => {
+      const input = event({
+        key: "e",
+        code: "KeyE",
+        altKey: true,
+        metaKey: platform === "MacIntel",
+        ctrlKey: platform !== "MacIntel",
+      });
+      assert.strictEqual(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, { platform }),
+        "thread.exportPdf",
+      );
+      assert.isFalse(
+        DEFAULT_RESOLVED_KEYBINDINGS.some((binding) => binding.command === "thread.exportMarkdown"),
+      );
+    },
+  );
+
   const altEffortBindings = compileResolvedKeybindingsConfig([
     { key: "mod+alt+e", command: "composer.effort", when: "!terminalFocus" },
   ]);

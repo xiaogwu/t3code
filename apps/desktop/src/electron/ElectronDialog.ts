@@ -36,6 +36,19 @@ export class ElectronDialogPickFilesError extends Schema.TaggedError<ElectronDia
   }
 }
 
+export class ElectronDialogShowSaveDialogError extends Schema.TaggedError<ElectronDialogShowSaveDialogError>()(
+  "ElectronDialogShowSaveDialogError",
+  {
+    ownerWindowId: Schema.NullOr(Schema.Number),
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    const owner = this.ownerWindowId === null ? "the application" : `window ${this.ownerWindowId}`;
+    return `Failed to open the Electron save dialog for ${owner}.`;
+  }
+}
+
 export class ElectronDialogShowMessageBoxError extends Schema.TaggedError<ElectronDialogShowMessageBoxError>()(
   "ElectronDialogShowMessageBoxError",
   {
@@ -69,6 +82,7 @@ export class ElectronDialogShowErrorBoxError extends Schema.TaggedError<Electron
 export const ElectronDialogError = Schema.Union([
   ElectronDialogPickFolderError,
   ElectronDialogPickFilesError,
+  ElectronDialogShowSaveDialogError,
   ElectronDialogShowMessageBoxError,
   ElectronDialogShowErrorBoxError,
 ]);
@@ -86,6 +100,12 @@ export interface ElectronDialogPickFilesInput {
   readonly multiple: boolean;
 }
 
+export interface ElectronDialogShowSaveInput {
+  readonly owner: Option.Option<Electron.BrowserWindow>;
+  readonly defaultPath: string;
+  readonly filters: readonly Electron.FileFilter[];
+}
+
 export class ElectronDialog extends Context.Service<
   ElectronDialog,
   {
@@ -95,6 +115,10 @@ export class ElectronDialog extends Context.Service<
     readonly pickFiles: (
       input: ElectronDialogPickFilesInput,
     ) => Effect.Effect<readonly string[], ElectronDialogPickFilesError>;
+    /** The path the user chose, or none when they cancelled. */
+    readonly showSaveDialog: (
+      input: ElectronDialogShowSaveInput,
+    ) => Effect.Effect<Option.Option<string>, ElectronDialogShowSaveDialogError>;
     /** Pass `owner` to attach the box to that window so it cannot fall behind it. */
     readonly showMessageBox: (
       options: Electron.MessageBoxOptions,
@@ -165,6 +189,28 @@ export const make = ElectronDialog.of({
         }),
     });
     return result.canceled ? [] : result.filePaths;
+  }),
+  showSaveDialog: Effect.fn("ElectronDialog.showSaveDialog")(function* (input) {
+    const options: Electron.SaveDialogOptions = {
+      defaultPath: input.defaultPath,
+      filters: [...input.filters],
+    };
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        Option.match(input.owner, {
+          onNone: () => Electron.dialog.showSaveDialog(options),
+          onSome: (owner) => Electron.dialog.showSaveDialog(owner, options),
+        }),
+      catch: (cause) =>
+        new ElectronDialogShowSaveDialogError({
+          ownerWindowId: Option.match(input.owner, {
+            onNone: () => null,
+            onSome: (owner) => owner.id,
+          }),
+          cause,
+        }),
+    });
+    return result.canceled ? Option.none() : Option.fromNullishOr(result.filePath);
   }),
   showMessageBox: Effect.fn("ElectronDialog.showMessageBox")(function (options, owner) {
     return Effect.tryPromise({

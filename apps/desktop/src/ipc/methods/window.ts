@@ -7,6 +7,8 @@ import {
   DesktopThemeSchema,
   EDITORS,
   EditorId,
+  ExportThreadPdfInputSchema,
+  ExportThreadPdfResultSchema,
   PickedThemeFileSchema,
   PickFolderOptionsSchema,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
@@ -571,6 +573,67 @@ export const pickThemeFiles = DesktopIpc.makeIpcMethod({
         return { name, size, text } satisfies PickedThemeFile;
       }).pipe(Effect.orElseSucceed((): PickedThemeFile => ({ name, size: 0, text: "" })));
     });
+  }),
+});
+
+/**
+ * Prints the renderer's standalone HTML to a PDF. The save dialog comes first
+ * so cancelling costs nothing; the document then loads from a temp file into a
+ * hidden, script-less window, which is destroyed whether or not printing works.
+ */
+export const exportThreadPdf = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.EXPORT_THREAD_PDF_CHANNEL,
+  payload: ExportThreadPdfInputSchema,
+  result: ExportThreadPdfResultSchema,
+  handler: Effect.fn("desktop.ipc.window.exportThreadPdf")(function* ({ html, defaultFileName }) {
+    const dialog = yield* ElectronDialog.ElectronDialog;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const chosen = yield* dialog.showSaveDialog({
+      owner: yield* electronWindow.focusedMainOrFirst,
+      defaultPath: path.join(
+        Electron.app.getPath("downloads"),
+        path.basename(defaultFileName) || "thread.pdf",
+      ),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (Option.isNone(chosen)) {
+      return { status: "cancelled" as const };
+    }
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const directory = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-thread-export-",
+        });
+        const htmlPath = path.join(directory, "thread.html");
+        yield* fileSystem.writeFileString(htmlPath, html);
+        const printWindow = yield* Effect.acquireRelease(
+          Effect.sync(
+            () =>
+              new Electron.BrowserWindow({
+                show: false,
+                webPreferences: {
+                  javascript: false,
+                  sandbox: true,
+                  nodeIntegration: false,
+                  contextIsolation: true,
+                },
+              }),
+          ),
+          (window) =>
+            Effect.sync(() => {
+              if (!window.isDestroyed()) window.destroy();
+            }),
+        );
+        yield* Effect.promise(() => printWindow.loadFile(htmlPath));
+        const pdf = yield* Effect.promise(() =>
+          printWindow.webContents.printToPDF({ printBackground: true }),
+        );
+        yield* fileSystem.writeFile(chosen.value, pdf);
+        return { status: "saved" as const, path: chosen.value };
+      }),
+    );
   }),
 });
 

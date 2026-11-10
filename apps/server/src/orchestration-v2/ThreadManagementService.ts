@@ -21,7 +21,9 @@ import {
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
+  type OrchestrationV2ExportThreadResult,
   type OrchestrationV2GetTurnItemResult,
+  type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
@@ -64,8 +66,12 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
+import { renderThreadMarkdown, threadExportFileName } from "./threadExportMarkdown.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
+
+/** Rows per timeline read while exporting; each read rebuilds the timeline index. */
+const THREAD_EXPORT_PAGE_SIZE = 500;
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -382,6 +388,13 @@ export interface ThreadManagementServiceShape {
     readonly threadId: ThreadId;
     readonly itemId: TurnItemId;
   }) => Effect.Effect<OrchestrationV2GetTurnItemResult, Orchestrator.OrchestratorV2Error>;
+  /**
+   * The whole conversation as Markdown, paged through the timeline until it
+   * is exhausted so a long thread is not cut at the client's loaded window.
+   */
+  readonly exportThreadMarkdown: (
+    threadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2ExportThreadResult, Orchestrator.OrchestratorV2Error>;
   readonly getThreadRecords: Orchestrator.OrchestratorV2["Service"]["getThreadRecords"];
   readonly getThreadProjection: (
     threadId: ThreadId,
@@ -783,6 +796,36 @@ const make = Effect.gen(function* () {
           }),
       ),
     );
+
+  const exportThreadMarkdown: ThreadManagementServiceShape["exportThreadMarkdown"] = Effect.fn(
+    "orchestrationV2.threadManagement.exportThreadMarkdown",
+  )(function* (threadId) {
+    yield* ensureProjectionTranscript(threadId);
+    const { thread } = yield* orchestrator.getThreadRecords(threadId, []);
+    const rows: Array<OrchestrationV2ProjectedTurnItem> = [];
+    let afterPosition = -1;
+    while (true) {
+      const page = yield* orchestrator.getTimelinePage(threadId, {
+        afterPosition,
+        limit: THREAD_EXPORT_PAGE_SIZE,
+        view: "messages",
+      });
+      rows.push(...page.items);
+      const last = page.items.at(-1);
+      if (!page.hasMore || last === undefined) break;
+      afterPosition = last.position;
+    }
+    return {
+      title: thread.title,
+      fileName: threadExportFileName(thread.title, threadId),
+      markdown: renderThreadMarkdown({
+        title: thread.title,
+        branch: thread.branch,
+        exportedAt: yield* DateTime.now,
+        rows,
+      }),
+    };
+  });
 
   const listProjectThreads: ThreadManagementServiceShape["listProjectThreads"] = (input) =>
     orchestrator
@@ -1581,6 +1624,7 @@ const make = Effect.gen(function* () {
         Effect.map((item) => ({ item: item === null ? null : projectTurnItemForDetail(item) })),
       );
     }),
+    exportThreadMarkdown,
     getThreadRecords: Effect.fn("ThreadManagementService.getThreadRecords")(
       function (threadId, fields, filter) {
         return ensureProjectionTranscript(threadId).pipe(
