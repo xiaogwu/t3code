@@ -102,3 +102,14 @@ describe("playNotificationSound", () => {
     expect(audio.started).toBe(1);
   });
 });
+
+describe("inAppSnoozeEnd", () => {
+  it("adds whole hours and ends the rest of the day at the next local midnight", async () => {
+    const { inAppSnoozeEnd } = await import("./threadNotifications");
+    const now = new Date(2026, 10, 9, 14, 15);
+    expect(inAppSnoozeEnd(2, now)).toEqual(new Date(2026, 10, 9, 16, 15));
+    expect(inAppSnoozeEnd(null, now)).toEqual(new Date(2026, 10, 10));
+    // US clocks fall back on Nov 1 2026; the day is still one local calendar day.
+    expect(inAppSnoozeEnd(null, new Date(2026, 10, 1, 0, 30))).toEqual(new Date(2026, 10, 2));
+  });
+});
