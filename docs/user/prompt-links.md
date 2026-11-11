@@ -26,7 +26,7 @@ https://app.t3.codes/new?pr=owner/name/123&prompt=Fix%20the%20failing%20check
 | `repo`     | A GitHub repository, as `owner/name` or its URL.                              |
 | `provider` | A provider such as `codex` or `claude`.                                       |
 | `model`    | A model of that provider, by its id or name.                                  |
-| `pr`       | A GitHub pull request, as `owner/name/123` or its URL.                        |
+| `pr`       | A pull request, as `owner/name/123` (GitHub) or its URL.                      |
 
 Encode the prompt for a URL. In JavaScript, use `encodeURIComponent`.
 
@@ -42,9 +42,11 @@ this step next time.
   without project**.
 - **`provider` and `model`**: used when you have that provider set up. Otherwise your default
   model is used, and T3 Code tells you.
-- **`pr`**: opens the thread linked to that pull request on any connected machine, with the prompt
-  in its composer. When no thread is linked, the draft goes on the pull request branch in a new
-  worktree. T3 Code checks the code out only after you confirm, because the checkout runs your
+- **`pr`**: opens the thread linked to that pull request on any connected machine, or else the
+  best thread matching the pull request URL, as the command palette would find it. The prompt is
+  not added to that thread. When no thread matches, the draft with the prompt goes on the pull
+  request branch in a new worktree. The URL can be on `github.com`, `github.pie.apple.com`, or
+  `prodgit.apple.com`. T3 Code checks the code out only after you confirm, because the checkout runs your
   setup script on it.
 
 A thread link with a prompt, such as `https://app.t3.codes/<environment>/<thread>?prompt=…`,

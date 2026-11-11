@@ -7,6 +7,7 @@ import {
   parseThreadLinkPrompt,
   promptLinkAppPath,
   promptLinkDeepLink,
+  promptLinkPullRequestUrl,
   sanitizeLinkedPrompt,
   withoutPromptLinkParams,
 } from "./promptLinks.ts";
@@ -70,6 +71,34 @@ describe("parseNewThreadLink", () => {
         },
       });
     }
+  });
+
+  it("keeps an enterprise host through the pull request URL", () => {
+    for (const host of ["github.pie.apple.com", "prodgit.apple.com"]) {
+      const url = `https://${host}/acme/web/pull/123`;
+      const parsed = parseNewThreadLink(`?pr=${encodeURIComponent(url)}`);
+      expect(parsed).toEqual({
+        ok: true,
+        value: {
+          kind: "pull-request",
+          pullRequest: { host, owner: "acme", name: "web", number: 123 },
+          prompt: null,
+        },
+      });
+      if (parsed.ok && parsed.value.kind === "pull-request") {
+        expect(promptLinkPullRequestUrl(parsed.value.pullRequest)).toBe(url);
+      }
+    }
+    expect(parseNewThreadLink("?pr=https://gitlab.com/a/b/pull/1").ok).toBe(false);
+    // The Safari extension's link, as macOS hands it to the desktop app.
+    const pr = "https://prodgit.apple.com/acme/web/pull/123";
+    const link = `https://app.t3.codes/new?pr=${encodeURIComponent(pr)}&prompt=${encodeURIComponent(`/pr-review ${pr}`)}`;
+    const appPath = promptLinkAppPath(link);
+    expect(appPath?.startsWith("/new?")).toBe(true);
+    const routed = parseNewThreadLink(new URL(link).search);
+    expect(routed.ok && routed.value.kind === "pull-request" && routed.value.prompt?.text).toBe(
+      `/pr-review ${pr}`,
+    );
   });
 
   it("refuses links it cannot open safely", () => {

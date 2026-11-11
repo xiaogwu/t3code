@@ -20,7 +20,7 @@ import {
 
 // A link's `owner/name` is GitHub's. GitCafe syncs a repository two-way with GitHub under the
 // same path, so a checkout cloned from git.cafe counts as the linked repository.
-const PROMPT_LINK_REPOSITORY_HOSTS = ["github.com", "git.cafe", "staging.git.cafe"];
+const GITHUB_MIRROR_HOSTS = ["github.com", "git.cafe", "staging.git.cafe"];
 
 /**
  * The repository's projects in the order given. Callers pass projects most recently active
@@ -30,7 +30,12 @@ export function findPromptLinkProjects<
   P extends { readonly repositoryIdentity?: RepositoryIdentity | null | undefined },
 >(projects: ReadonlyArray<P>, repository: PromptLinkRepository): P[] {
   const path = `${repository.owner}/${repository.name}`.toLowerCase();
-  const keys = new Set(PROMPT_LINK_REPOSITORY_HOSTS.map((host) => `${host}/${path}`));
+  // Any other host is its own repository, never the github.com one of the same name.
+  const hosts =
+    repository.host === undefined || repository.host === "github.com"
+      ? GITHUB_MIRROR_HOSTS
+      : [repository.host];
+  const keys = new Set(hosts.map((host) => `${host}/${path}`));
   return projects.filter(
     (project) =>
       project.repositoryIdentity != null &&
@@ -47,7 +52,7 @@ export function findPromptLinkPullRequestThread<
   },
 >(threads: ReadonlyArray<T>, pullRequest: PromptLinkPullRequest): T | undefined {
   const key = threadPullRequestKeyOf({
-    host: "github.com",
+    host: pullRequest.host ?? "github.com",
     repository: `${pullRequest.owner}/${pullRequest.name}`,
     number: pullRequest.number,
   });
@@ -83,6 +88,28 @@ export function pickPromptLinkPullRequestThread(
     if (thread !== undefined) return { environmentId, id: thread.id };
   }
   return null;
+}
+
+/** The best search match that holds the URL as a whole word, so `/pull/12` skips `/pull/123`. */
+export function pickPromptLinkSearchMatch<T extends { readonly quality?: number }>(
+  matches: ReadonlyArray<T>,
+): T | undefined {
+  return matches.find((match) => (match.quality ?? 0) >= 1);
+}
+
+/**
+ * The thread a pull request link opens: one linked to the pull request, else the best search
+ * match. `undefined` while the server lookup or the search is still answering.
+ */
+export function resolvePromptLinkExistingThread<T>(input: {
+  readonly local: T | undefined;
+  readonly linked: T | null | undefined;
+  readonly search: { readonly pending: boolean; readonly best: T | undefined };
+}): T | null | undefined {
+  if (input.local !== undefined) return input.local;
+  if (input.linked === undefined) return undefined;
+  if (input.linked !== null) return input.linked;
+  return input.search.pending ? undefined : (input.search.best ?? null);
 }
 
 const PROVIDER_ALIASES: Record<string, string> = { claude: "claudeagent" };

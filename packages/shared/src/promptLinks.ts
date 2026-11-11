@@ -3,6 +3,8 @@ import { DEFAULT_HOSTED_APP_URL } from "./connectAuth.ts";
 export const PROMPT_LINK_MAX_PROMPT_LENGTH = 8_000;
 
 export interface PromptLinkRepository {
+  /** Absent means github.com. */
+  readonly host?: string;
   readonly owner: string;
   readonly name: string;
 }
@@ -69,10 +71,14 @@ export function sanitizeLinkedPrompt(raw: string): LinkedPrompt {
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
-function repositoryOf(owner: string, name: string): PromptLinkRepository | null {
+const PROMPT_LINK_PULL_REQUEST_HOSTS = ["github.com", "github.pie.apple.com", "prodgit.apple.com"];
+
+function repositoryOf(owner: string, name: string, host?: string): PromptLinkRepository | null {
   const trimmedName = name.replace(/\.git$/i, "");
   if (!OWNER.test(owner) || !NAME.test(trimmedName) || /^\.+$/.test(trimmedName)) return null;
-  return { owner, name: trimmedName };
+  return host === undefined || host === "github.com"
+    ? { owner, name: trimmedName }
+    : { host, owner, name: trimmedName };
 }
 
 export function parsePromptLinkRepository(value: string): PromptLinkRepository | null {
@@ -85,20 +91,28 @@ export function parsePromptLinkRepository(value: string): PromptLinkRepository |
 
 function parsePromptLinkPullRequest(value: string): PromptLinkPullRequest | null {
   const trimmed = value.trim();
-  const match =
-    /^https?:\/\/(?:www\.)?github\.com\/([^/?#]+)\/([^/?#]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(
+  const url =
+    /^https?:\/\/(?:www\.)?([^/?#]+)\/([^/?#]+)\/([^/?#]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(
       trimmed,
-    ) ?? /^([^/\s#]+)\/([^/\s#]+)(?:\/|#)(\d+)$/.exec(trimmed);
-  if (!match?.[1] || !match[2] || !match[3]) return null;
-  const repository = repositoryOf(match[1], match[2]);
-  const number = Number(match[3]);
+    );
+  const host = url?.[1]?.toLowerCase();
+  if (url !== null && (host === undefined || !PROMPT_LINK_PULL_REQUEST_HOSTS.includes(host))) {
+    return null;
+  }
+  const match = url ?? /^([^/\s#]+)\/([^/\s#]+)(?:\/|#)(\d+)$/.exec(trimmed);
+  const [owner, name, digits] = url
+    ? [url[2], url[3], url[4]]
+    : [match?.[1], match?.[2], match?.[3]];
+  if (!owner || !name || !digits) return null;
+  const repository = repositoryOf(owner, name, host);
+  const number = Number(digits);
   return repository && Number.isSafeInteger(number) && number > 0
     ? { ...repository, number }
     : null;
 }
 
 export function promptLinkPullRequestUrl(pullRequest: PromptLinkPullRequest): string {
-  return `https://github.com/${pullRequest.owner}/${pullRequest.name}/pull/${pullRequest.number}`;
+  return `https://${pullRequest.host ?? "github.com"}/${pullRequest.owner}/${pullRequest.name}/pull/${pullRequest.number}`;
 }
 
 function readPrompt(params: URLSearchParams): PromptLinkResult<LinkedPrompt | null> {

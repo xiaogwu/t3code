@@ -1,4 +1,4 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   getAddProjectInitialQuery,
   getCloneDestinationPath,
@@ -8,6 +8,8 @@ import {
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
+  pickPromptLinkSearchMatch,
+  resolvePromptLinkExistingThread,
   resolvePromptLinkModelSelection,
 } from "@t3tools/client-runtime/prompt-links";
 import {
@@ -31,6 +33,7 @@ import { isElectron } from "~/env";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useScratchProject } from "~/hooks/useScratchProject";
 import { newProjectId } from "~/lib/utils";
+import { useThreadSearch } from "~/state/queries";
 import { useProjects, useThreadShells, waitForProject } from "~/state/entities";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
@@ -214,7 +217,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     }
     setState({ status: "opening" });
     const projectId = newProjectId();
-    const remoteUrl = `https://github.com/${repository.owner}/${repository.name}.git`;
+    const remoteUrl = `https://${repository.host ?? "github.com"}/${repository.owner}/${repository.name}.git`;
     const settings = serverConfig.settings;
     const result = await startProjectClone({
       environmentId,
@@ -245,10 +248,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       setState({ status: "missing-repository", repository });
       return;
     }
-    void suggestAppAccessForRemote(
-      environmentId,
-      `https://github.com/${repository.owner}/${repository.name}.git`,
-    );
+    void suggestAppAccessForRemote(environmentId, remoteUrl);
     const project = await waitForProject(scopeProjectRef(environmentId, projectId), 5_000).catch(
       () => null,
     );
@@ -280,6 +280,21 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     localPullRequestThread === undefined
       ? findPromptLinkProjects(recentProjects(), link.pullRequest)
       : [];
+  // The command palette's search, so a thread that only mentions the URL is found too.
+  const connectedEnvironmentIds = environments
+    .filter((environment) => environment.connection.phase === "connected")
+    .map((environment) => environment.environmentId);
+  const threadSearch = useThreadSearch(
+    connectedEnvironmentIds,
+    ready &&
+      state.status === "opening" &&
+      !started &&
+      link.kind === "pull-request" &&
+      localPullRequestThread === undefined
+      ? promptLinkPullRequestUrl(link.pullRequest)
+      : "",
+  );
+  const bestSearchMatch = pickPromptLinkSearchMatch(threadSearch.matches);
   const serverPullRequestThread = useAtomValue(
     link.kind === "pull-request" && lookupProjects.length > 0
       ? pullRequestThreadLookupAtom(
@@ -292,9 +307,21 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       : NO_PULL_REQUEST_THREAD_LOOKUP,
   );
 
-  if (ready && serverPullRequestThread !== undefined && state.status === "opening" && !started) {
+  const existingThread = resolvePromptLinkExistingThread({
+    local: localPullRequestThread,
+    linked: serverPullRequestThread,
+    search: {
+      pending: threadSearch.isPending,
+      best:
+        bestSearchMatch === undefined
+          ? undefined
+          : { environmentId: bestSearchMatch.environmentId, id: bestSearchMatch.threadId },
+    },
+  });
+
+  if (ready && existingThread !== undefined && state.status === "opening" && !started) {
     setStarted(true);
-    const pullRequestThread = localPullRequestThread ?? serverPullRequestThread ?? undefined;
+    const pullRequestThread = existingThread ?? undefined;
     const repository = link.kind === "new" ? link.repository : link.pullRequest;
     const project =
       repository === null ? undefined : findPromptLinkProjects(recentProjects(), repository)[0];
@@ -318,8 +345,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     openedLinkKeys.add(locationKey);
     switch (next.kind) {
       case "thread": {
-        const threadRef = scopeThreadRef(next.thread.environmentId, next.thread.id);
-        if (link.prompt !== null) placeLinkedPrompt(threadRef, link.prompt);
+        // An existing thread opens as it is; the link's prompt is for a new draft.
         void navigate({
           to: "/$environmentId/$threadId",
           params: { environmentId: next.thread.environmentId, threadId: next.thread.id },

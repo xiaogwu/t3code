@@ -15,6 +15,8 @@ import {
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
+  pickPromptLinkSearchMatch,
+  resolvePromptLinkExistingThread,
   resolvePromptLinkModelSelection,
 } from "./promptLinks.ts";
 
@@ -53,6 +55,92 @@ describe("findPromptLinkProjects", () => {
         (project) => project.id,
       ),
     ).toEqual(["gitcafe", "staging"]);
+  });
+});
+
+describe("enterprise hosts", () => {
+  it("match only their own host's repository and links", () => {
+    const projects = [
+      { id: "github", repositoryIdentity: identity("github.com/acme/web") },
+      { id: "mirror", repositoryIdentity: identity("git.cafe/acme/web") },
+      { id: "prodgit", repositoryIdentity: identity("prodgit.apple.com/acme/web") },
+    ];
+    const ids = (host?: string) =>
+      findPromptLinkProjects(projects, {
+        ...(host === undefined ? {} : { host }),
+        owner: "acme",
+        name: "web",
+      }).map((project) => project.id);
+    expect(ids()).toEqual(["github", "mirror"]);
+    expect(ids("prodgit.apple.com")).toEqual(["prodgit"]);
+    expect(ids("github.pie.apple.com")).toEqual([]);
+  });
+
+  it("finds a thread linked on the same host only", () => {
+    const link = (host: string): ThreadPullRequestLink => ({
+      host,
+      repository: "acme/web",
+      number: 7,
+      url: `https://${host}/acme/web/pull/7`,
+      source: "manual",
+      linkedAt: "2026-01-01T00:00:00.000Z",
+      snapshot: null,
+      stack: null,
+    });
+    const threads = [
+      { id: "github", updatedAt: "2026-01-02T00:00:00.000Z", pullRequests: [link("github.com")] },
+      {
+        id: "prodgit",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        pullRequests: [link("prodgit.apple.com")],
+      },
+    ];
+    const find = (host?: string) =>
+      findPromptLinkPullRequestThread(threads, {
+        ...(host === undefined ? {} : { host }),
+        owner: "acme",
+        name: "web",
+        number: 7,
+      })?.id;
+    expect(find()).toBe("github");
+    expect(find("prodgit.apple.com")).toBe("prodgit");
+  });
+});
+
+describe("resolvePromptLinkExistingThread", () => {
+  const search = (best?: string, pending = false) => ({ pending, best });
+  it("prefers linked threads, then the best search match, and waits for answers", () => {
+    expect(
+      resolvePromptLinkExistingThread({ local: "a", linked: undefined, search: search() }),
+    ).toBe("a");
+    expect(
+      resolvePromptLinkExistingThread({ local: undefined, linked: "b", search: search("s") }),
+    ).toBe("b");
+    expect(
+      resolvePromptLinkExistingThread({ local: undefined, linked: undefined, search: search("s") }),
+    ).toBeUndefined();
+    expect(
+      resolvePromptLinkExistingThread({
+        local: undefined,
+        linked: null,
+        search: search("s", true),
+      }),
+    ).toBeUndefined();
+    expect(
+      resolvePromptLinkExistingThread({ local: undefined, linked: null, search: search("s") }),
+    ).toBe("s");
+    expect(
+      resolvePromptLinkExistingThread({ local: undefined, linked: null, search: search() }),
+    ).toBeNull();
+  });
+
+  it("takes only a search match that holds the URL as a whole word", () => {
+    expect(
+      pickPromptLinkSearchMatch([{ id: "pull-123", quality: 0.8 }, { id: "pull-12", quality: 1 }]),
+    ).toEqual({ id: "pull-12", quality: 1 });
+    expect(pickPromptLinkSearchMatch([{ id: "older-server" }, { id: "inside", quality: 0.3 }])).toBe(
+      undefined,
+    );
   });
 });
 
