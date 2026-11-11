@@ -63,7 +63,7 @@ describe("enterprise hosts", () => {
     const projects = [
       { id: "github", repositoryIdentity: identity("github.com/acme/web") },
       { id: "mirror", repositoryIdentity: identity("git.cafe/acme/web") },
-      { id: "prodgit", repositoryIdentity: identity("prodgit.apple.com/acme/web") },
+      { id: "ghe", repositoryIdentity: identity("ghe.example.com/acme/web") },
     ];
     const ids = (host?: string) =>
       findPromptLinkProjects(projects, {
@@ -72,8 +72,8 @@ describe("enterprise hosts", () => {
         name: "web",
       }).map((project) => project.id);
     expect(ids()).toEqual(["github", "mirror"]);
-    expect(ids("prodgit.apple.com")).toEqual(["prodgit"]);
-    expect(ids("github.pie.apple.com")).toEqual([]);
+    expect(ids("ghe.example.com")).toEqual(["ghe"]);
+    expect(ids("git.example.org")).toEqual([]);
   });
 
   it("finds a thread linked on the same host only", () => {
@@ -90,9 +90,9 @@ describe("enterprise hosts", () => {
     const threads = [
       { id: "github", updatedAt: "2026-01-02T00:00:00.000Z", pullRequests: [link("github.com")] },
       {
-        id: "prodgit",
+        id: "ghe",
         updatedAt: "2026-01-01T00:00:00.000Z",
-        pullRequests: [link("prodgit.apple.com")],
+        pullRequests: [link("ghe.example.com")],
       },
     ];
     const find = (host?: string) =>
@@ -103,7 +103,7 @@ describe("enterprise hosts", () => {
         number: 7,
       })?.id;
     expect(find()).toBe("github");
-    expect(find("prodgit.apple.com")).toBe("prodgit");
+    expect(find("ghe.example.com")).toBe("ghe");
   });
 });
 
@@ -136,11 +136,14 @@ describe("resolvePromptLinkExistingThread", () => {
 
   it("takes only a search match that holds the URL as a whole word", () => {
     expect(
-      pickPromptLinkSearchMatch([{ id: "pull-123", quality: 0.8 }, { id: "pull-12", quality: 1 }]),
+      pickPromptLinkSearchMatch([
+        { id: "pull-123", quality: 0.8 },
+        { id: "pull-12", quality: 1 },
+      ]),
     ).toEqual({ id: "pull-12", quality: 1 });
-    expect(pickPromptLinkSearchMatch([{ id: "older-server" }, { id: "inside", quality: 0.3 }])).toBe(
-      undefined,
-    );
+    expect(
+      pickPromptLinkSearchMatch([{ id: "older-server" }, { id: "inside", quality: 0.3 }]),
+    ).toBe(undefined);
   });
 });
 

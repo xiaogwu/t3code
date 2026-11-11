@@ -74,7 +74,7 @@ describe("parseNewThreadLink", () => {
   });
 
   it("keeps an enterprise host through the pull request URL", () => {
-    for (const host of ["github.pie.apple.com", "prodgit.apple.com"]) {
+    for (const host of ["ghe.example.com", "git.example.org"]) {
       const url = `https://${host}/acme/web/pull/123`;
       const parsed = parseNewThreadLink(`?pr=${encodeURIComponent(url)}`);
       expect(parsed).toEqual({
@@ -89,9 +89,12 @@ describe("parseNewThreadLink", () => {
         expect(promptLinkPullRequestUrl(parsed.value.pullRequest)).toBe(url);
       }
     }
-    expect(parseNewThreadLink("?pr=https://gitlab.com/a/b/pull/1").ok).toBe(false);
+    expect(parseNewThreadLink("?pr=https://gitlab.com/a/b/pull/1").ok).toBe(true);
+    expect(parseNewThreadLink("?pr=ftp://ghe.example.com/a/b/pull/1").ok).toBe(false);
+    expect(parseNewThreadLink("?pr=https://ghe.example.com/a/b/issues/1").ok).toBe(false);
+    expect(parseNewThreadLink("?pr=https://user@ghe.example.com/a/b/pull/1").ok).toBe(false);
     // The Safari extension's link, as macOS hands it to the desktop app.
-    const pr = "https://prodgit.apple.com/acme/web/pull/123";
+    const pr = "https://ghe.example.com/acme/web/pull/123";
     const link = `https://app.t3.codes/new?pr=${encodeURIComponent(pr)}&prompt=${encodeURIComponent(`/pr-review ${pr}`)}`;
     const appPath = promptLinkAppPath(link);
     expect(appPath?.startsWith("/new?")).toBe(true);

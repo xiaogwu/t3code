@@ -71,7 +71,7 @@ export function sanitizeLinkedPrompt(raw: string): LinkedPrompt {
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
-const PROMPT_LINK_PULL_REQUEST_HOSTS = ["github.com", "github.pie.apple.com", "prodgit.apple.com"];
+const HOST = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?$/;
 
 function repositoryOf(owner: string, name: string, host?: string): PromptLinkRepository | null {
   const trimmedName = name.replace(/\.git$/i, "");
@@ -96,7 +96,7 @@ function parsePromptLinkPullRequest(value: string): PromptLinkPullRequest | null
       trimmed,
     );
   const host = url?.[1]?.toLowerCase();
-  if (url !== null && (host === undefined || !PROMPT_LINK_PULL_REQUEST_HOSTS.includes(host))) {
+  if (url !== null && (host === undefined || !HOST.test(host))) {
     return null;
   }
   const match = url ?? /^([^/\s#]+)\/([^/\s#]+)(?:\/|#)(\d+)$/.exec(trimmed);

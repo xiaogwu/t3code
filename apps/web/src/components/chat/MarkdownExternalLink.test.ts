@@ -4,12 +4,11 @@ import { externalLinkBreakSegments } from "./MarkdownExternalLink";
 
 describe("externalLinkBreakSegments", () => {
   it("breaks a URL only before delimiter runs", () => {
-    expect(externalLinkBreakSegments("prodgit.apple.com/content-engineering/pull/460")).toEqual([
-      "prodgit",
-      ".apple",
+    expect(externalLinkBreakSegments("ghe.example.com/acme/pull/460")).toEqual([
+      "ghe",
+      ".example",
       ".com",
-      "/content",
-      "-engineering",
+      "/acme",
       "/pull",
       "/460",
     ]);

@@ -13,7 +13,7 @@ describe("TitlePolicy", () => {
     expect(decoded.defaults.refreshEveryTurns).toBe(4);
     expect(decoded.rules.map((rule) => rule.name)).toEqual([
       "GitHub pull requests",
-      "ProdGit pull requests",
+      "Enterprise pull requests",
       "Oliver sessions",
       "GitHub issues",
       "Radar",
