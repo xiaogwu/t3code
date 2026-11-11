@@ -388,6 +388,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (usagePeriod) return `Usage: Period: ${usagePeriod.label}`;
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
+  if (command === "preview.find") return "Preview: Find on Page";
   const raw = String(command);
   if (raw === "shell.openInTerminal") return "Open Worktree in External Terminal";
   if (raw.startsWith("script.") && raw.endsWith(".run")) {

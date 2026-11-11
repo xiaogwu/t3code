@@ -109,6 +109,10 @@ import Migration0085 from "./Migrations/085_DropOrchestrationEventCorrelationInd
 import Migration0086 from "./Migrations/086_DelegatedRecoveryIndexes.ts";
 // Upstream ships this as 080.
 import Migration0087 from "./Migrations/087_ScheduledTaskThreadMode.ts";
+// Upstream ships this as 081.
+import Migration0088 from "./Migrations/088_ProjectionMessageSearchText.ts";
+// Upstream ships this as 082.
+import Migration0089 from "./Migrations/089_TurnItemConversationIndex.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -212,6 +216,10 @@ export const migrationEntries = [
   [86, "DelegatedRecoveryIndexes", Migration0086],
   // Upstream ships this as 80.
   [87, "ScheduledTaskThreadMode", Migration0087],
+  // Upstream ships this as 81.
+  [88, "ProjectionMessageSearchText", Migration0088],
+  // Upstream ships this as 82.
+  [89, "TurnItemConversationIndex", Migration0089],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -260,6 +268,22 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     kind: "BadState",
     message: `This database's migration history would skip required schema migrations: ${skipped.join(", ")}. The migrator skips every id up to the highest recorded id (${latestRecordedId}), regardless of name. It was probably written by a different build. Start the build that wrote it, or report this migration history so an upgrade path can be added.`,
   });
+});
+
+const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
+
+// Mirrors the Migrator, which runs only ids above the highest recorded. Upstream also
+// counts V2-preview ledger rows, which the fork never reconciles (see runMigrations).
+export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return true;
+  const rows = yield* sql<{ readonly latestId: number | null }>`
+    SELECT MAX(migration_id) AS latestId FROM effect_sql_migrations
+  `;
+  return (rows[0]?.latestId ?? 0) < latestMigrationId;
 });
 
 const run = Migrator.make({});

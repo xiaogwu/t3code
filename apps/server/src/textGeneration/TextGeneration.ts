@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
-import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import type { ModelSelection, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   isProviderAvailable,
   isProviderTextGenerationCapable,
@@ -231,6 +231,7 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
     textGenerators: TextGeneratorsService | undefined,
     operation: TextGenerationOp,
     selection: ModelSelection,
+    projectId: ProjectId | null | undefined,
   ): Effect.fn.Return<ModelSelection, TextGenerationError, never> {
     const textGenerator =
       textGenerators === undefined ? undefined : yield* textGenerators.runner(selection.instanceId);
@@ -263,25 +264,21 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
       ),
     );
     const resolved =
-      fallbackTextGenerationModelSelection(
-        settings.providerInstances,
-        (instanceId, driver) => {
-          const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
-          return (
-            instanceId !== selection.instanceId &&
-            provider?.enabled === true &&
-            resolveProjectProviderInstanceEnabled(settings, null, instanceId) &&
-            provider.installed &&
-            provider.auth.status !== "unauthenticated" &&
-            provider.status !== "error" &&
-            isProviderAvailable(provider) &&
-            isProviderTextGenerationCapable(provider) &&
-            (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
-            !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
-          );
-        },
-        { includeConfiguredInstances: true },
-      ) ?? selection;
+      fallbackTextGenerationModelSelection(settings.providerInstances, (instanceId, driver) => {
+        const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
+        return (
+          instanceId !== selection.instanceId &&
+          provider?.enabled === true &&
+          resolveProjectProviderInstanceEnabled(settings, projectId ?? null, instanceId) &&
+          provider.installed &&
+          provider.auth.status !== "unauthenticated" &&
+          provider.status !== "error" &&
+          isProviderAvailable(provider) &&
+          isProviderTextGenerationCapable(provider) &&
+          (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
+          !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
+        );
+      }) ?? selection;
     if (textGeneratorCannotRun && resolved.instanceId === selection.instanceId) {
       return yield* new TextGenerationError({
         operation,
@@ -305,7 +302,12 @@ export const makeTextGenerationFromRegistry = (
   // Optional too: without it every id resolves to a provider instance.
   textGenerators?: TextGeneratorsService,
 ): TextGeneration["Service"] => {
-  const preflight = <Input extends { readonly modelSelection: ModelSelection }>(
+  const preflight = <
+    Input extends {
+      readonly modelSelection: ModelSelection;
+      readonly projectId?: ProjectId | null | undefined;
+    },
+  >(
     operation: TextGenerationOp,
     input: Input,
   ): Effect.Effect<Input, TextGenerationError> =>
@@ -317,6 +319,7 @@ export const makeTextGenerationFromRegistry = (
           textGenerators,
           operation,
           input.modelSelection,
+          input.projectId,
         ).pipe(Effect.map((modelSelection) => ({ ...input, modelSelection })));
 
   return TextGeneration.of({

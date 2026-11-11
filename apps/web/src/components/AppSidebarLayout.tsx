@@ -66,6 +66,7 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useMobileSidebarSheetMounted,
   useSidebar,
   useSidebarVisibility,
 } from "./ui/sidebar";
@@ -315,15 +316,9 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const {
-    toggleSidebar,
-    setOpen,
-    setOpenMobile,
-    peeked,
-    peekPanelHandlers,
-    isMobile,
-    mobileSheetMounted,
-  } = useSidebar();
+  const { toggleSidebar, setOpen, setOpenMobile, peeked, peekPanelHandlers, isMobile } =
+    useSidebar();
+  const mobileSidebarSheetMounted = useMobileSidebarSheetMounted();
   const isSidebarVisible = useSidebarVisibility();
   const boringSidebarEnabled = useClientSettings((settings) => settings.boringSidebarEnabled);
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
@@ -434,7 +429,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
         // clear the panel's own `z-[60]` or the only affordance for pinning
         // the panel open disappears underneath it.
         peeked && "z-[70]",
-        isMobile && mobileSheetMounted && "hidden",
+        mobileSidebarSheetMounted && "hidden",
       )}
       data-sidebar-control=""
       // Hovering the trigger counts as being in the panel, exactly as if the

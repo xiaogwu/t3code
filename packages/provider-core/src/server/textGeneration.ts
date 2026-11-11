@@ -2,6 +2,7 @@ import type {
   BranchNamingOptions,
   ChatAttachment,
   ModelSelection,
+  ProjectId,
   PullRequestReviewGuide,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -20,6 +21,7 @@ export interface CommitMessageGenerationInput {
   modelSelection: ModelSelection;
   /** Additional models to try, in order, if the primary selection fails. */
   fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface CommitMessageGenerationResult {
@@ -41,6 +43,7 @@ export interface PrContentGenerationInput {
   modelSelection: ModelSelection;
   /** Additional models to try, in order, if the primary selection fails. */
   fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface PrContentGenerationResult {
@@ -56,6 +59,7 @@ export interface BranchNameGenerationInput {
   modelSelection: ModelSelection;
   /** Additional models to try, in order, if the primary selection fails. */
   fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface BranchNameGenerationResult {
@@ -75,6 +79,7 @@ export interface ThreadTitleGenerationInput {
   modelSelection: ModelSelection;
   /** Additional models to try, in order, if the primary selection fails. */
   fallbackModelSelections?: ReadonlyArray<ModelSelection> | undefined;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface ThreadTitleGenerationResult {
@@ -100,6 +105,7 @@ export interface ReviewGuideGenerationInput {
   instructions?: string | undefined;
   stack?: ReadonlyArray<ReviewGuideStackLayer> | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export type ReviewGuideGenerationResult = Omit<

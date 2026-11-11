@@ -212,6 +212,7 @@ const make = Effect.gen(function* () {
           instructions: titleInstructions(settings.threadTitleInstructions, plan.instructions),
           modelSelection: settings.textGenerationModelSelection,
           fallbackModelSelections: settings.textGenerationFallbackModelSelections,
+          projectId: thread.projectId,
         });
         const generated = result.title.trim();
         if (generated === "New thread") {

@@ -15,7 +15,7 @@ layer("062_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 87 }, (_, index) => index + 1),
+        Array.from({ length: 89 }, (_, index) => index + 1),
       );
     }),
   );
@@ -53,6 +53,8 @@ layer("062_OrchestrationV2", (it) => {
         [85, "DropOrchestrationEventCorrelationIndex"],
         [86, "DelegatedRecoveryIndexes"],
         [87, "ScheduledTaskThreadMode"],
+        [88, "ProjectionMessageSearchText"],
+        [89, "TurnItemConversationIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 

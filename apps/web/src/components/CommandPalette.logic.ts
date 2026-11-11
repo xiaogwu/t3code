@@ -20,6 +20,7 @@ import {
   type AddProjectRemoteSourceReadiness,
 } from "@t3tools/client-runtime/operations/projects";
 import {
+  type ScopedThreadRef,
   type EnvironmentId,
   type ProjectId,
   type EnvironmentMachineKind,
@@ -50,6 +51,7 @@ export function buildLinkedThreadActionItems(
   return input.threads.map((thread) => ({
     kind: "action",
     value: `thread:${input.environmentId}:${thread.id}`,
+    threadRef: { environmentId: input.environmentId, threadId: thread.id },
     title: thread.title || "Untitled thread",
     description: thread.archivedAt === null ? "Linked thread" : "Archived thread",
     searchTerms: [input.query, thread.title],
@@ -199,6 +201,7 @@ export interface CommandPaletteItem {
   readonly timestamp?: string;
   /** Thread rows rank by this, with use history, instead of by `searchTerms`. */
   readonly threadSearch?: ThreadSearchSubject;
+  readonly threadRef?: ScopedThreadRef;
   /** Shown in place of the description when the match is not in the title. */
   readonly matchHint?: SearchMatchHint;
   readonly icon: ReactNode;
@@ -562,6 +565,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
         value: input.archived
           ? `${ARCHIVED_THREAD_VALUE_PREFIX}${thread.environmentId}:${thread.id}`
           : `thread:${thread.environmentId}:${thread.id}`,
+        threadRef: { environmentId: thread.environmentId, threadId: thread.id },
         // Archived rows are matched by plain text, not ranked; see `archivedOnly`.
         searchTerms: input.archived
           ? [
