@@ -716,13 +716,13 @@ describe("scoreMessageMatch", () => {
       ["gannet’s gannet's", "gannet's", { quality: 1, offset: 9 }],
       ["gannet's gannet’s", "gannet’s", { quality: 1, offset: 0 }],
       [
-        "See https://prodgit.example.com/a/b/pull/1795",
-        "https://prodgit.example.com/a/b/pull/1795#event-2661378",
+        "See https://ghe.example.com/a/b/pull/1795",
+        "https://ghe.example.com/a/b/pull/1795#event-2661378",
         { quality: 1, offset: 4 },
       ],
       [
-        "See https://prodgit.example.com/a/b/pull/1795",
-        "https://prodgit.example.com/a/b/pull/1795/files",
+        "See https://ghe.example.com/a/b/pull/1795",
+        "https://ghe.example.com/a/b/pull/1795/files",
         { quality: 1, offset: 4 },
       ],
     ] as const) {

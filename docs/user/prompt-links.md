@@ -45,8 +45,7 @@ this step next time.
 - **`pr`**: opens the thread linked to that pull request on any connected machine, or else the
   best thread matching the pull request URL, as the command palette would find it. The prompt is
   not added to that thread. When no thread matches, the draft with the prompt goes on the pull
-  request branch in a new worktree. The URL can be on `github.com`, `github.pie.apple.com`, or
-  `prodgit.apple.com`. T3 Code checks the code out only after you confirm, because the checkout runs your
+  request branch in a new worktree. The URL can be on `github.com` or a GitHub Enterprise host. T3 Code checks the code out only after you confirm, because the checkout runs your
   setup script on it.
 
 A thread link with a prompt, such as `https://app.t3.codes/<environment>/<thread>?prompt=…`,

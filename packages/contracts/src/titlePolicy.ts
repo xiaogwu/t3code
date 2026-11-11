@@ -103,8 +103,8 @@ export const defaultTitlePolicy: TitlePolicy = {
         "Use PR metadata retrieved by /pr-review, especially the PR title and description, as authoritative context. Describe what the PR changes or fixes, not the review process.",
     },
     {
-      name: "ProdGit pull requests",
-      when: { urlMatches: "prodgit.apple.com/*/*/pull/{number}" },
+      name: "Enterprise pull requests",
+      when: { urlMatches: "*/*/*/pull/{number}" },
       prefix: "PR#{number}:",
       placement: "start",
       priority: 100,
@@ -154,8 +154,8 @@ export const defaultTitlePolicy: TitlePolicy = {
     },
     {
       thread:
-        "$pr-review https://prodgit.apple.com/content-engineering/politics-embeds-us/pull/391\n\nASSISTANT:\nPR title: Add labels for polls-closed race sections. The description explains that the change supplies fallback labels for key and statewide race tables.",
-      expected: "PR#391: Add polls-closed race labels",
+        "$pr-review https://ghe.example.com/acme/web/pull/391\n\nASSISTANT:\nPR title: Add labels for closed poll sections. The description explains that the change supplies fallback labels for key and statewide tables.",
+      expected: "PR#391: Add closed poll labels",
     },
   ],
 };

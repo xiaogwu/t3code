@@ -21,7 +21,7 @@ const rule = (overrides: Partial<TitlePolicyRule> & Pick<TitlePolicyRule, "name"
 describe("resolveTitlePolicyRule", () => {
   it("reads PR, issue, Radar, and glob references", () => {
     expect(prefixOf("review https://github.com/acme/app/pull/4821 please")).toBe("PR#4821:");
-    expect(prefixOf("$pr-review https://prodgit.apple.com/team/repo/pull/391")).toBe("PR#391:");
+    expect(prefixOf("$pr-review https://ghe.example.com/team/repo/pull/391")).toBe("PR#391:");
     expect(prefixOf("see https://github.com/acme/app/issues/932")).toBe("#932");
     expect(prefixOf("rdar://12345678 and radar://9")).toBe("Radar 12345678");
     expect(
@@ -36,7 +36,7 @@ describe("resolveTitlePolicyRule", () => {
   });
 
   it("stops a glob capture at markdown and table punctuation", () => {
-    const url = "https://prodgit.apple.com/team/repo/pull/548";
+    const url = "https://ghe.example.com/team/repo/pull/548";
     expect(prefixOf(`Opened **[#548](${url})**: ready`)).toBe("PR#548:");
     expect(prefixOf(`| ${url}|PR |`)).toBe("PR#548:");
   });
@@ -57,7 +57,7 @@ describe("resolveTitlePolicyRule", () => {
       prefixOf("USER:\nfix it\n\nASSISTANT:\nOpened https://github.com/acme/app/pull/4821"),
     ).toBe("PR#4821:");
     expect(
-      prefixOf("USER:\nfix it\n\nASSISTANT:\nOpened https://prodgit.apple.com/team/repo/pull/391"),
+      prefixOf("USER:\nfix it\n\nASSISTANT:\nOpened https://ghe.example.com/team/repo/pull/391"),
     ).toBe("PR#391:");
   });
 
