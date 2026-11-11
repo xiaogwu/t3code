@@ -15,6 +15,7 @@ import {
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
+  pickPromptLinkSearchMatch,
   resolvePromptLinkExistingThread,
   resolvePromptLinkModelSelection,
 } from "./promptLinks.ts";
@@ -131,6 +132,15 @@ describe("resolvePromptLinkExistingThread", () => {
     expect(
       resolvePromptLinkExistingThread({ local: undefined, linked: null, search: search() }),
     ).toBeNull();
+  });
+
+  it("takes only a search match that holds the URL as a whole word", () => {
+    expect(
+      pickPromptLinkSearchMatch([{ id: "pull-123", quality: 0.8 }, { id: "pull-12", quality: 1 }]),
+    ).toEqual({ id: "pull-12", quality: 1 });
+    expect(pickPromptLinkSearchMatch([{ id: "older-server" }, { id: "inside", quality: 0.3 }])).toBe(
+      undefined,
+    );
   });
 });
 

@@ -8,6 +8,7 @@ import {
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
+  pickPromptLinkSearchMatch,
   resolvePromptLinkExistingThread,
   resolvePromptLinkModelSelection,
 } from "@t3tools/client-runtime/prompt-links";
@@ -293,7 +294,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       ? promptLinkPullRequestUrl(link.pullRequest)
       : "",
   );
-  const bestSearchMatch = threadSearch.matches[0];
+  const bestSearchMatch = pickPromptLinkSearchMatch(threadSearch.matches);
   const serverPullRequestThread = useAtomValue(
     link.kind === "pull-request" && lookupProjects.length > 0
       ? pullRequestThreadLookupAtom(

@@ -90,6 +90,13 @@ export function pickPromptLinkPullRequestThread(
   return null;
 }
 
+/** The best search match that holds the URL as a whole word, so `/pull/12` skips `/pull/123`. */
+export function pickPromptLinkSearchMatch<T extends { readonly quality?: number }>(
+  matches: ReadonlyArray<T>,
+): T | undefined {
+  return matches.find((match) => (match.quality ?? 0) >= 1);
+}
+
 /**
  * The thread a pull request link opens: one linked to the pull request, else the best search
  * match. `undefined` while the server lookup or the search is still answering.
