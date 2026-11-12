@@ -43,12 +43,14 @@ const EMPTY_MANAGED_PATHS: readonly string[] = [];
 declare module "@tanstack/react-router" {
   interface HistoryState {
     settingsTargetHighlight?: boolean;
+    settingsTargetFocus?: boolean;
   }
 }
 
 interface SettingsSearchTargetContextValue {
   readonly targetId: string | null;
   readonly highlightTarget: boolean;
+  readonly focusTarget: boolean;
   readonly onTargetHandled: () => void;
 }
 
@@ -56,27 +58,30 @@ const noop = () => undefined;
 const SettingsSearchTargetContext = createContext<SettingsSearchTargetContextValue>({
   targetId: null,
   highlightTarget: true,
+  focusTarget: true,
   onTargetHandled: noop,
 });
 
 function SettingsSearchTargetProvider({
   targetId,
   highlightTarget = true,
+  focusTarget = true,
   onTargetHandled = noop,
   children,
 }: {
   targetId: string | null;
   highlightTarget?: boolean;
+  focusTarget?: boolean;
   onTargetHandled?: () => void;
   children: ReactNode;
 }) {
-  const value = { targetId, highlightTarget, onTargetHandled };
+  const value = { targetId, highlightTarget, focusTarget, onTargetHandled };
   return <SettingsSearchTargetContext value={value}>{children}</SettingsSearchTargetContext>;
 }
 
 let pendingTargetScroll: AbortController | undefined;
 
-function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): void {
+function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true, focus = true): void {
   pendingTargetScroll?.abort();
   const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const markedScrollTarget =
@@ -115,7 +120,7 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
       if (
         panel.hasAttribute("data-open") &&
         target.isConnected &&
-        document.activeElement === target
+        (!focus || document.activeElement === target)
       ) {
         scroll();
       }
@@ -143,7 +148,7 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
     }
     target.addEventListener("blur", () => controller.abort(), { once: true, signal });
   }
-  target.focus({ preventScroll: true });
+  if (focus) target.focus({ preventScroll: true });
   target.classList.remove("settings-search-target-pulse");
   if (!highlight || prefersReducedMotion) return;
   void target.offsetWidth;
@@ -158,11 +163,13 @@ export function useSettingsSearchTargetId(): string | null {
 }
 
 export function useSettingsSearchTarget<T extends HTMLElement>(id: string | undefined) {
-  const { targetId, highlightTarget, onTargetHandled } = useContext(SettingsSearchTargetContext);
+  const { targetId, highlightTarget, focusTarget, onTargetHandled } = useContext(
+    SettingsSearchTargetContext,
+  );
   const isSearchTarget = id !== undefined && id === targetId;
   const targetRef = (target: T | null) => {
     if (target && isSearchTarget) {
-      scrollAndFocusSettingsTarget(target, highlightTarget);
+      scrollAndFocusSettingsTarget(target, highlightTarget, focusTarget);
       onTargetHandled();
     }
   };
@@ -597,6 +604,9 @@ export function SettingsPageContainer({
   const highlightTarget = useLocation({
     select: (location) => location.state.settingsTargetHighlight !== false,
   });
+  const focusTarget = useLocation({
+    select: (location) => location.state.settingsTargetFocus !== false,
+  });
   const targetId = hash.replace(/^#/, "") || null;
   const clearTargetHash = () => {
     void navigate({
@@ -604,7 +614,7 @@ export function SettingsPageContainer({
       replace: true,
       resetScroll: false,
       hashScrollIntoView: false,
-      state: { settingsTargetHighlight: true },
+      state: { settingsTargetHighlight: true, settingsTargetFocus: true },
     });
   };
 
@@ -612,6 +622,7 @@ export function SettingsPageContainer({
     <SettingsSearchTargetProvider
       targetId={targetId === null ? null : (searchTargetFallbacks?.[targetId] ?? targetId)}
       highlightTarget={highlightTarget}
+      focusTarget={focusTarget}
       onTargetHandled={clearTargetHash}
     >
       <div
@@ -629,10 +640,13 @@ export function SettingsPageContainer({
 
 export function scrollToSettingsTarget(
   targetId: string,
-  { highlight = true }: { readonly highlight?: boolean } = {},
+  {
+    highlight = true,
+    focus = true,
+  }: { readonly highlight?: boolean; readonly focus?: boolean } = {},
 ): boolean {
   const target = document.getElementById(targetId);
   if (!target) return false;
-  scrollAndFocusSettingsTarget(target, highlight);
+  scrollAndFocusSettingsTarget(target, highlight, focus);
   return true;
 }

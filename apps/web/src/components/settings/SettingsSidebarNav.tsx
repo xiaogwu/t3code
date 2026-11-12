@@ -118,6 +118,8 @@ const SETTINGS_DETAIL_PAGE_PARENTS: Readonly<Record<string, SettingsPath>> = {
   "/settings/open-source-licenses": "/settings/about",
 };
 
+const SEARCH_PREVIEW_DEBOUNCE_MS = 150;
+
 // Attached only to the highlighted result, so it runs whenever the highlight lands on a row.
 function scrollResultIntoView(row: HTMLElement | null) {
   row?.scrollIntoView({ block: "nearest" });
@@ -134,6 +136,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [query, setQuery] = useState("");
   // Below md the nav is an icon rail; searching expands it over the page.
   const [compactSearchOpen, setCompactSearchOpen] = useState(false);
@@ -193,6 +196,9 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     if (compactSearchOpen) searchInputRef.current?.focus();
   }, [compactSearchOpen]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the pending preview timer on unmount
+  useEffect(() => () => clearTimeout(previewTimerRef.current), []);
+
   const handleSectionClick = (to: SettingsPath) => {
     void navigate({
       to,
@@ -206,7 +212,28 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     setQuery("");
     setActiveResultIndex(0);
   };
+  const cancelPreview = () => clearTimeout(previewTimerRef.current);
+  const schedulePreview = (item: SettingsSearchItem) => {
+    cancelPreview();
+    previewTimerRef.current = setTimeout(() => {
+      const targetId = item.targetId ?? item.id;
+      revealSettingsSearchTarget(targetId);
+      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
+        scrollToSettingsTarget(targetId, { focus: false });
+        return;
+      }
+      void navigate({
+        to: item.to,
+        hash: targetId,
+        replace: true,
+        hashScrollIntoView: false,
+        state: { settingsTargetHighlight: true, settingsTargetFocus: false },
+      });
+    }, SEARCH_PREVIEW_DEBOUNCE_MS);
+  };
+
   const handleSearchResultClick = (item: SettingsSearchItem) => {
+    cancelPreview();
     clearSearch();
     setCompactSearchOpen(false);
     const targetId = item.targetId ?? item.id;
@@ -229,18 +256,25 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     if (event.key === "Escape" && isSearching) {
       event.preventDefault();
       event.stopPropagation();
+      cancelPreview();
       clearSearch();
       return;
     }
     if (results.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveResultIndex((activeResultIndex + 1) % results.length);
+      const next = (activeResultIndex + 1) % results.length;
+      setActiveResultIndex(next);
+      const item = results[next];
+      if (item) schedulePreview(item);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveResultIndex((activeResultIndex - 1 + results.length) % results.length);
+      const next = (activeResultIndex - 1 + results.length) % results.length;
+      setActiveResultIndex(next);
+      const item = results[next];
+      if (item) schedulePreview(item);
       return;
     }
     if (event.key === "Enter") {
@@ -277,6 +311,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 type="text"
                 value={query}
                 onChange={(event) => {
+                  cancelPreview();
                   setQuery(event.currentTarget.value);
                   setActiveResultIndex(0);
                 }}
