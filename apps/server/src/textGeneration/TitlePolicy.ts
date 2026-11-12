@@ -15,27 +15,24 @@ const BUILT_IN_PATTERNS: Record<string, RegExp> = {
   radar: /r(?:dar|adar):\/\/(\d+)/,
 };
 
-// Agents cite Radars and issues in passing, so only the user's own words pick
-// those prefixes. PR links still count from replies: an agent opening a PR is
-// what the thread is about.
-const USER_ONLY_URL_KINDS = new Set(["radar", "github_issue"]);
-
+// Agents cite PRs, issues, and Radars in passing, so URL rules read only the
+// user's own words plus PRs linked to the thread (which is how a PR the agent
+// opens or works on shows up). Leading untagged text counts as the user's.
 function userMessages(context: string): string {
   const parts = context.split(/(?:^|\n\n)(USER|ASSISTANT):\n/);
   if (parts.length === 1) return context;
-  return parts.flatMap((part, index) => (parts[index - 1] === "USER" ? [part] : [])).join("\n\n");
+  return parts
+    .flatMap((part, index) => (index === 0 || parts[index - 1] === "USER" ? [part] : []))
+    .join("\n\n");
 }
 
 function interpolate(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 }
 
-// Glob-style rule pattern ("linear.app/*/issue/{identifier}") to a linear regex.
-// Escape literals first, then substitute `*` and `{name}` placeholders so no
-// user-controlled quantifier or alternation reaches the compiled pattern.
-// Placeholders capture only identifier characters: agents write links as
-// markdown (`**[#548](…/pull/548)**`), and a looser class would swallow the
-// trailing `)**` into the title prefix.
+// Escape literals before substituting `*` and `{name}` so no user-controlled
+// quantifier reaches the regex. Placeholders capture identifier characters only,
+// or a markdown link (`**[#548](…/pull/548)**`) would leak `)**` into the prefix.
 function globPatternToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
   const withWildcards = escaped.replace(/\*/g, "[^/\\s]+");
@@ -43,7 +40,7 @@ function globPatternToRegExp(pattern: string): RegExp {
   return new RegExp(withCapture);
 }
 
-function matchRule(context: string, rule: TitlePolicyRule): string | null {
+function matchRule(context: string, urlSource: string, rule: TitlePolicyRule): string | null {
   if (rule.when.initialCommand !== undefined) {
     const firstUserLine = context.match(/(?:^|\n)USER:\n([^\n]*)/i)?.[1]?.trim();
     return firstUserLine?.split(/\s+/)[0] === rule.when.initialCommand
@@ -52,27 +49,29 @@ function matchRule(context: string, rule: TitlePolicyRule): string | null {
   }
   if (rule.when.urlKind !== undefined) {
     const pattern = BUILT_IN_PATTERNS[rule.when.urlKind];
-    const source = USER_ONLY_URL_KINDS.has(rule.when.urlKind) ? userMessages(context) : context;
-    return pattern === undefined ? null : (source.match(pattern)?.[1] ?? null);
+    return pattern === undefined ? null : (urlSource.match(pattern)?.[1] ?? null);
   }
   if (rule.when.urlMatches !== undefined) {
     // A pattern without a `{name}` capture never matches.
-    return context.match(globPatternToRegExp(rule.when.urlMatches))?.[1] ?? null;
+    return urlSource.match(globPatternToRegExp(rule.when.urlMatches))?.[1] ?? null;
   }
   return null;
 }
 
 /**
- * The highest-priority rule matching a `USER:`/`ASSISTANT:` transcript, with
- * its prefix filled in. Equal priorities resolve to the earlier rule.
+ * The highest-priority rule matching a `USER:`/`ASSISTANT:` transcript and the
+ * thread's linked PR URLs, with its prefix filled in. Equal priorities resolve
+ * to the earlier rule.
  */
 export function resolveTitlePolicyRule(
   context: string,
   rules: ReadonlyArray<TitlePolicyRule>,
+  linkedPullRequestUrls: ReadonlyArray<string> = [],
 ): { readonly rule: TitlePolicyRule; readonly prefix: string } | null {
+  const urlSource = [...linkedPullRequestUrls, userMessages(context)].join("\n");
   let best: { readonly rule: TitlePolicyRule; readonly prefix: string } | null = null;
   for (const rule of rules) {
-    const value = matchRule(context, rule);
+    const value = matchRule(context, urlSource, rule);
     if (value === null) continue;
     if (best === null || rule.priority > best.rule.priority) {
       best = { rule, prefix: interpolate(rule.prefix, { number: value, identifier: value }) };
@@ -143,9 +142,14 @@ const UNCHANGED: TitlePlan = {
 };
 
 /** `context` is a `USER:`/`ASSISTANT:` transcript; `createdAt` anchors templates. */
-export function planTitle(policy: TitlePolicy, context: string, createdAt: number): TitlePlan {
+export function planTitle(
+  policy: TitlePolicy,
+  context: string,
+  createdAt: number,
+  linkedPullRequestUrls: ReadonlyArray<string> = [],
+): TitlePlan {
   if (!policy.enabled) return UNCHANGED;
-  const matched = resolveTitlePolicyRule(context, policy.rules);
+  const matched = resolveTitlePolicyRule(context, policy.rules, linkedPullRequestUrls);
   if (matched?.rule.titleTemplate !== undefined) {
     return { type: "template", title: expandTitleTemplate(matched.rule.titleTemplate, createdAt) };
   }
