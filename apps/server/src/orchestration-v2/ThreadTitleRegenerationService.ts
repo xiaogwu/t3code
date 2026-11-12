@@ -33,11 +33,9 @@ export class ThreadTitleRegenerationService extends Context.Service<
   ThreadTitleRegenerationService,
   {
     /**
-     * `initial` titles a thread from its first message and `regenerate` from
-     * its history, each completing the in-flight marker `requestId` armed.
-     * `policy` is the title policy's look after a completed run: it re-titles
-     * every `refreshEveryTurns`th run, or as soon as a rule's prefix or
-     * template no longer matches the title, and never arms a marker.
+     * `initial` and `regenerate` complete the in-flight marker `requestId` armed.
+     * `policy` runs after each run, never arms a marker, and re-titles every
+     * `refreshEveryTurns`th run or once the title stops matching its rule.
      */
     readonly execute: (input: {
       readonly threadId: ThreadId;
@@ -182,7 +180,19 @@ const make = Effect.gen(function* () {
       }
 
       const currentTitle = thread.title.trim();
-      const plan = planTitle(policy, policyContext, DateTime.toEpochMillis(thread.createdAt));
+      // Stack members are sibling PRs, not this thread's own work.
+      const linkedPullRequestUrls = [
+        ...(thread.linkedPullRequest ? [thread.linkedPullRequest.url] : []),
+        ...(thread.pullRequests ?? [])
+          .filter((link) => link.source !== "stack" && link.source !== "stack-dismissed")
+          .map((link) => link.url),
+      ];
+      const plan = planTitle(
+        policy,
+        policyContext,
+        DateTime.toEpochMillis(thread.createdAt),
+        linkedPullRequestUrls,
+      );
       if (kind.type === "policy") {
         const due = kind.runOrdinal % policy.defaults.refreshEveryTurns === 0;
         const titleMissesRule =
