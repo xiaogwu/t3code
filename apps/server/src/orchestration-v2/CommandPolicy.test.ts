@@ -283,6 +283,19 @@ it.each(["/compact", " /LOGOUT "])("queues every send while %s runs", (text) => 
 const layer = it.layer(CommandPolicy.layer);
 
 layer("CommandPolicyV2", (it) => {
+  it.effect("steers a live Cursor turn in place", () =>
+    Effect.gen(function* () {
+      const policy = yield* CommandPolicy.CommandPolicyV2;
+      const result = yield* policy.decideSteeringExecution({
+        commandId,
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("cursor"),
+        capabilities: CursorProviderCapabilitiesV2,
+      });
+      assert.equal(result, "active_steering");
+    }),
+  );
+
   it.effect("falls back to portable context when Cursor cannot fork natively", () =>
     Effect.gen(function* () {
       const policy = yield* CommandPolicy.CommandPolicyV2;

@@ -297,15 +297,8 @@ function extractEnvironmentValue(output: string, name: string): string | undefin
   return value.length > 0 ? value : undefined;
 }
 
-export type ShellEnvironmentReader = (
-  shell: string,
-  names: ReadonlyArray<string>,
-  execFile?: ExecFileSyncLike,
-) => Partial<Record<string, string>>;
-
-const LOGIN_SHELL_TIMEOUT_MS = 5000;
-
-function parseCapturedEnvironment(
+/** Reads the values `buildEnvironmentCaptureCommand` printed; unset or empty names are omitted. */
+export function extractEnvironmentValues(
   output: string,
   names: ReadonlyArray<string>,
 ): Partial<Record<string, string>> {
@@ -318,6 +311,14 @@ function parseCapturedEnvironment(
   }
   return environment;
 }
+
+export type ShellEnvironmentReader = (
+  shell: string,
+  names: ReadonlyArray<string>,
+  execFile?: ExecFileSyncLike,
+) => Partial<Record<string, string>>;
+
+const LOGIN_SHELL_TIMEOUT_MS = 5000;
 
 export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
   shell,
@@ -338,7 +339,7 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
     stdio: ["ignore", "pipe", "ignore"],
   });
 
-  return parseCapturedEnvironment(output, names);
+  return extractEnvironmentValues(output, names);
 };
 
 type SpawnedShellProbe = {
@@ -428,7 +429,7 @@ export const readEnvironmentFromLoginShellAsync = (
             Deferred.doneUnsafe(exited, Effect.void);
             resume(
               code === 0
-                ? Effect.succeed(parseCapturedEnvironment(stdout, names))
+                ? Effect.succeed(extractEnvironmentValues(stdout, names))
                 : Effect.fail(
                     new LoginShellProbeError({ cause: `login shell exited ${code ?? signal}` }),
                   ),

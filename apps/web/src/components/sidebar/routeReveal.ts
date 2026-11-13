@@ -1,6 +1,8 @@
 import type { SidebarAutoReveal } from "@t3tools/contracts/settings";
 import { useRef } from "react";
 
+import { observeResize } from "~/lib/observeResize";
+
 import { filterSidebarV2VisibleThreads } from "../Sidebar.logic";
 
 // AppSidebarLayout owns this so drawer and Settings remounts preserve the chosen project scope.
@@ -98,19 +100,37 @@ export function useActiveRowReveal(
     row.scrollIntoView({ block: "nearest" });
     if (manual) flashRow(row);
   };
-  const revealRow = (row: HTMLElement | null, rowKey: string) => {
-    if (row === null) return;
+  // Returns a ref cleanup while it waits on a hidden row, so an unmount releases the wait.
+  const revealRow = (row: HTMLElement | null, rowKey: string): (() => void) | undefined => {
+    if (row === null) return undefined;
     activeRow.current = { row, key: rowKey };
+    if (
+      reveal.manualKey !== rowKey &&
+      reveal.pendingKey !== rowKey &&
+      !mountRevealOwed.current
+    ) {
+      return undefined;
+    }
+    // The closed narrow sheet keeps rows mounted but hidden, and opening it does not
+    // re-render them, so wait for the row to get a box before spending the reveal.
+    if (row.getClientRects().length === 0) {
+      const stopWaiting = observeResize(row, () => {
+        if (row.getClientRects().length === 0) return;
+        stopWaiting();
+        revealRow(row, rowKey);
+      });
+      return stopWaiting;
+    }
     if (claimManualSidebarReveal(reveal, rowKey)) {
       mountRevealOwed.current = false;
       scrollRow(row, true);
-      return;
+      return undefined;
     }
-    if (reveal.pendingKey !== rowKey && !mountRevealOwed.current) return;
     completeSidebarRouteReveal(reveal);
     mountRevealOwed.current = false;
-    if (autoReveal === "off") return;
+    if (autoReveal === "off") return undefined;
     scrollRow(row, false);
+    return undefined;
   };
   const revealNow = (manual: boolean) => {
     const current = activeRow.current;

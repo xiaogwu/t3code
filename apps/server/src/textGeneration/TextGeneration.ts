@@ -11,14 +11,12 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { exhaustedUsageWindow } from "@t3tools/shared/usageLimits";
-import {
-  defaultTextGenerationModel,
-  fallbackTextGenerationModelSelection,
-} from "@t3tools/shared/serverSettings";
+import { fallbackTextGenerationModelSelection } from "@t3tools/shared/serverSettings";
 import * as ServerSettings from "../serverSettings.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { TextGenerationError } from "@t3tools/contracts";
 
+import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
@@ -70,6 +68,10 @@ const resolveInstance = (
   );
 
 type TextGeneratorsService = TextGenerators.TextGenerators["Service"];
+type InstallationGate = ProviderInstallationGate.ProviderInstallationGate["Service"];
+
+// Without a gate (bare-registry callers), provider work runs as given.
+const ungated: InstallationGate["execute"] = (_instanceId, effect) => effect;
 
 interface ResolvedTextGeneration {
   readonly enabled: boolean;
@@ -142,6 +144,7 @@ const runWithFallback = Effect.fn("TextGeneration.runWithFallback")(function* <
 >(
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
   textGenerators: TextGeneratorsService | undefined,
+  gate: InstallationGate["execute"],
   operation: TextGenerationOp,
   input: Input,
   run: (
@@ -176,7 +179,13 @@ const runWithFallback = Effect.fn("TextGeneration.runWithFallback")(function* <
             // `resolveTextGeneration` instead would add a dead wait before advancing past an
             // unregistered or disabled instance.
             Effect.suspend(() =>
-              run(instance.textGeneration, { ...input, modelSelection: candidate.modelSelection }),
+              gate(
+                candidate.modelSelection.instanceId,
+                run(instance.textGeneration, {
+                  ...input,
+                  modelSelection: candidate.modelSelection,
+                }),
+              ),
             ).pipe(Effect.retry({ times: 1, schedule: Schedule.exponential("2 seconds") })),
       ),
       Effect.result,
@@ -250,8 +259,11 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
     const unusable =
       textGeneratorCannotRun ||
       (selected?.enabled === true &&
-        selected.status === "error" &&
-        (!selected.installed || selected.auth.status === "unauthenticated"));
+        (!isProviderTextGenerationCapable(selected) ||
+          selected.models.find((model) => model.slug === selection.model)
+            ?.supportsTextGeneration === false ||
+          (selected.status === "error" &&
+            (!selected.installed || selected.auth.status === "unauthenticated"))));
     if (!unusable && !exhaustedUsageWindow(selected, now, selection.model)) return selection;
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
@@ -264,21 +276,25 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
       ),
     );
     const resolved =
-      fallbackTextGenerationModelSelection(settings.providerInstances, (instanceId, driver) => {
-        const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
-        return (
-          instanceId !== selection.instanceId &&
-          provider?.enabled === true &&
-          resolveProjectProviderInstanceEnabled(settings, projectId ?? null, instanceId) &&
-          provider.installed &&
-          provider.auth.status !== "unauthenticated" &&
-          provider.status !== "error" &&
-          isProviderAvailable(provider) &&
-          isProviderTextGenerationCapable(provider) &&
-          (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
-          !exhaustedUsageWindow(provider, now, defaultTextGenerationModel(driver))
-        );
-      }) ?? selection;
+      fallbackTextGenerationModelSelection(
+        settings.providerInstances,
+        (instanceId, driver, model) => {
+          const provider = snapshots.find((candidate) => candidate.instanceId === instanceId);
+          return (
+            instanceId !== selection.instanceId &&
+            provider?.enabled === true &&
+            resolveProjectProviderInstanceEnabled(settings, projectId ?? null, instanceId) &&
+            provider.installed &&
+            provider.auth.status !== "unauthenticated" &&
+            provider.status !== "error" &&
+            isProviderAvailable(provider) &&
+            isProviderTextGenerationCapable(provider) &&
+            (operation !== "generateReviewGuide" || INVESTIGATING_DRIVERS.has(driver)) &&
+            !exhaustedUsageWindow(provider, now, model)
+          );
+        },
+        { defaultModelSelection: settings.defaultModelSelection },
+      ) ?? selection;
     if (textGeneratorCannotRun && resolved.instanceId === selection.instanceId) {
       return yield* new TextGenerationError({
         operation,
@@ -301,7 +317,10 @@ export const makeTextGenerationFromRegistry = (
   serverSettings?: ServerSettings.ServerSettingsService["Service"],
   // Optional too: without it every id resolves to a provider instance.
   textGenerators?: TextGeneratorsService,
+  // Optional too: without it provider work does not wait for installation updates.
+  installationGate?: InstallationGate,
 ): TextGeneration["Service"] => {
+  const gate = installationGate?.execute ?? ungated;
   const preflight = <
     Input extends {
       readonly modelSelection: ModelSelection;
@@ -328,6 +347,7 @@ export const makeTextGenerationFromRegistry = (
       return yield* runWithFallback(
         registry,
         textGenerators,
+        gate,
         "generateCommitMessage",
         prepared,
         (textGeneration, attemptInput) => textGeneration.generateCommitMessage(attemptInput),
@@ -338,6 +358,7 @@ export const makeTextGenerationFromRegistry = (
       return yield* runWithFallback(
         registry,
         textGenerators,
+        gate,
         "generatePrContent",
         prepared,
         (textGeneration, attemptInput) => textGeneration.generatePrContent(attemptInput),
@@ -348,6 +369,7 @@ export const makeTextGenerationFromRegistry = (
       return yield* runWithFallback(
         registry,
         textGenerators,
+        gate,
         "generateBranchName",
         prepared,
         (textGeneration, attemptInput) => textGeneration.generateBranchName(attemptInput),
@@ -360,7 +382,14 @@ export const makeTextGenerationFromRegistry = (
         textGenerators,
         "generateReviewGuide",
         prepared.modelSelection.instanceId,
-      ).pipe(Effect.flatMap((resolved) => resolved.textGeneration.generateReviewGuide(prepared)));
+      ).pipe(
+        Effect.flatMap((resolved) =>
+          gate(
+            prepared.modelSelection.instanceId,
+            resolved.textGeneration.generateReviewGuide(prepared),
+          ),
+        ),
+      );
     }),
     generateTranscriptionPostProcessing: Effect.fn(
       "TextGeneration.generateTranscriptionPostProcessing",
@@ -373,7 +402,10 @@ export const makeTextGenerationFromRegistry = (
         prepared.modelSelection.instanceId,
       ).pipe(
         Effect.flatMap((resolved) =>
-          resolved.textGeneration.generateTranscriptionPostProcessing(prepared),
+          gate(
+            prepared.modelSelection.instanceId,
+            resolved.textGeneration.generateTranscriptionPostProcessing(prepared),
+          ),
         ),
       );
     }),
@@ -394,6 +426,7 @@ export const makeTextGenerationFromRegistry = (
       return yield* runWithFallback(
         registry,
         textGenerators,
+        gate,
         "generateThreadTitle",
         { ...prepared, linkedContext },
         (textGeneration, attemptInput) => textGeneration.generateThreadTitle(attemptInput),
@@ -407,8 +440,15 @@ export const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
   const sourceControl = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
   const textGenerators = yield* TextGenerators.TextGenerators;
-  return makeTextGenerationFromRegistry(registry, sourceControl, serverSettings, textGenerators);
+  return makeTextGenerationFromRegistry(
+    registry,
+    sourceControl,
+    serverSettings,
+    textGenerators,
+    installationGate,
+  );
 });
 
 export const layer = Layer.effect(TextGeneration, make).pipe(

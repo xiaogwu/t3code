@@ -17,6 +17,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { useClientSettings } from "~/hooks/useSettings";
 import {
   getLocalStorageItem,
   setLocalStorageItem,
@@ -44,7 +45,7 @@ type SidebarContextProps = {
   setOpen: (open: boolean) => void;
   openMobile: boolean;
   mobileSheetMounted: boolean;
-  setMobileSheetElement: (element: HTMLDivElement | null) => void;
+  setMobileSheetMounted: (mounted: boolean) => void;
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
@@ -223,9 +224,13 @@ function SidebarProvider({
     store.getSnapshot,
   );
   const [mobileSheetMounted, setMobileSheetMounted] = React.useState(false);
-  const setMobileSheetElement = (element: HTMLDivElement | null) => {
-    setMobileSheetMounted(element !== null);
-  };
+  if (openMobile && !mobileSheetMounted) {
+    setMobileSheetMounted(true);
+  }
+  // Widening mid-close unmounts the sheet before its close completes.
+  if (!isMobile && !openMobile && mobileSheetMounted) {
+    setMobileSheetMounted(false);
+  }
 
   const state = resolveSidebarState({ isMobile, open, openMobile });
 
@@ -262,7 +267,7 @@ function SidebarProvider({
     peekPanelHandlers: peekController.panelHandlers,
     retractPeek: peekController.retract,
     mobileSheetMounted,
-    setMobileSheetElement,
+    setMobileSheetMounted,
     setOpen: store.setOpen,
     setOpenMobile: store.setOpenMobile,
     state,
@@ -343,10 +348,16 @@ function Sidebar({
     state,
     openMobile,
     setOpenMobile,
-    setMobileSheetElement,
+    setMobileSheetMounted,
     peeked,
     peekPanelHandlers,
   } = useSidebar();
+  // Not usePanelAnimationSettings: its navigation suppression would snap the sheet shut mid-exit when an item navigates.
+  const panelAnimationDurationMs = useClientSettings(
+    (settings) => settings.panelAnimationDurationMs,
+  );
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const panelAnimationsActive = panelAnimationDurationMs > 0 && !prefersReducedMotion;
   const containerRef = React.useRef<HTMLDivElement>(null);
   useSidebarPeekFocusHold(containerRef);
   // A peeked auto-hide panel still reports `collapsed`, but it is on screen and
@@ -465,9 +476,18 @@ function Sidebar({
   if (isMobile) {
     return (
       <SidebarInstanceContext value={instanceContextValue}>
-        <Sheet onOpenChange={setOpenMobile} open={openMobile}>
+        <Sheet
+          onOpenChange={setOpenMobile}
+          onOpenChangeComplete={(open) => {
+            if (!open) setMobileSheetMounted(false);
+          }}
+          open={openMobile}
+        >
+          {/* Children stay mounted while closed so their window shortcuts, like thread jumps, keep working.
+              Auto-hide's parked panel already mounts them while the drawer is closed. */}
           <SheetPopup
-            ref={setMobileSheetElement}
+            keepMounted={!autoHide}
+            {...(panelAnimationsActive ? {} : { transitionDurationMs: 0 })}
             className={cn(
               "w-(--sidebar-width) max-w-none bg-sidebar surface-grain p-0 text-sidebar-foreground",
               className,

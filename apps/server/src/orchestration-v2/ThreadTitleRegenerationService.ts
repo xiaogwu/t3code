@@ -8,6 +8,7 @@ import {
   type OrchestrationV2ConversationMessage,
   type RunId,
   type ServerSettingsError,
+  TextGenerationError,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -18,6 +19,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -54,6 +56,29 @@ export class ThreadTitleRegenerationService extends Context.Service<
   }
 >()("t3/orchestration-v2/ThreadTitleRegenerationService") {}
 
+type Outcome =
+  | { readonly status: "renamed"; readonly title: string }
+  | { readonly status: "unchanged" }
+  | { readonly status: "failed"; readonly message: string };
+
+const MAX_FAILURE_MESSAGE_LENGTH = 300;
+const isTextGenerationError = Schema.is(TextGenerationError);
+
+function failureMessage(cause: Cause.Cause<unknown>): string {
+  const error = Cause.squash(cause);
+  const lines = isTextGenerationError(error)
+    ? error.detail
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : [];
+  const detail = lines.at(-1);
+  if (detail === undefined) return "Title generation failed.";
+  return detail.length > MAX_FAILURE_MESSAGE_LENGTH
+    ? `${detail.slice(0, MAX_FAILURE_MESSAGE_LENGTH - 1)}…`
+    : detail;
+}
+
 const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectStore.ProjectStoreV2;
@@ -61,15 +86,39 @@ const make = Effect.gen(function* () {
   const textGeneration = yield* TextGeneration.TextGeneration;
   const fileSystem = yield* FileSystem.FileSystem;
 
-  type Outcome =
-    | { readonly type: "stale" }
-    | { readonly type: "complete"; readonly title?: string }
+  type ExecuteResult =
+    | Outcome
+    | { readonly status: "stale" }
     | {
-        readonly type: "policy";
+        readonly status: "policy";
         readonly expectedTitle: string;
         readonly title: string;
         readonly preserveManualTitle: boolean;
       };
+
+  const complete = (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: CommandId;
+    readonly kind: { readonly type: "initial" | "regenerate" };
+    readonly outcome: Outcome;
+  }) =>
+    threads
+      .dispatch({
+        type: "thread.title.regeneration.complete",
+        commandId: CommandId.make(`${input.requestId}:title-complete`),
+        threadId: input.threadId,
+        requestId: input.requestId,
+        ...(input.outcome.status === "renamed" ? { title: input.outcome.title } : {}),
+        ...(input.kind.type === "regenerate"
+          ? {
+              outcome: {
+                status: input.outcome.status,
+                ...(input.outcome.status === "failed" ? { message: input.outcome.message } : {}),
+              },
+            }
+          : {}),
+      })
+      .pipe(Effect.asVoid);
 
   const messagesThroughRun = Effect.fn("ThreadTitleRegenerationService.messagesThroughRun")(
     function* (threadId: ThreadId, runId: RunId) {
@@ -114,7 +163,10 @@ const make = Effect.gen(function* () {
     "ThreadTitleRegenerationService.execute",
   )(function* (input) {
     const kind = input.kind;
-    const outcome: Outcome = yield* Effect.gen(function* () {
+    // The policy never reports outcomes: anything short of a new title is a no-op.
+    const settle = (outcome: Outcome): ExecuteResult =>
+      kind.type === "policy" ? { status: "stale" as const } : outcome;
+    const outcome: ExecuteResult = yield* Effect.gen(function* () {
       const projection = yield* threads.getThreadRecords(
         input.threadId,
         ["messages"],
@@ -129,12 +181,15 @@ const make = Effect.gen(function* () {
           ? thread.titleRegeneration != null || thread.archivedAt !== null
           : thread.titleRegeneration?.requestId !== input.requestId
       ) {
-        return { type: "stale" as const };
+        return { status: "stale" as const };
       }
 
       const project = yield* projects.get(thread.projectId);
       if (Option.isNone(project)) {
-        return kind.type === "policy" ? { type: "stale" as const } : { type: "complete" as const };
+        return settle({
+          status: "failed" as const,
+          message: "This thread's project no longer exists.",
+        });
       }
 
       const settings = resolveProjectSettings(
@@ -147,7 +202,7 @@ const make = Effect.gen(function* () {
         (!policy.enabled ||
           (policy.defaults.preserveManualTitles && thread.titleProvenance === "manual"))
       ) {
-        return { type: "stale" as const };
+        return { status: "stale" as const };
       }
 
       let context: {
@@ -176,7 +231,10 @@ const make = Effect.gen(function* () {
         policyContext = context.message;
       }
       if (context.message.length === 0 && context.attachments.length === 0) {
-        return kind.type === "policy" ? { type: "stale" as const } : { type: "complete" as const };
+        return settle({
+          status: "failed" as const,
+          message: "This thread has no messages to title yet.",
+        });
       }
 
       const currentTitle = thread.title.trim();
@@ -199,7 +257,7 @@ const make = Effect.gen(function* () {
           plan.type === "template"
             ? plan.title !== currentTitle
             : plan.prefix !== null && !currentTitle.startsWith(plan.prefix);
-        if (!due && !titleMissesRule) return { type: "stale" as const };
+        if (!due && !titleMissesRule) return { status: "stale" as const };
       }
 
       let title: string;
@@ -216,6 +274,7 @@ const make = Effect.gen(function* () {
         const result = yield* textGeneration.generateThreadTitle({
           cwd: worktreeExists ? worktreePath : project.value.workspaceRoot,
           message: context.message,
+          projectTitle: project.value.title,
           attachments: context.attachments,
           ...(kind.type === "initial" ? {} : { previousTitle: thread.title }),
           ...(inherited === undefined ? {} : { forkSource: inherited }),
@@ -226,23 +285,21 @@ const make = Effect.gen(function* () {
         });
         const generated = result.title.trim();
         if (generated === "New thread") {
-          return kind.type === "policy"
-            ? { type: "stale" as const }
-            : { type: "complete" as const };
+          return settle({ status: "unchanged" as const });
         }
         title = finishTitle(plan, generated);
       }
       if (kind.type !== "initial" && title === currentTitle) {
-        return kind.type === "policy" ? { type: "stale" as const } : { type: "complete" as const };
+        return settle({ status: "unchanged" as const });
       }
       return kind.type === "policy"
         ? {
-            type: "policy" as const,
+            status: "policy" as const,
             expectedTitle: thread.title,
             title,
             preserveManualTitle: policy.defaults.preserveManualTitles,
           }
-        : { type: "complete" as const, title };
+        : { status: "renamed" as const, title };
     }).pipe(
       Effect.retry({
         times: kind.type === "initial" ? 2 : 0,
@@ -256,16 +313,12 @@ const make = Effect.gen(function* () {
               requestId: input.requestId,
               cause,
             }).pipe(
-              Effect.as(
-                kind.type === "policy"
-                  ? ({ type: "stale" } as const)
-                  : ({ type: "complete" } as const),
-              ),
+              Effect.as(settle({ status: "failed" as const, message: failureMessage(cause) })),
             ),
       ),
     );
 
-    switch (outcome.type) {
+    switch (outcome.status) {
       case "stale":
         return;
       case "policy":
@@ -278,14 +331,9 @@ const make = Effect.gen(function* () {
           preserveManualTitle: outcome.preserveManualTitle,
         });
         return;
-      case "complete":
-        yield* threads.dispatch({
-          type: "thread.title.regeneration.complete",
-          commandId: CommandId.make(`${input.requestId}:title-complete`),
-          threadId: input.threadId,
-          requestId: input.requestId,
-          ...(outcome.title === undefined ? {} : { title: outcome.title }),
-        });
+      default:
+        if (kind.type === "policy") return;
+        yield* complete({ threadId: input.threadId, requestId: input.requestId, kind, outcome });
         return;
     }
   });

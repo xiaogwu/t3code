@@ -33,6 +33,7 @@ import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../../app/DesktopManagedPolicy.ts";
+import * as DesktopPrimaryPaste from "../../app/DesktopPrimaryPaste.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
@@ -130,6 +131,15 @@ export const getFirstDayOfWeek = DesktopIpc.makeSyncIpcMethod({
       return resolveMacFirstDayOfWeek(preference, process.platform);
     }),
   ),
+});
+
+export const getPrimaryPasteEnabled = DesktopIpc.makeSyncIpcMethod({
+  channel: IpcChannels.GET_PRIMARY_PASTE_ENABLED_CHANNEL,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.window.getPrimaryPasteEnabled")(function* () {
+    const primaryPaste = yield* DesktopPrimaryPaste.DesktopPrimaryPaste;
+    return primaryPaste.enabled;
+  }),
 });
 
 export const getPreferredSystemLanguages = DesktopIpc.makeSyncIpcMethod({

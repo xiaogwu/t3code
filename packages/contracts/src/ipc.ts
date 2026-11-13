@@ -1091,6 +1091,8 @@ export interface DesktopBridge {
   getPreferredSystemLanguages: () => readonly string[];
   /** Calendar weekday index using JavaScript's Sunday=0 through Saturday=6 convention. */
   getFirstDayOfWeek?: () => number | null;
+  /** False when the OS turned off middle-click PRIMARY paste (`gtk-enable-primary-paste`). */
+  getPrimaryPasteEnabled?: () => boolean;
   // One bootstrap per pool instance currently registered with bootstrap
   // info (omits instances whose backend hasn't produced a config yet).
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.

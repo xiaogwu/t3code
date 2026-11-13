@@ -151,6 +151,23 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect("keeps the migrations that finished before a later one failed", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      // Upstream's 81 and 85 land at 88 and 92 here.
+      yield* runMigrations({ toMigrationInclusive: 88 });
+      yield* sql`CREATE TABLE orchestration_v2_projection_turn_item_counts (thread_id TEXT)`;
+
+      const exit = yield* Effect.exit(runMigrations());
+
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepStrictEqual(
+        yield* history,
+        migrationManifest.filter(([id]) => id <= 91),
+      );
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("reapplies peer link migrations whose ledger rows are missing", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

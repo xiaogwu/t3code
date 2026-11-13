@@ -15,7 +15,7 @@ layer("062_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 89 }, (_, index) => index + 1),
+        Array.from({ length: 96 }, (_, index) => index + 1),
       );
     }),
   );
@@ -55,6 +55,13 @@ layer("062_OrchestrationV2", (it) => {
         [87, "ScheduledTaskThreadMode"],
         [88, "ProjectionMessageSearchText"],
         [89, "TurnItemConversationIndex"],
+        [90, "CommandReadIndexes"],
+        [91, "LastExecutedRunIndex"],
+        [92, "TurnItemCounts"],
+        [93, "QueuedTurnInputIndex"],
+        [94, "ProjectionProjectsCustomTitle"],
+        [95, "TurnItemTypeStatusIndex"],
+        [96, "ShellThreadReadIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
