@@ -4260,6 +4260,7 @@ it.effect.each([
             writeIfRunCurrent: () => Effect.succeed({ committed: true, storedEvents: [] }),
           }),
           IdAllocator.layer,
+          ThreadCommandExecutor.layer,
           Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({
             ingestNormalized: () => Effect.succeed([]),
           }),

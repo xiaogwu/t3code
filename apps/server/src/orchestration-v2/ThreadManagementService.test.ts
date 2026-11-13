@@ -236,6 +236,7 @@ it.effect("exports every message even when the thread exceeds one history page",
             items,
             totalItems: rows.length,
             hasMore: matching.length > items.length,
+            hasEarlier: false,
           });
         },
       }),
