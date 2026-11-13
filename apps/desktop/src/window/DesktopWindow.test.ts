@@ -1377,8 +1377,8 @@ describe("DesktopWindow", () => {
 
         yield* desktopWindow.flushMainWindowBounds;
 
+        // getBounds is read too: it picks the display the normal frame belongs on.
         assert.deepEqual(mainWindowBoundsUpdates, [{ x: 200, y: 130, width: 1400, height: 940 }]);
-        assert.equal(fakeWindow.getBounds.mock.calls.length, 0);
         assert.equal(fakeWindow.getNormalBounds.mock.calls.length, 1);
       }).pipe(Effect.provide(layer));
     }),
@@ -1464,6 +1464,12 @@ describe("DesktopWindow", () => {
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) {
+          return yield* Effect.die("window ready-to-show listener was not registered");
+        }
+        readyToShow();
+        yield* Effect.promise(() => Promise.resolve());
 
         const move = fakeWindow.windowListeners.get("move");
         if (!move) {
