@@ -3729,7 +3729,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   const makeWakeHarness = makeWakeHarnessWithOptions();
   // Fork: a resume needs a transcript on disk (a missing one creates a fresh
   // session instead), so a harness that reopens a native session writes one.
-  const makeResumableWakeHarness = (nativeSessionIds: ReadonlyArray<string>) =>
+  const makeResumableWakeHarness = (
+    nativeSessionIds: ReadonlyArray<string>,
+    options?: Omit<NonNullable<Parameters<typeof makeWakeHarnessWithOptions>[0]>, "environment">,
+  ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const configDir = yield* fileSystem.makeTempDirectoryScoped({
@@ -3743,12 +3746,15 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           `{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"${sessionId}"}\n`,
         );
       }
-      return yield* makeWakeHarnessWithOptions({ environment: { CLAUDE_CONFIG_DIR: configDir } });
+      return yield* makeWakeHarnessWithOptions({
+        ...options,
+        environment: { CLAUDE_CONFIG_DIR: configDir },
+      });
     });
 
   it.effect("resumes the session a /clear selected after the Claude process is replaced", () =>
     Effect.gen(function* () {
-      const harness = yield* makeWakeHarnessWithOptions({
+      const harness = yield* makeResumableWakeHarness(["cleared-native-session"], {
         freshQueueOnReopen: true,
         close: (queue) => Queue.shutdown(queue),
       });

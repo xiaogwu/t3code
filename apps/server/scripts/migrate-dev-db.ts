@@ -456,10 +456,12 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
 
 // Peer links preview builds recorded 68-70 before main took those slots for other migrations.
 // A snapshot with exactly that history drops the preview's schema so main's 68+ can run.
+// The fork's ids run 7 past upstream's after 56, so those slots are 75-77 here.
+const PEER_LINKS_PREVIEW_FIRST_ID = 75;
 const PEER_LINKS_PREVIEW_HISTORY = [
-  "68:PeerLinks",
-  "69:PeerLinkFence",
-  "70:WaitingLinkRequestIndex",
+  "75:PeerLinks",
+  "76:PeerLinkFence",
+  "77:WaitingLinkRequestIndex",
 ];
 
 const forgetPeerLinksPreviewHistory = Effect.fn("forgetPeerLinksPreviewHistory")(function* () {
@@ -468,7 +470,8 @@ const forgetPeerLinksPreviewHistory = Effect.fn("forgetPeerLinksPreviewHistory")
     SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
   if (tables.length === 0) return;
   const tail = yield* sql<{ migration_id: number; name: string }>`
-    SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 68
+    SELECT migration_id, name FROM effect_sql_migrations
+    WHERE migration_id >= ${PEER_LINKS_PREVIEW_FIRST_ID}
     ORDER BY migration_id`;
   const history = tail.map((row) => `${row.migration_id}:${row.name}`);
   if (history.join() !== PEER_LINKS_PREVIEW_HISTORY.join()) return;
@@ -476,7 +479,7 @@ const forgetPeerLinksPreviewHistory = Effect.fn("forgetPeerLinksPreviewHistory")
     Effect.gen(function* () {
       yield* sql`DROP INDEX IF EXISTS orchestration_v2_projection_turn_items_waiting_link_idx`;
       yield* sql`DROP TABLE IF EXISTS peer_environment_links`;
-      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 68`;
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= ${PEER_LINKS_PREVIEW_FIRST_ID}`;
     }),
   );
 });

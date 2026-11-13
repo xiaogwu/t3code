@@ -453,13 +453,13 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
-  it.effect("imports a dev seed whose ids after 67 came from the peer links branch", () =>
+  it.effect("imports a dev seed whose ids after 74 came from the peer links branch", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-peer-" });
       const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-peer-dest-" });
-      const source = yield* createFixtureSource(sourceDir, 67);
-      // Mirrors a real ~/.t3 seed written by a build whose 68-70 differ from main's.
+      const source = yield* createFixtureSource(sourceDir, 74);
+      // Mirrors a real ~/.t3 seed written by a build whose 75-77 (upstream 68-70) differ from main's.
       yield* withDatabase(
         source,
         Effect.gen(function* () {
@@ -480,7 +480,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             WHERE type = 'link_request' AND status = 'waiting'`;
           yield* insertPeerLink(sql);
           yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES
-            (68, 'PeerLinks'), (69, 'PeerLinkFence'), (70, 'WaitingLinkRequestIndex')`;
+            (75, 'PeerLinks'), (76, 'PeerLinkFence'), (77, 'WaitingLinkRequestIndex')`;
         }),
       );
 
