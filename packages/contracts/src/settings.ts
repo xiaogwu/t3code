@@ -568,6 +568,9 @@ export const ClientSettingsSchema = Schema.Struct({
   threadDetailsItems: Schema.Record(Schema.String, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  threadDetailsOpenByDefault: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
   // Dia-style auto-hide: the main sidebar becomes a floating panel that
   // reveals on hover-intent from the window edge instead of staying pinned
   // open. Off by default so existing users see no behavioral change.
@@ -2130,6 +2133,7 @@ export const ClientSettingsPatch = Schema.Struct({
   screenReaderWindowTitle: Schema.optionalKey(Schema.Boolean),
   threadDetailsUsageEnabled: Schema.optionalKey(Schema.Boolean),
   threadDetailsItems: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
+  threadDetailsOpenByDefault: Schema.optionalKey(Schema.Boolean),
   sidebarAutoHide: Schema.optionalKey(Schema.Boolean),
   sidebarAutoReveal: Schema.optionalKey(SidebarAutoReveal),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),

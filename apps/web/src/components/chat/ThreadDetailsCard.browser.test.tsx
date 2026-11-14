@@ -1,4 +1,5 @@
 import { StrictMode } from "react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import { expect, it } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
@@ -21,7 +22,12 @@ const container = { width: 1200, height: 800 };
 const placement = { x: 908, y: 0, right: 12, width: 280, height: 400 } as const;
 
 function setup() {
-  useRightPanelStore.setState({ threadPanelVisibilityByThreadKey: {} });
+  useRightPanelStore.setState({
+    threadPanelVisibilityByThreadKey: {
+      [scopedThreadKey(threadA)]: { inlineOpen: true, popoverOpen: false },
+      [scopedThreadKey(threadB)]: { inlineOpen: true, popoverOpen: false },
+    },
+  });
   const anchor = document.createElement("div");
   document.body.append(anchor);
   return {
@@ -36,6 +42,7 @@ const popoverOpen = (threadRef: ScopedThreadRef) =>
     useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
     threadRef,
     "popover",
+    false,
   );
 
 function Card({
@@ -103,7 +110,9 @@ function Card({
 it("stays open once opened", async () => {
   using fixture = setup();
   await using _screen = await render(<Card threadRef={threadB} inline={false} fixture={fixture} />);
-  await act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true));
+  await act(() =>
+    useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true, false),
+  );
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
   expect(popoverOpen(threadB)).toBe(true);
 });
@@ -112,11 +121,11 @@ it("closes a popup left open when the card switches inline, and reopens from the
   using fixture = setup();
   await using screen = await render(<Card threadRef={threadB} inline={false} fixture={fixture} />);
   const setOpen = (open: boolean) =>
-    act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", open));
+    act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", open, false));
   await setOpen(true);
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
 
-  useRightPanelStore.getState().setThreadPanelOpen(threadB, "inline", false);
+  useRightPanelStore.getState().setThreadPanelOpen(threadB, "inline", false, false);
   await screen.rerender(<Card threadRef={threadB} inline fixture={fixture} />);
   await expect.element(page.getByText("Details for thread-b")).not.toBeInTheDocument();
   await setOpen(false);
@@ -130,10 +139,12 @@ it("closes a popup left open when the card switches inline, and reopens from the
 it("does not reopen the popover when the card returns from inline mode", async () => {
   using fixture = setup();
   await using screen = await render(<Card threadRef={threadB} inline={false} fixture={fixture} />);
-  await act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true));
+  await act(() =>
+    useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true, false),
+  );
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
 
-  useRightPanelStore.getState().setThreadPanelOpen(threadB, "inline", false);
+  useRightPanelStore.getState().setThreadPanelOpen(threadB, "inline", false, false);
   await screen.rerender(<Card threadRef={threadB} inline fixture={fixture} />);
   await expect.element(page.getByText("Details for thread-b")).not.toBeInTheDocument();
 
@@ -145,7 +156,9 @@ it("does not reopen the popover when the card returns from inline mode", async (
 it("removes the leaving thread's popup on a thread switch", async () => {
   using fixture = setup();
   await using screen = await render(<Card threadRef={threadB} inline={false} fixture={fixture} />);
-  await act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true));
+  await act(() =>
+    useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", true, false),
+  );
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
 
   await screen.rerender(<Card threadRef={threadA} inline={false} fixture={fixture} />);
@@ -157,7 +170,7 @@ it("reopens after a normal close", async () => {
   using fixture = setup();
   await using _screen = await render(<Card threadRef={threadB} inline={false} fixture={fixture} />);
   const setOpen = (open: boolean) =>
-    act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", open));
+    act(() => useRightPanelStore.getState().setThreadPanelOpen(threadB, "popover", open, false));
   await setOpen(true);
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
   await setOpen(false);

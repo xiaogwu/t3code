@@ -18,6 +18,7 @@ import {
 } from "./threadDetailsCardLayout";
 import { observeResize } from "../../lib/observeResize";
 import { requestWorkspaceFocus } from "../../lib/workspaceFocus";
+import { useClientSettings } from "../../hooks/useSettings";
 
 export function ThreadDetailsCard({
   threadRef,
@@ -41,11 +42,22 @@ export function ThreadDetailsCard({
   const placement = canvas?.detailsCardPlacement ?? null;
   const mode = placement ? "inline" : "popover";
   const topInset = canvas?.detailsCardTopInset ?? 0;
+  const defaultInlineOpen = useClientSettings((s) => s.threadDetailsOpenByDefault);
   const inlineOpen = useRightPanelStore((state) =>
-    selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "inline"),
+    selectThreadPanelOpen(
+      state.threadPanelVisibilityByThreadKey,
+      threadRef,
+      "inline",
+      defaultInlineOpen,
+    ),
   );
   const popoverOpen = useRightPanelStore((state) =>
-    selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "popover"),
+    selectThreadPanelOpen(
+      state.threadPanelVisibilityByThreadKey,
+      threadRef,
+      "popover",
+      defaultInlineOpen,
+    ),
   );
   const measurementKey = `${threadRef.environmentId}:${threadRef.threadId}:${preferredPlacement?.width ?? "popup"}:${contentKey}`;
   const [measurements, setMeasurements] = useState({
@@ -65,8 +77,10 @@ export function ThreadDetailsCard({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the popover flag in the right panel store when the derived mode turns inline
   useLayoutEffect(() => {
     if (mode === "inline" && popoverOpen)
-      useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", false);
-  }, [mode, popoverOpen, threadRef]);
+      useRightPanelStore
+        .getState()
+        .setThreadPanelOpen(threadRef, "popover", false, defaultInlineOpen);
+  }, [mode, popoverOpen, threadRef, defaultInlineOpen]);
   const [contentElement, setContentElement] = useState<HTMLDivElement | null>(null);
   const { environmentId, threadId } = threadRef;
   // Re-measures when the density or measurement key changes, so each density's
@@ -143,7 +157,9 @@ export function ThreadDetailsCard({
           details.cancel();
           return;
         }
-        useRightPanelStore.getState().setThreadPanelOpen(threadRef, "popover", open);
+        useRightPanelStore
+          .getState()
+          .setThreadPanelOpen(threadRef, "popover", open, defaultInlineOpen);
       }}
     >
       {placement && inlineOpen ? (

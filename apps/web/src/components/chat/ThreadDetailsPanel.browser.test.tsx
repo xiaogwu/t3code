@@ -5,6 +5,7 @@ import {
   type ScopedThreadRef,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
@@ -115,7 +116,11 @@ function setup(input: {
   state.workspaceRoot = input.workspaceRoot;
   state.folder = input.folder;
   state.pullRequests = input.pullRequests ?? [];
-  useRightPanelStore.setState({ threadPanelVisibilityByThreadKey: {} });
+  useRightPanelStore.setState({
+    threadPanelVisibilityByThreadKey: {
+      [scopedThreadKey(threadRef)]: { inlineOpen: true, popoverOpen: false },
+    },
+  });
   const anchor = document.createElement("div");
   document.body.append(anchor);
   return {
