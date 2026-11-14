@@ -33,6 +33,7 @@ import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
+import { getClientSettings } from "../../hooks/useSettings";
 interface RightPanelActionsInput {
   readonly activeThreadRef: ScopedThreadRef | null;
   readonly activeProject: EnvironmentProject | null;
@@ -221,18 +222,20 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const toggleRightPanelStable = useStableCallback(toggleRightPanel);
   const toggleThreadPanel = () => {
     if (!activeThreadRef) return;
+    const threadDetailsOpenByDefault = getClientSettings().threadDetailsOpenByDefault;
     const store = useRightPanelStore.getState();
     if (threadPanelPresentation === "inline") {
       const open = selectThreadPanelOpen(
         store.threadPanelVisibilityByThreadKey,
         activeThreadRef,
         "inline",
+        threadDetailsOpenByDefault,
       );
       if (!open) requestWorkspaceFocus({ area: "details" });
       else if (document.activeElement?.closest('[data-workspace-area="details"]'))
         requestWorkspaceContentFocus();
     }
-    store.toggleThreadPanel(activeThreadRef, threadPanelPresentation);
+    store.toggleThreadPanel(activeThreadRef, threadPanelPresentation, threadDetailsOpenByDefault);
   };
   const toggleThreadPanelStable = useStableCallback(toggleThreadPanel);
   const toggleRightPanelMaximized = () => {

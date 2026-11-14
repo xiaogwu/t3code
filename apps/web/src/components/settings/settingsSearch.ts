@@ -356,6 +356,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "thread-details-open-by-default",
+    title: "Open thread details by default",
+    to: "/settings/appearance",
+    searchTerms: ["show hide card panel header button new thread closed expanded"],
+  },
+  {
     id: "effort-display",
     title: "Effort display",
     to: "/settings/appearance",

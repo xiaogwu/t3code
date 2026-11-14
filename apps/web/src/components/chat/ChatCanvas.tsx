@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import { useStore } from "zustand";
 import { ChatCanvasContext } from "./ChatCanvasContext";
+import { useClientSettings } from "../../hooks/useSettings";
 import type { ChatCanvasPreview } from "./chatCanvasLayout";
 import { resolveChatCanvasModel, type ChatCanvasStore } from "./canvasStore";
 import { selectThreadPanelOpen, useRightPanelStore } from "../../rightPanelStore";
@@ -67,10 +68,16 @@ export function ChatCanvas({
     if (timelineElement) observed.push(timelineElement);
     return observeResize(observed, measure);
   }, [store, composerOverlayElement, timelineElement, detailsCardTopInset]);
+  const threadDetailsOpenByDefault = useClientSettings((s) => s.threadDetailsOpenByDefault);
   const detailsCardInlineOpen = useRightPanelStore((state) =>
     threadRef === null
       ? false
-      : selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "inline"),
+      : selectThreadPanelOpen(
+          state.threadPanelVisibilityByThreadKey,
+          threadRef,
+          "inline",
+          threadDetailsOpenByDefault,
+        ),
   );
   const model = resolveChatCanvasModel({
     measurements,
