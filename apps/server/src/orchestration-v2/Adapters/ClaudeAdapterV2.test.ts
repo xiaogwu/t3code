@@ -4051,7 +4051,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
     it.effect("renames a resumed session whose stored title is stale", () =>
       Effect.gen(function* () {
-        const harness = yield* makeWakeHarnessWithOptions();
+        const harness = yield* makeResumableWakeHarness([WAKE_NATIVE_SESSION]);
         yield* startTurn(harness, "First title", 1, true);
         assert.deepEqual(harness.renameCalls, ["First title"]);
         yield* finishTurn(harness, 1);
@@ -4077,7 +4077,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         Effect.gen(function* () {
           const entered = yield* Deferred.make<void>();
           let attempts = 0;
-          const harness = yield* makeWakeHarnessWithOptions({
+          const harness = yield* makeResumableWakeHarness([WAKE_NATIVE_SESSION], {
             renameSession: () =>
               ++attempts === 1
                 ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
@@ -4112,7 +4112,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
     it.effect("renames when reverting to an earlier title after a failed or timed out update", () =>
       Effect.gen(function* () {
-        const harness = yield* makeWakeHarnessWithOptions({
+        const harness = yield* makeResumableWakeHarness([WAKE_NATIVE_SESSION], {
           renameSession: (title) =>
             title === "Title B"
               ? Effect.fail(
@@ -4216,7 +4216,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     "resumes a stopped query with empty SDK content and a fresh native process, buffered: %s",
     (buffered) =>
       Effect.gen(function* () {
-        const harness = yield* makeWakeHarnessWithOptions({
+        const harness = yield* makeResumableWakeHarness([WAKE_NATIVE_SESSION], {
           freshQueueOnReopen: true,
           close: (queue) => Queue.shutdown(queue),
         });
