@@ -14,6 +14,8 @@ export interface SidebarRouteReveal {
   pendingKey: string | null;
   // Set by the Reveal Thread in Sidebar command: the row scrolls despite hover and flashes once.
   manualKey?: string | null;
+  // A draft's first send names its thread without navigating; the user is not looking for it.
+  pendingInPlace?: boolean;
 }
 
 // Pending until a Sidebar consumes it, so a command that opens a hidden sidebar still lands.
@@ -56,12 +58,14 @@ function flashRow(row: HTMLElement): void {
 export function pendingSidebarRouteReveal(
   reveal: SidebarRouteReveal,
   routeKey: string | null,
+  inPlace = false,
 ): string | null {
   if (routeKey === null) return null;
   if (reveal.observedKey !== routeKey) {
     reveal.observedKey = routeKey;
     reveal.pendingKey = routeKey;
     reveal.manualKey = null;
+    reveal.pendingInPlace = inPlace;
   }
   return reveal.pendingKey;
 }
@@ -89,10 +93,11 @@ export function useActiveRowReveal(
   reveal: SidebarRouteReveal,
   routeKey: string | null,
   autoReveal: SidebarAutoReveal = "scrollOnly",
+  inPlace = false,
 ) {
   const mountRevealOwed = useRef(true);
   const activeRow = useRef<{ readonly row: HTMLElement; readonly key: string } | null>(null);
-  pendingSidebarRouteReveal(reveal, routeKey);
+  pendingSidebarRouteReveal(reveal, routeKey, inPlace);
   const scrollRow = (row: HTMLElement, manual: boolean) => {
     // A row under the pointer was just clicked, so it is in view; scrolling it would force a
     // layout mid-commit. Keyboard activation can come from a focused row scrolled out of view.
@@ -126,9 +131,10 @@ export function useActiveRowReveal(
       scrollRow(row, true);
       return undefined;
     }
+    const revealInPlace = reveal.pendingKey === rowKey && reveal.pendingInPlace === true;
     completeSidebarRouteReveal(reveal);
     mountRevealOwed.current = false;
-    if (autoReveal === "off") return undefined;
+    if (autoReveal === "off" || revealInPlace) return undefined;
     scrollRow(row, false);
     return undefined;
   };
@@ -161,6 +167,7 @@ export function isHiddenByProjectScope(
 export function resolveSidebarRouteReveal<T extends RevealableThread>(input: {
   readonly reveal: SidebarRouteReveal;
   readonly routeKey: string | null;
+  readonly routeKeyInPlace: boolean;
   readonly isSearching: boolean;
   readonly scopedProjectKeys: ReadonlySet<string> | null;
   readonly delegatedUnderParent: ReadonlySet<string>;
@@ -168,7 +175,7 @@ export function resolveSidebarRouteReveal<T extends RevealableThread>(input: {
 }): { readonly pendingKey: string | null; readonly widensScope: boolean } {
   const { reveal, routeKey, isSearching, scopedProjectKeys, delegatedUnderParent, findThread } =
     input;
-  const pendingKey = pendingSidebarRouteReveal(reveal, routeKey);
+  const pendingKey = pendingSidebarRouteReveal(reveal, routeKey, input.routeKeyInPlace);
   // Search results replace the thread list; the reveal waits for it to return.
   const thread = pendingKey === null || isSearching ? undefined : findThread(pendingKey);
   const widensScope =

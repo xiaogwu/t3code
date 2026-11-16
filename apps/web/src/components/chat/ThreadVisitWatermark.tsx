@@ -3,6 +3,7 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { type ScopedThreadRef } from "@t3tools/contracts";
 
+import { environmentCatalog } from "../../connection/catalog";
 import { useUiStateStore } from "../../uiStateStore";
 import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 import { observeThreadCompletionReadability } from "../ChatView.logic";
@@ -15,6 +16,7 @@ function isDocumentReadable(): boolean {
 
 const threadVisitTracker = createThreadVisitTracker({
   threadShellAtom: environmentThreadShells.threadShellAtom,
+  sessionGenerationAtom: environmentCatalog.sessionGenerationAtom,
   visit: threadEnvironment.visit,
   markLocalVisit: (ref, visitedAt) =>
     useUiStateStore.getState().markThreadVisited(scopedThreadKey(ref), visitedAt),

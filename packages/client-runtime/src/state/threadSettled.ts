@@ -374,10 +374,11 @@ export function snoozeWakeLabel(snoozedUntil: string, options: { readonly now: s
   const wakeMs = Date.parse(snoozedUntil);
   const nowMs = Date.parse(options.now);
   if (Number.isNaN(wakeMs) || Number.isNaN(nowMs)) return "now";
-  const remainingMs = wakeMs - nowMs;
-  if (remainingMs <= 0) return "now";
-  if (remainingMs < HOUR_MS) return `${Math.max(1, Math.ceil(remainingMs / 60_000))}m`;
-  if (remainingMs < DAY_MS) return `${Math.ceil(remainingMs / HOUR_MS)}h`;
+  if (wakeMs <= nowMs) return "now";
+  // Count clock minutes: callers pass a minute-floored or live `now`, and durations keep seconds.
+  const minutes = Math.max(1, Math.floor(wakeMs / 60_000) - Math.floor(nowMs / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.ceil(minutes / 60)}h`;
   const wake = new Date(wakeMs);
   const now = new Date(nowMs);
   const wakeDay = Date.UTC(wake.getFullYear(), wake.getMonth(), wake.getDate());
@@ -441,4 +442,23 @@ export function isThreadWokeUnseen(input: {
     .map((value) => (value ? Date.parse(value) : NaN))
     .filter((ms) => !Number.isNaN(ms));
   return seenAt.every((ms) => ms < wokeAtMs);
+}
+
+/**
+ * Whether the latest run failed after the user last saw the thread. Only the run dates the
+ * failure, since the shell's updatedAt also moves on renames. A failed run without a
+ * completion time, from older data, is dated by its start.
+ */
+export function hasUnseenRunFailure(
+  thread: Pick<EnvironmentThreadShell, "latestRun"> & {
+    readonly lastVisitedAt?: string | null | undefined;
+  },
+): boolean {
+  const run = thread.latestRun;
+  if (run?.status !== "failed") return false;
+  if (!thread.lastVisitedAt) return true;
+  const failedAtMs = Date.parse(run.completedAt ?? run.startedAt ?? run.requestedAt ?? "");
+  const lastVisitedAtMs = Date.parse(thread.lastVisitedAt);
+  if (Number.isNaN(failedAtMs) || Number.isNaN(lastVisitedAtMs)) return true;
+  return failedAtMs > lastVisitedAtMs;
 }

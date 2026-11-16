@@ -26,6 +26,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { finishTitle, planTitle, titleInstructions } from "../textGeneration/TitlePolicy.ts";
 import type { OrchestratorV2Error } from "./Orchestrator.ts";
 import * as ProjectStore from "./ProjectStore.ts";
+import { forkInheritedRunOrdinals, ProjectionStoreThreadNotFoundError } from "./ProjectionStore.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 
 import { formatThreadTitleContext } from "@t3tools/provider-core/server/threadTitleContext";
@@ -63,6 +64,7 @@ type Outcome =
 
 const MAX_FAILURE_MESSAGE_LENGTH = 300;
 const isTextGenerationError = Schema.is(TextGenerationError);
+const isProjectionStoreThreadNotFoundError = Schema.is(ProjectionStoreThreadNotFoundError);
 
 function failureMessage(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);
@@ -121,16 +123,13 @@ const make = Effect.gen(function* () {
       .pipe(Effect.asVoid);
 
   const messagesThroughRun = Effect.fn("ThreadTitleRegenerationService.messagesThroughRun")(
-    function* (threadId: ThreadId, runId: RunId) {
+    function* (threadId: ThreadId, runId: RunId, forkCreatedAt: DateTime.Utc) {
       const source = yield* threads.getThreadRecords(threadId, ["messages", "runs"], {
         messageRoles: ["user", "assistant"],
       });
-      const ordinals = new Map(
-        source.runs
-          .filter((run) => run.status !== "rolled_back")
-          .map((run) => [run.id, run.ordinal]),
-      );
-      const forkOrdinal = ordinals.get(runId) ?? -1;
+      const ordinals = forkInheritedRunOrdinals(source.runs, forkCreatedAt);
+      const forkOrdinal = ordinals.get(runId);
+      if (forkOrdinal === undefined) return undefined;
       const messages = source.messages.filter((message) => {
         if (message.streaming) return false;
         if (message.runId === null) return source.thread.historyOrigin === "v1_import";
@@ -146,12 +145,20 @@ const make = Effect.gen(function* () {
   ) {
     let title: string | undefined;
     const history: Array<ReadonlyArray<OrchestrationV2ConversationMessage>> = [];
-    let forkedFrom = thread.forkedFrom;
-    while (forkedFrom?.type === "run") {
-      const source = yield* messagesThroughRun(forkedFrom.threadId, forkedFrom.runId);
+    const seen = new Set([thread.id]);
+    let current = thread;
+    while (
+      current.forkedFrom?.type === "run" &&
+      current.lineage.sideChat !== true &&
+      !seen.has(current.forkedFrom.threadId)
+    ) {
+      const { threadId, runId } = current.forkedFrom;
+      seen.add(threadId);
+      const source = yield* messagesThroughRun(threadId, runId, current.createdAt);
+      if (source === undefined) break;
       history.push(source.messages);
       title ??= source.thread.title;
-      forkedFrom = source.thread.forkedFrom;
+      current = source.thread;
     }
     const context = formatThreadTitleContext(history.reverse().flat());
     return title === undefined || context.message.length === 0
@@ -230,7 +237,20 @@ const make = Effect.gen(function* () {
         );
         policyContext = context.message;
       }
-      if (context.message.length === 0 && context.attachments.length === 0) {
+      // A deleted source should not cost the fork its title.
+      const inherited = yield* forkSource(thread).pipe(
+        Effect.catchTags({
+          OrchestratorProjectionError: (error) =>
+            isProjectionStoreThreadNotFoundError(error.cause)
+              ? Effect.undefined
+              : Effect.fail(error),
+        }),
+      );
+      if (
+        context.message.length === 0 &&
+        context.attachments.length === 0 &&
+        inherited === undefined
+      ) {
         return settle({
           status: "failed" as const,
           message: "This thread has no messages to title yet.",
@@ -264,8 +284,6 @@ const make = Effect.gen(function* () {
       if (plan.type === "template") {
         title = plan.title;
       } else {
-        // A deleted source should not cost the fork its title.
-        const inherited = yield* forkSource(thread).pipe(Effect.orElseSucceed(() => undefined));
         // Storage cleanup removes worktrees but keeps the path; CLIs cannot spawn in a missing cwd.
         const worktreePath = thread.worktreePath;
         const worktreeExists =

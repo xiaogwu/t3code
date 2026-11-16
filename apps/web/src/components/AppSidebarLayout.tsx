@@ -350,7 +350,14 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
         // the toggle stays available everywhere else.
         return;
       }
-      const command = resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } });
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          previewFocus: isPreviewFocused(),
+          ...readRoutePanelsOpen(router),
+          usagePageOpen,
+        },
+      });
       if (
         command !== "sidebar.toggle" &&
         command !== "sidebar.revealThread" &&
@@ -393,6 +400,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   }, [
     keybindings,
     boringSidebarEnabled,
+    router,
     showSidebar,
     sidebarAutoHide,
     sidebarThreadSortOrder,

@@ -699,8 +699,10 @@ function SidebarRail({
               /* A collapsed offcanvas rail overlaps the native scrollbar on Windows and Linux. A peeked panel is the exception: the floating panel still needs to be resizable. */
               "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]:not([data-peek=true])_&]:pointer-events-none",
               "[[data-panel-animations=true]_&]:transition-all [[data-panel-animations=true]_&]:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:ease-out",
-              "touch-none in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-              "[[data-side=left][data-state=collapsed]:not([data-peek=true])_&]:cursor-e-resize [[data-side=right][data-state=collapsed]:not([data-peek=true])_&]:cursor-w-resize",
+              "touch-none",
+              canResize
+                ? "cursor-col-resize"
+                : "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize [[data-side=left][data-state=collapsed]:not([data-peek=true])_&]:cursor-e-resize [[data-side=right][data-state=collapsed]:not([data-peek=true])_&]:cursor-w-resize",
               /* the offcanvas geometry parks the rail against the window edge with its hover line and fill pushed outward, which only reads right while the panel itself is off screen. a peeked panel is on screen, so it keeps the pinned rail: centered on the panel's edge, hover line on that edge, no fill. */
               "[[data-collapsible=offcanvas]:not([data-peek=true])_&]:translate-x-0 [[data-collapsible=offcanvas]:not([data-peek=true])_&]:hover:bg-sidebar [[data-collapsible=offcanvas]:not([data-peek=true])_&]:after:left-full",
               "[[data-side=left][data-collapsible=offcanvas]:not([data-peek=true])_&]:-right-2",
