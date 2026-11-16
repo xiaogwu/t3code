@@ -20,7 +20,6 @@ import * as TestClock from "effect/testing/TestClock";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as TestClock from "effect/testing/TestClock";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";

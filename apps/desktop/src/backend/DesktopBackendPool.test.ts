@@ -199,6 +199,7 @@ function layerPool(
         Layer.succeed(ElectronDialog.ElectronDialog, {
           pickFolder: () => Effect.die("unexpected folder picker"),
           pickFiles: () => Effect.die("unexpected file picker"),
+          showSaveDialog: () => Effect.die("unexpected save dialog"),
           showMessageBox: () => Effect.die("unexpected message box"),
           showErrorBox: () => Effect.void,
         } satisfies ElectronDialog.ElectronDialog["Service"]),
