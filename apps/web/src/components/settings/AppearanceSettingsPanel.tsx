@@ -309,7 +309,7 @@ export function AppearanceSettingsPanel() {
             settings.threadDetailsOpenByDefault !==
             DEFAULT_UNIFIED_SETTINGS.threadDetailsOpenByDefault ? (
               <SettingResetButton
-                label="Open thread details by default"
+                ariaLabel={gt("Reset open thread details by default to default")}
                 onClick={() =>
                   updateSettings({
                     threadDetailsOpenByDefault: DEFAULT_UNIFIED_SETTINGS.threadDetailsOpenByDefault,

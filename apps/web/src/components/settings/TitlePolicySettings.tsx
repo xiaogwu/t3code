@@ -10,6 +10,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
+import { useGT } from "gt-react";
 import { useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
@@ -18,7 +19,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { SettingsRow, SettingResetButton } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import {
   useScopedSettings,
   useScopedSettingsMixed,
@@ -33,6 +34,8 @@ const format = (policy: TitlePolicy) => JSON.stringify(policy, null, 2);
  * templates, and how often titles refresh. Applying replaces it whole.
  */
 export function TitlePolicySettings() {
+  const gt = useGT();
+  const searchableSetting = useSearchableSetting();
   const saved = useScopedSettings((settings) => settings.titlePolicy);
   const mixed = useScopedSettingsMixed(["titlePolicy"]);
   const updateSettings = useUpdateScopedSettings();
@@ -78,7 +81,7 @@ export function TitlePolicySettings() {
       resetAction={
         mixed || !Equal.equals(saved, DEFAULT_SERVER_SETTINGS.titlePolicy) ? (
           <SettingResetButton
-            label="thread title policy"
+            ariaLabel={gt("Reset thread title policy to default")}
             onClick={() => updateSettings({ titlePolicy: DEFAULT_SERVER_SETTINGS.titlePolicy })}
           />
         ) : null

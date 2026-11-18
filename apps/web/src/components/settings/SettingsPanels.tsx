@@ -986,7 +986,7 @@ export function GeneralSettingsPanel() {
             settings.sidebarV2ThreadSortOrder !==
             DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder ? (
               <SettingResetButton
-                label="thread sorting"
+                ariaLabel={gt("Reset thread sorting to default")}
                 onClick={() =>
                   updateSettings({
                     sidebarV2ThreadSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarV2ThreadSortOrder,
@@ -1299,13 +1299,13 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="external-terminal-section" title="External terminal">
         <SettingsRow
-          {...searchableSetting("external-terminal")}
+          {...setting("external-terminal")}
           title="External terminal"
           description="Choose the native terminal opened by Open Worktree in External Terminal. Automatic uses a host-appropriate fallback."
           resetAction={
             settings.externalTerminal !== DEFAULT_UNIFIED_SETTINGS.externalTerminal ? (
               <SettingResetButton
-                label="external terminal"
+                ariaLabel={gt("Reset external terminal to default")}
                 onClick={() =>
                   updateSettings({ externalTerminal: DEFAULT_UNIFIED_SETTINGS.externalTerminal })
                 }
@@ -2399,12 +2399,12 @@ export function ThreadsSettingsPanel() {
         <SettingsRow
           serverScoped
           settingKeys={["textGenerationFallbackModelSelections"]}
-          {...searchableSetting("text-generation-fallback-models")}
+          {...setting("text-generation-fallback-models")}
           description="Tried in order when the text generation model fails, for example when its subscription limit is reached."
           resetAction={
             hasServerTargets && isTextGenerationFallbackModelsDirty ? (
               <SettingResetButton
-                label="text generation fallback models"
+                ariaLabel={gt("Reset text generation fallback models to default")}
                 onClick={() =>
                   updateSettings({
                     textGenerationFallbackModelSelections:

@@ -157,6 +157,11 @@ function markdownMinimapPreview(markdown: string | null) {
   return compact.length > 0 ? compact : null;
 }
 
+function compactMinimapPreview(text: string | null | undefined) {
+  const compact = text?.replace(/\s+/g, " ").trim() ?? "";
+  return compact.length > 0 ? compact : null;
+}
+
 export function resolveTimelineMinimapPreview(
   item: TimelineMinimapItem | null,
 ): TimelineMinimapItem | null {

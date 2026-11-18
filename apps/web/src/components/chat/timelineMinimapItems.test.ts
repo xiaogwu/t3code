@@ -188,6 +188,7 @@ describe("resolveTimelineMinimapPreview", () => {
       label: "README.md",
     });
     const preview = resolveTimelineMinimapPreview({
+      kind: "prompt",
       id: "turn-1",
       rowIndex: 0,
       userText: `${quote}\nWhere do ${file} and [math.ts](src/math.ts) cover this?`,
