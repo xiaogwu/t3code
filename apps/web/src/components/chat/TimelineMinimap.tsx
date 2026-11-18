@@ -1,5 +1,6 @@
 import { resolveTimelineMinimapPreview, type TimelineMinimapItem } from "./timelineMinimapItems";
 import { useRef, useState, type MouseEvent } from "react";
+import { T, useGT } from "gt-react";
 import { BookmarkIcon, ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react";
 import type { AssistantThreadBookmark } from "@t3tools/contracts";
 import { Button } from "../ui/button";
@@ -51,6 +52,7 @@ export function TimelineMinimap({
   onSelect: (item: TimelineMinimapItem) => void;
   onRemoveBookmark?: (bookmark: AssistantThreadBookmark) => void;
 }) {
+  const gt = useGT();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const wheelTargetRef = (node: HTMLDivElement | null) => {
     if (!node) return;
@@ -157,8 +159,10 @@ export function TimelineMinimap({
           <button
             aria-label={
               activeItem?.kind === "bookmark"
-                ? `Jump to bookmark: ${activeItem.bookmark.citation.text}`
-                : `Jump to message: ${activeItem?.userText ?? "User message"}`
+                ? gt("Jump to bookmark: {text}", { text: activeItem.bookmark.citation.text })
+                : gt("Jump to message: {text}", {
+                    text: activeItem?.userText ?? gt("User message"),
+                  })
             }
             className="absolute inset-y-0 left-0 w-full cursor-pointer bg-transparent before:absolute before:inset-x-0 before:-inset-y-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
             onBlur={() => setActiveIndex(null)}
@@ -199,7 +203,6 @@ export function TimelineMinimap({
             onMouseDown={(event) => event.preventDefault()}
             type="button"
           >
-            <div className="absolute top-0 left-3 h-full w-px bg-border/15" />
             {items.map((item, index) => {
               const top = `${resolveTimelineMinimapTopPercent(index, items.length)}%`;
               const activeDistance =
@@ -279,7 +282,7 @@ export function TimelineMinimap({
                         </span>
                         {onRemoveBookmark ? (
                           <button
-                            aria-label="Remove bookmark"
+                            aria-label={gt("Remove bookmark")}
                             className="-mt-1 -mr-1 shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
                             onClick={(event) => {
                               event.stopPropagation();
@@ -294,7 +297,9 @@ export function TimelineMinimap({
                       </span>
                       {activeItem.userText ? (
                         <span className="mt-2.5 flex border-border/50 border-t pt-2 text-xs leading-4">
-                          <span className="shrink-0 text-muted-foreground">from&nbsp;</span>
+                          <span className="shrink-0 text-muted-foreground">
+                            <T context="the prompt a bookmark came from">from</T>&nbsp;
+                          </span>
                           <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
                             {activeItem.userText}
                           </span>
@@ -304,7 +309,7 @@ export function TimelineMinimap({
                   ) : (
                     <>
                       <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
-                        {activeItem.userText ?? "User message"}
+                        {activeItem.userText ?? <T>User message</T>}
                       </span>
                       {activeItem.assistantText ? (
                         <span
@@ -349,8 +354,9 @@ function TimelineMinimapNavigationButton({
   interactive: boolean;
   onClick: () => void;
 }) {
+  const gt = useGT();
   const previous = direction === "previous";
-  const label = previous ? "Previous turn" : "Next turn";
+  const label = previous ? gt("Previous turn") : gt("Next turn");
   const Icon = previous ? ChevronUpIcon : ChevronDownIcon;
 
   return (

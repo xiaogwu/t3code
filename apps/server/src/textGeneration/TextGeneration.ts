@@ -299,7 +299,7 @@ const resolveUsageLimitedSelection = Effect.fn("TextGeneration.resolveUsageLimit
       return yield* new TextGenerationError({
         operation,
         detail:
-          "Review guides need a coding agent that can read the checkout. None is ready. Pick Codex or Claude as the review guide model in Settings → Source control.",
+          "Review guides need a coding agent that can read the checkout. None is ready. Pick Codex or Claude as the review guide model in Settings → Source control & issues.",
       });
     }
     return resolved;

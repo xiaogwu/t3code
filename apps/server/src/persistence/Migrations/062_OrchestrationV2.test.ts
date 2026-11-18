@@ -15,7 +15,7 @@ layer("062_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 103 }, (_, index) => index + 1),
+        Array.from({ length: 105 }, (_, index) => index + 1),
       );
     }),
   );
@@ -69,6 +69,8 @@ layer("062_OrchestrationV2", (it) => {
         [101, "TurnItemMessageOrdinalIndex"],
         [102, "TurnItemInlineWorkOutput"],
         [103, "RepairStaleTitleRegeneration"],
+        [104, "IssueTrackerBindings"],
+        [105, "ActiveShellIndexIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 

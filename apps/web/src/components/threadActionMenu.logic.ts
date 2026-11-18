@@ -1,5 +1,8 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../i18n/messages";
 
 export type ThreadActionMenuId =
   | "find"
@@ -46,30 +49,53 @@ export type DraftActionMenuId =
   | "project-settings"
   | "discard";
 
-export function buildDraftActionMenuItems(options: {
-  readonly hasPath: boolean;
-  readonly hasBranch: boolean;
-  readonly hasProject: boolean;
-}): ReadonlyArray<ContextMenuItem<DraftActionMenuId>> {
+export function buildDraftActionMenuItems(
+  options: {
+    readonly hasPath: boolean;
+    readonly hasBranch: boolean;
+    readonly hasProject: boolean;
+  },
+  resolve: MessageResolver = m,
+): ReadonlyArray<ContextMenuItem<DraftActionMenuId>> {
   return [
     {
       id: "copy",
-      label: "Copy",
+      label: resolve(msg("Copy", { $context: "submenu of things to copy" })),
       icon: "copy",
       disabled: !options.hasPath && !options.hasBranch,
       children: [
-        ...(options.hasPath ? [{ id: "copy-path" as const, label: "Path", icon: "folder" }] : []),
+        ...(options.hasPath
+          ? [
+              {
+                id: "copy-path" as const,
+                label: resolve(msg("Path", { $context: "copy the file path" })),
+                icon: "folder",
+              },
+            ]
+          : []),
         ...(options.hasBranch
-          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+          ? [
+              {
+                id: "copy-branch" as const,
+                label: resolve(msg("Branch", { $context: "copy the git branch name" })),
+                icon: "git-branch",
+              },
+            ]
           : []),
       ],
     },
     ...(options.hasProject
-      ? [{ id: "project-settings" as const, label: "Project settings", icon: "settings" }]
+      ? [
+          {
+            id: "project-settings" as const,
+            label: resolve(msg("Project settings")),
+            icon: "settings",
+          },
+        ]
       : []),
     {
       id: "discard",
-      label: "Discard draft",
+      label: resolve(msg("Discard draft")),
       icon: "trash",
       destructive: true,
       separatorBefore: true,
@@ -147,19 +173,26 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
 
 export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
+  resolve: MessageResolver = m,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
     ...(state.canFind
-      ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
+      ? [{ id: "find" as const, label: resolve(msg("Find in thread")), icon: "text-search" }]
       : []),
     ...(state.canRevealInSidebar
-      ? [{ id: "reveal-in-sidebar" as const, label: "Reveal in sidebar", icon: "folder-tree" }]
+      ? [
+          {
+            id: "reveal-in-sidebar" as const,
+            label: resolve(msg("Reveal in sidebar")),
+            icon: "folder-tree",
+          },
+        ]
       : []),
     ...(state.branch
       ? [
           {
             id: "new-thread-on-branch" as const,
-            label: `New thread on ${state.branch}`,
+            label: resolve(msg("New thread on {branch}", { branch: state.branch })),
             icon: "message-square-plus",
           },
         ]
@@ -167,8 +200,8 @@ export function buildThreadActionMenuItems(
     ...(state.supports.pinning
       ? [
           state.isPinned
-            ? { id: "unpin" as const, label: "Unpin thread", icon: "pin-off" }
-            : { id: "pin" as const, label: "Pin thread", icon: "pin" },
+            ? { id: "unpin" as const, label: resolve(msg("Unpin thread")), icon: "pin-off" }
+            : { id: "pin" as const, label: resolve(msg("Pin thread")), icon: "pin" },
         ]
       : []),
     // Menu equivalent of dragging a pinned card, same as mobile: one step per
@@ -176,8 +209,16 @@ export function buildThreadActionMenuItems(
     // "where am I in the block".
     ...(state.isPinned && state.supports.pinReorder === true
       ? [
-          { id: "move-pin-up" as const, label: "Move up", disabled: !state.canMovePinUp },
-          { id: "move-pin-down" as const, label: "Move down", disabled: !state.canMovePinDown },
+          {
+            id: "move-pin-up" as const,
+            label: resolve(msg("Move up", { $context: "pinned thread order" })),
+            disabled: !state.canMovePinUp,
+          },
+          {
+            id: "move-pin-down" as const,
+            label: resolve(msg("Move down", { $context: "pinned thread order" })),
+            disabled: !state.canMovePinDown,
+          },
         ]
       : []),
     // Both lifecycle actions stay available on pinned threads: settling
@@ -186,17 +227,21 @@ export function buildThreadActionMenuItems(
     ...(state.supports.settlement
       ? [
           state.isSettled
-            ? { id: "unsettle" as const, label: "Un-settle thread", icon: "circle-check" }
-            : { id: "settle" as const, label: "Settle thread", icon: "circle-check" },
+            ? {
+                id: "unsettle" as const,
+                label: resolve(msg("Un-settle thread")),
+                icon: "circle-check",
+              }
+            : { id: "settle" as const, label: resolve(msg("Settle thread")), icon: "circle-check" },
         ]
       : []),
     ...(state.supports.snooze
       ? [
           state.isSnoozed
-            ? { id: "unsnooze" as const, label: "Wake thread", icon: "clock" }
+            ? { id: "unsnooze" as const, label: resolve(msg("Wake thread")), icon: "clock" }
             : {
                 id: "snooze" as const,
-                label: "Snooze",
+                label: resolve(msg("Snooze", { $context: "verb, snooze the thread" })),
                 icon: "clock",
                 disabled: !state.canSnoozeNow,
                 children: [
@@ -205,35 +250,40 @@ export function buildThreadActionMenuItems(
                     label: preset.label,
                     detail: preset.whenLabel,
                   })),
-                  { id: "snooze-for" as const, label: "Until…" },
+                  {
+                    id: "snooze-for" as const,
+                    label: resolve(msg("Until…", { $context: "custom snooze time" })),
+                  },
                 ],
               },
         ]
       : []),
-    { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
+    { id: "rename", label: resolve(msg("Rename thread")), icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [
           {
             id: "regenerate-title" as const,
-            label: state.isRegeneratingTitle ? "Regenerating…" : "Regenerate title",
+            label: state.isRegeneratingTitle
+              ? resolve(msg("Regenerating…"))
+              : resolve(msg("Regenerate title")),
             icon: "refresh-cw",
             disabled: state.isRegeneratingTitle,
           },
         ]
       : []),
     state.isUnread === true
-      ? { id: "mark-read" as const, label: "Mark read", icon: "mail-open" }
-      : { id: "mark-unread" as const, label: "Mark unread", icon: "mail-open" },
+      ? { id: "mark-read" as const, label: resolve(msg("Mark read")), icon: "mail-open" }
+      : { id: "mark-unread" as const, label: resolve(msg("Mark unread")), icon: "mail-open" },
     ...(state.canShareWithGuest
-      ? [{ id: "share-guest" as const, label: "Share with guest", icon: "user-plus" }]
+      ? [{ id: "share-guest" as const, label: resolve(msg("Share with guest")), icon: "user-plus" }]
       : []),
     ...(state.projectFilter
       ? [
           {
             id: "filter-by-project" as const,
             label: state.projectFilter.isActive
-              ? "Show all projects"
-              : `Filter by ${state.projectFilter.label}`,
+              ? resolve(msg("Show all projects"))
+              : resolve(msg("Filter by {project}", { project: state.projectFilter.label })),
             icon: "folder-tree",
           },
         ]
@@ -242,7 +292,7 @@ export function buildThreadActionMenuItems(
       ? [
           {
             id: "turn-into-project" as const,
-            label: "Turn into project",
+            label: resolve(msg("Turn into project")),
             icon: "folder-plus",
             disabled: state.isRunning,
           },
@@ -252,17 +302,17 @@ export function buildThreadActionMenuItems(
       ? [
           {
             id: "auto-settle" as const,
-            label: "Auto-settle behavior",
+            label: resolve(msg("Auto-settle behavior")),
             icon: "timer",
             children: [
               {
                 id: "auto-settle:enabled" as const,
-                label: "Follow settings",
+                label: resolve(msg("Follow settings")),
                 checked: state.autoSettleEnabled,
               },
               {
                 id: "auto-settle:disabled" as const,
-                label: "Never",
+                label: resolve(msg("Never", { $context: "auto-settle never" })),
                 checked: !state.autoSettleEnabled,
               },
             ],
@@ -271,40 +321,54 @@ export function buildThreadActionMenuItems(
       : []),
     {
       id: "copy",
-      label: "Copy",
+      label: resolve(msg("Copy", { $context: "submenu of things to copy" })),
       icon: "copy",
       separatorBefore: true,
       children: [
-        { id: "copy-path", label: "Path", icon: "folder" },
+        {
+          id: "copy-path",
+          label: resolve(msg("Path", { $context: "copy the file path" })),
+          icon: "folder",
+        },
         ...(state.branch
-          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+          ? [
+              {
+                id: "copy-branch" as const,
+                label: resolve(msg("Branch", { $context: "copy the git branch name" })),
+                icon: "git-branch",
+              },
+            ]
           : []),
-        { id: "copy-thread", label: "Thread", icon: "message-square" },
-        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+        {
+          id: "copy-thread",
+          label: resolve(msg("Thread", { $context: "copy the thread contents" })),
+          icon: "message-square",
+        },
+        { id: "copy-thread-id", label: resolve(msg("Thread ID")), icon: "hash" },
       ],
     },
     {
       id: "export",
-      label: "Export",
+      label: resolve(msg("Export", { $context: "thread menu: export the thread" })),
       icon: "download",
       children: [
-        { id: "export-markdown", label: "Markdown" },
-        { id: "export-html", label: "HTML" },
-        { id: "export-pdf", label: "PDF" },
-        ...(state.canShare ? [{ id: "export-share" as const, label: "Share…" }] : []),
+        { id: "export-markdown", label: resolve(msg("Markdown")) },
+        { id: "export-html", label: resolve(msg("HTML")) },
+        { id: "export-pdf", label: resolve(msg("PDF")) },
+        ...(state.canShare ? [{ id: "export-share" as const, label: resolve(msg("Share…")) }] : []),
       ],
     },
-    { id: "project-settings", label: "Project settings", icon: "settings" },
+    { id: "project-settings", label: resolve(msg("Project settings")), icon: "settings" },
     {
       id: "archive",
-      label: "Archive thread",
+      label: resolve(msg("Archive thread")),
       icon: "archive",
       disabled: state.isRunning,
       separatorBefore: true,
     },
     {
       id: "delete",
-      label: "Delete",
+      label: resolve(msg("Delete", { $context: "verb, delete the thread" })),
       destructive: true,
       icon: "trash",
     },

@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { useGT } from "gt-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
@@ -313,6 +314,7 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
 }
 
 function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
+  const gt = useGT();
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -457,12 +459,14 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
                   "pointer-events-auto",
                   isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
                 )}
-                aria-label="Toggle main sidebar"
+                aria-label={gt("Toggle main sidebar")}
               />
             }
           />
           <TooltipPopup side="bottom">
-            Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
+            {shortcutLabel
+              ? gt("Toggle main sidebar ({shortcut})", { shortcut: shortcutLabel })
+              : gt("Toggle main sidebar")}
           </TooltipPopup>
         </Tooltip>
       ) : null}
@@ -511,7 +515,8 @@ export function AppSidebarLayout({
   children: ReactNode;
   showSidebar?: boolean;
 }) {
-  const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
+  const gt = useGT();
+  const sidebarArea = workspaceAreaProps("sidebar", 0, gt("Threads"));
   const sidebarAutoHide = useClientSettings((settings) => settings.sidebarAutoHide);
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
@@ -569,7 +574,7 @@ export function AppSidebarLayout({
               data-app-sidebar=""
               {...sidebarArea}
               role="navigation"
-              aria-label="Threads"
+              aria-label={gt("Threads")}
               resizable={{
                 minWidth: sidebarMinimumWidth,
                 shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>

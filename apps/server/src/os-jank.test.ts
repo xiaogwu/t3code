@@ -1,7 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { CommandAvailability, WindowsShellEnvironment } from "@t3tools/shared/shell";
+import {
+  CommandAvailability,
+  LoginShellProbeError,
+  WindowsShellEnvironment,
+} from "@t3tools/shared/shell";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,8 +16,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import { assert, it, vi } from "vite-plus/test";
 
-import { LoginShellProbeError } from "@t3tools/shared/shell";
-import { fixPath, hydratePosixHome, retryLoginShellPath } from "./os-jank.ts";
+import { fixPath, hydratePosixHome, refreshWindowsPath, retryLoginShellPath } from "./os-jank.ts";
 
 vi.mock("node:child_process", { spy: true });
 
@@ -342,4 +345,21 @@ effectIt.effect("the background retry adopts, saves, and refreshes once the shel
       assert.equal(refreshCount, 1);
     }),
   ).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+effectIt.effect("adds a directory an installer wrote to the registry after launch", () =>
+  Effect.gen(function* () {
+    const env: NodeJS.ProcessEnv = { Path: "C:\\Tools;C:\\Windows" };
+    const installed = "C:\\Users\\me\\AppData\\Local\\cursor-agent";
+
+    yield* refreshWindowsPath().pipe(
+      Effect.provideService(HostProcess.Platform, "win32"),
+      Effect.provideService(HostProcess.Environment, env),
+      Effect.provideService(WindowsShellEnvironment, () =>
+        Effect.succeed({ PATH: `C:\\Windows;${installed}` }),
+      ),
+    );
+
+    assert.deepEqual(env, { PATH: `C:\\Tools;C:\\Windows;${installed}` });
+  }),
 );
