@@ -936,7 +936,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
   const shareThreadMarkdown = useShareThreadMarkdown();
   const canShareWithGuest = useCanShareWithGuest(thread.environmentId);
-  const navigation = useNavigation();
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
