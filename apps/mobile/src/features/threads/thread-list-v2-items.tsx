@@ -74,6 +74,7 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import { canTurnThreadIntoProject, turnThreadIntoProject } from "./turnThreadIntoProject";
 import { threadCanArchive } from "../home/threadArchive";
+import { useCanShareWithGuest } from "./useCanShareWithGuest";
 import { useShareThreadMarkdown } from "./useShareThreadMarkdown";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
@@ -934,6 +935,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
   const shareThreadMarkdown = useShareThreadMarkdown();
+  const canShareWithGuest = useCanShareWithGuest(thread.environmentId);
+  const navigation = useNavigation();
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
@@ -1104,6 +1107,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       { id: "copy-thread", title: gt("Copy thread"), image: "text.bubble" },
       { id: "copy-thread-id", title: gt("Copy thread ID"), image: "doc.on.doc" },
       { id: "share-markdown", title: gt("Share as Markdown"), image: "tray.and.arrow.up" },
+      ...(canShareWithGuest
+        ? [{ id: "share-guest", title: gt("Share with guest"), image: "person.badge.plus" }]
+        : []),
     ];
     if (snoozedRow) {
       return layoutThreadListV2RowMenuActions(
@@ -1183,6 +1189,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     );
   }, [
     autoSettleMenuItems,
+    canShareWithGuest,
     canUnsettle,
     pinMenuItems,
     props.settlementSupported,
@@ -1235,6 +1242,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "share-markdown") {
         void shareThreadMarkdown({ environmentId: thread.environmentId, threadId: thread.id });
       }
+      if (nativeEvent.event === "share-guest") {
+        navigation.navigate("ThreadGuestShare", {
+          environmentId: thread.environmentId,
+          threadId: thread.id,
+        });
+      }
       if (nativeEvent.event === "delete") handleDelete();
       if (nativeEvent.event === "snooze-for") {
         if (onSnoozeFor) {
@@ -1267,6 +1280,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       m,
       onNewThreadOnBranch,
       thread,
+      navigation,
       handleArchive,
       handleDelete,
       handleRegenerateTitle,

@@ -128,6 +128,9 @@ import Migration0103 from "./Migrations/103_RepairStaleTitleRegeneration.ts";
 // Upstream ships these as 097-098.
 import Migration0104 from "./Migrations/104_IssueTrackerBindings.ts";
 import Migration0105 from "./Migrations/105_ActiveShellIndexIndexes.ts";
+// Upstream ships these as 099-100.
+import Migration0106 from "./Migrations/106_BackgroundRecoveryIndexes.ts";
+import Migration0107 from "./Migrations/107_TurnStartReadIndexes.ts";
 
 // Upstream ships this as 079.
 import Migration0086 from "./Migrations/086_DelegatedRecoveryIndexes.ts";
@@ -263,6 +266,9 @@ export const migrationEntries = [
   // Upstream ships these as 97-98.
   [104, "IssueTrackerBindings", Migration0104],
   [105, "ActiveShellIndexIndexes", Migration0105],
+  // Upstream ships these as 99-100.
+  [106, "BackgroundRecoveryIndexes", Migration0106],
+  [107, "TurnStartReadIndexes", Migration0107],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -68,6 +68,7 @@ import {
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
   ThreadPullRequestWatch,
+  PullRequestWatchUntil,
 } from "./threadPullRequest.ts";
 import {
   ProviderApprovalDecision,
@@ -546,6 +547,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
    */
   titleProvenance: Schema.optional(Schema.Literals(["automatic", "manual"])),
   lastTitleRegeneration: Schema.optional(Schema.NullOr(OrchestrationV2LastTitleRegeneration)),
+  /** Set by a rename until a generated title replaces it; absent reads as false. */
+  titleRenamed: Schema.optional(Schema.Boolean),
   /** Latest accepted rollback. Only its failure is recorded in `rollbackFailure`. */
   rollbackRequestId: Schema.optional(CommandId),
   rollbackFailure: Schema.optional(
@@ -3361,6 +3364,8 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     ...ThreadPullRequestKey.fields,
     watching: Schema.Boolean,
+    /** With `watching`, sets how long the watch holds its thread; absent keeps the current one. */
+    until: Schema.optional(PullRequestWatchUntil),
     link: Schema.optional(
       Schema.Struct({
         url: TrimmedNonEmptyString,
@@ -4200,6 +4205,8 @@ export const OrchestrationV2ThreadHistoryPage = withRecordIdTable(
     ),
     nextCursor: Schema.NullOr(TrimmedNonEmptyString),
     hasMoreHistory: Schema.Boolean,
+    /** Records of the page's subagent items, which a bounded snapshot can omit. */
+    subagents: Schema.optionalKey(Schema.Array(OrchestrationV2Subagent)),
     idTable: IdTableMarker,
   }),
   () => null,
