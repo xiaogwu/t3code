@@ -21,6 +21,7 @@ import {
 import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
+  isSidebarToggleShortcut,
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
@@ -352,20 +353,26 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
         // the toggle stays available everywhere else.
         return;
       }
-      const command = resolveShortcutCommand(event, keybindings, {
-        context: {
-          terminalFocus: isTerminalFocused(),
-          previewFocus: isPreviewFocused(),
-          ...readRoutePanelsOpen(router),
-          usagePageOpen,
-        },
-      });
+      const shortcutContext = {
+        terminalFocus: isTerminalFocused(),
+        previewFocus: isPreviewFocused(),
+        ...readRoutePanelsOpen(router),
+        usagePageOpen,
+      };
+      const command = resolveShortcutCommand(event, keybindings, { context: shortcutContext });
       if (
         command !== "sidebar.toggle" &&
         command !== "sidebar.revealThread" &&
         command !== "sidebar.version.toggle" &&
         command !== "sidebar.sort.toggle" &&
         command !== "sidebarAutoHide.toggle"
+      ) {
+        return;
+      }
+      // A focused terminal owns Ctrl chords, such as tmux's Ctrl+B prefix.
+      if (
+        command === "sidebar.toggle" &&
+        !isSidebarToggleShortcut(event, keybindings, { context: shortcutContext })
       ) {
         return;
       }

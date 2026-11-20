@@ -161,4 +161,9 @@ describe("buildThreadActionMenuItems", () => {
     expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour", "snooze-for"]);
     expect(snooze?.children?.at(-1)?.label).toBe("Until…");
   });
+
+  it("disables only rename where no inline title editor exists", () => {
+    const items = buildThreadActionMenuItems({ ...baseState, canRename: false });
+    expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(["rename"]);
+  });
 });
